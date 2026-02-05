@@ -2,5 +2,7 @@
 cd ${0%/*} || exit 1    # run from this directory
 
 wmake all solvers
-wmake all utilities
+#wmake all utilities
+(cd utilities && wmake setFibreField)
+(cd utilities && wmake sweepCurrents)
 #(cd scripts && ./Allwmake)

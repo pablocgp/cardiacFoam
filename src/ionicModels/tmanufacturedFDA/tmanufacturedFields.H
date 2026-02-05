@@ -192,9 +192,25 @@ inline void computeAndPrintErrors
         return std::tuple<scalar, scalar, scalar>(L1, L2, Linf);
     };
 
-    auto [L1_V, L2_V, Linf_V] = computeNorms(Vm, Vex);
-    auto [L1_u1, L2_u1, Linf_u1] = computeNorms(u1m, u1ex);
-    auto [L1_u2, L2_u2, Linf_u2] = computeNorms(u2m, u2ex);
+    // auto [L1_V, L2_V, Linf_V] = computeNorms(Vm, Vex);
+    // auto [L1_u1, L2_u1, Linf_u1] = computeNorms(u1m, u1ex);
+    // auto [L1_u2, L2_u2, Linf_u2] = computeNorms(u2m, u2ex);
+
+    const auto normsV  = computeNorms(Vm,  Vex);
+    const auto normsu1 = computeNorms(u1m, u1ex);
+    const auto normsu2 = computeNorms(u2m, u2ex);
+
+    const Foam::scalar L1_V   = std::get<0>(normsV);
+    const Foam::scalar L2_V   = std::get<1>(normsV);
+    const Foam::scalar Linf_V = std::get<2>(normsV);
+
+    const Foam::scalar L1_u1   = std::get<0>(normsu1);
+    const Foam::scalar L2_u1   = std::get<1>(normsu1);
+    const Foam::scalar Linf_u1 = std::get<2>(normsu1);
+
+    const Foam::scalar L1_u2   = std::get<0>(normsu2);
+    const Foam::scalar L2_u2   = std::get<1>(normsu2);
+    const Foam::scalar Linf_u2 = std::get<2>(normsu2);
 
     // --- Print to console ---
     Info << "\nSimulation summary:\n";
