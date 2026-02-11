@@ -170,6 +170,70 @@ int main(int argc, char* argv[])
 
             if (useHighOrder)
             {   
+
+                // gradVm_HO = LREInterp.grad(Vm);
+                // gradVm_HO.correctBoundaryConditions();
+
+                // surfaceVectorField gradVm_faces = fvc::interpolate(gradVm_HO);
+
+                // surfaceVectorField flux = fvc::interpolate(conductivity) & gradVm_faces;
+
+                // volScalarField lapVm_HO = fvc::div(flux & mesh.Sf());
+
+
+
+
+
+
+                // SURFACE INTERPOLATION
+                // autoPtr<List<List<vector>>> quadVm_ptr = LREInterp.gradScalarQuad(Vm);
+                // List<List<vector>>& quadVm = quadVm_ptr.ref();
+                // const CompactListList<scalar>& quadW = LREInterp.faceQuadWeight();
+
+                // // Info << "quadVm.size() = " << quadVm.size() << endl;
+                // // Info << "quadW.size() = " << quadW.size() << endl;
+                // // Info << "nInternalFaces = " << mesh.nInternalFaces() << endl;
+                // // Info << "nTotalFaces = " << mesh.nFaces() << endl;
+
+                // // Internal faces
+                // forAll(surfaceGradVm_HO, faceI)
+                // {
+                //     const List<vector>& faceQuadVm = quadVm[faceI];
+                //     const label ownerCell = mesh.owner()[faceI];
+
+                //     forAll(faceQuadVm, pI)
+                //     {
+                //         surfaceGradVm_HO[faceI] += (conductivity[ownerCell] & faceQuadVm[pI]) * quadW[faceI][pI];
+                //     }
+                // }
+
+                // // Boundary faces
+                // forAll(surfaceGradVm_HO.boundaryField(), patchI)
+                // {
+                //     vectorField& tfPatch = surfaceGradVm_HO.boundaryFieldRef()[patchI];
+
+                //     forAll(tfPatch, faceI)
+                //     {
+                //         const label globalFaceID = mesh.boundaryMesh()[patchI].start() + faceI;
+                //         const label ownerCell = mesh.owner()[globalFaceID];
+                //         const List<vector>& faceQuadVm = quadVm[globalFaceID];
+
+                //         forAll(faceQuadVm, pI)
+                //         {
+                //             tfPatch[faceI] += (conductivity[ownerCell] & faceQuadVm[pI]) * quadW[globalFaceID][pI];
+                //         }
+                //     }
+                // }
+
+                // surfaceGradVm_HO.correctBoundaryConditions();
+
+                // surfaceVectorField flux = fvc::interpolate(conductivity) & surfaceGradVm_HO;
+
+                // volScalarField lapVm_HO = fvc::div(flux & mesh.Sf());
+
+                // Info << "Llegue hasta aca" << endl;
+                // std::cin.get();
+
                 explicitHandler.highOrderExplicitLoop
                 (
                     t0,
@@ -185,10 +249,14 @@ int main(int argc, char* argv[])
                     chi,
                     Cm,
                     conductivity,
-                    LREInterp 
+                    LREInterp,
+                    gradVm_HO,
+                    lapVm_HO,
+                    surfaceGradVm_HO
                 );
                 // Info << "Llegue hasta aca" << endl;
                 // std::cin.get();
+                
             }
             else
             {
@@ -206,7 +274,10 @@ int main(int argc, char* argv[])
                     stimulusDuration.value(),
                     chi,
                     Cm,
-                    conductivity
+                    conductivity,
+                    gradVm_HO,
+                    lapVm_HO,
+                    lapVm_standar
                 );
             }
 

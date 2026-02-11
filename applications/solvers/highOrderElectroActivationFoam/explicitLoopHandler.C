@@ -115,9 +115,14 @@ void explicitLoopHandler::explicitLoop
     const scalar stimulusDuration,
     const dimensionedScalar& chi,
     const dimensionedScalar& Cm,
-    const volTensorField& conductivity
+    const volTensorField& conductivity,
+    volVectorField& gradVm_HO,
+    volScalarField& lapVm_HO,
+    volScalarField& lapVm_standar
 )
 {
+    const fvMesh& mesh = Vm.mesh();
+    
     // 0) Manufactured-specific: store "old" internal states
     if (ionicModel_.hasManufacturedSolution())
     {
@@ -160,6 +165,19 @@ void explicitLoopHandler::explicitLoop
     {
         Iion /= Cm.value();
     }
+
+    // gradVm_HO = fvc::grad(Vm);
+    // gradVm_HO.correctBoundaryConditions();
+
+    // surfaceScalarField flux = fvc::interpolate(conductivity & gradVm_HO) & mesh.Sf() ;// & gradVm_faces;
+
+    // lapVm_HO = fvc::div(flux);
+
+    // lapVm_standar = fvc::laplacian(conductivity, Vm);
+
+    // fvc::div( conductivity & HOgrad(Vm) )
+
+    // fvc::laplacian(conductivity, Vm) = fvc::div(conductivity & fvc::grad(Vm))
 
     solve
     (
@@ -206,9 +224,13 @@ void explicitLoopHandler::highOrderExplicitLoop
     const dimensionedScalar& chi,
     const dimensionedScalar& Cm,
     const volTensorField& conductivity,
-    const LRE& LREInterp 
+    const LRE& LREInterp,
+    volVectorField& gradVm_HO,
+    volScalarField& lapVm_HO,
+    surfaceVectorField& surfaceGradVm_HO
 )
 {
+    const fvMesh& mesh = Vm.mesh();
 
     // 0) Manufactured-specific: store "old" internal states
     if (ionicModel_.hasManufacturedSolution())
@@ -253,63 +275,95 @@ void explicitLoopHandler::highOrderExplicitLoop
         Iion /= Cm.value();
     }
 
-    // 3) HIGH ORDER LAPACIAN
-    // Vm at Quadrature points
-    
-    // Unit normal vectors at the faces
-    // const surfaceVectorField n(mesh.Sf()/mesh.magSf());
+    // gradVm_HO = LREInterp.grad(Vm);
+    // gradVm_HO = fvc::grad(Vm);
+    // gradVm_HO.correctBoundaryConditions();
 
-    // Scalar gradient of Vm at quadrature  points
+    // surfaceVectorField gradVm_faces = fvc::interpolate(gradVm_HO);
 
-    autoPtr<List<List<vector>>> gradScalarQuad(
-        LREInterp.gradScalarQuad(Vm)
+    // surfaceScalarField flux = fvc::interpolate(conductivity & gradVm_HO) & mesh.Sf() ;// & gradVm_faces;
+
+    // lapVm_HO = fvc::div(flux);
+
+    // SURFACE INTERPOLATION
+    // Info << "surfaceGradVm_HO.dimensions() " << surfaceGradVm_HO.dimensions() << endl;
+
+    autoPtr<List<List<vector>>> gradQuadVm_ptr = LREInterp.gradScalarFaceQuad(Vm);
+    List<List<vector>>& gradQuadVm = gradQuadVm_ptr.ref();
+    const CompactListList<scalar>& faceQuadW = LREInterp.faceQuadWeight();
+
+    // Info << "quadVm.size() = " << quadVm.size() << endl;
+    // Info << "quadW.size() = " << quadW.size() << endl;
+    // Info << "nInternalFaces = " << mesh.nInternalFaces() << endl;
+    // Info << "nTotalFaces = " << mesh.nFaces() << endl;
+
+    // Internal faces
+    forAll(surfaceGradVm_HO, faceI)
+    {
+        const label ownerCell = mesh.owner()[faceI];
+        surfaceGradVm_HO[faceI] = vector::zero;
+        forAll(gradQuadVm[faceI], pI)
+        {
+            surfaceGradVm_HO[faceI] += (conductivity[ownerCell] & gradQuadVm[faceI][pI]) * faceQuadW[faceI][pI];
+        }
+    }
+
+    // Boundary faces
+    // forAll(surfaceGradVm_HO.boundaryField(), patchI)
+    // {
+    //     vectorField& tfPatch = surfaceGradVm_HO.boundaryFieldRef()[patchI];
+
+    //     forAll(tfPatch, faceI)
+    //     {
+    //         const label globalFaceID = mesh.boundaryMesh()[patchI].start() + faceI;
+    //         const label ownerCell = mesh.owner()[globalFaceID];
+    //         const List<vector>& faceQuadVm = quadVm[globalFaceID];
+
+    //         tfPatch[faceI] = vector::zero;
+    //         forAll(faceQuadVm, pI)
+    //         {
+    //             tfPatch[faceI] += (conductivity[ownerCell] & faceQuadVm[pI]) * quadW[globalFaceID][pI];
+    //         }
+    //     }
+    // }
+
+    surfaceGradVm_HO.correctBoundaryConditions();
+
+    // volScalarField lapVm_HO2 = fvc::div(surfaceGradVm_HO & mesh.Sf());
+
+    // Info << "Vm.dimensions()               " << Vm.dimensions() << endl;
+    // Info << "conductivity.dimensions()     " << conductivity.dimensions() << endl;
+    // Info << "surfaceGradVm_HO.dimensions() " << surfaceGradVm_HO.dimensions() << endl;
+    // Info << "lapVm_HO2.dimensions()        " << lapVm_HO2.dimensions() << endl;
+    // Info << "externalStimulusCurrent.dimensions() " << externalStimulusCurrent.dimensions() << endl;
+
+    lapVm_HO = fvc::div(mesh.Sf() & surfaceGradVm_HO );
+
+    solve
+    (
+        chi*Cm*fvm::ddt(Vm)
+     == lapVm_HO
+      - chi*Cm*Iion
+      + externalStimulusCurrent
     );
 
-    Info << "Llegue hasta aca" << endl;
-    std::cin.get();
+    Vm.correctBoundaryConditions();
 
-    // // Quadrature points weights
-    // const CompactListList<scalar>& quadW = LREInterp().faceQuadWeight();
-
-    // // Integration over face quadrature points to get face traction
-    // traction = hofvc::surfaceIntegrate(gradScalarQuad(), quadW,  mesh);
-
-    // Info << "Llegue hasta aca" << endl;
-    // std::cin.get();
-
-    // Add stabilisation to the traction
-    // We add this before enforcing the traction condition as the stabilisation
-    // is set to zero on traction boundaries
-    // To-do: add a stabilisation traction function to momentumStabilisation
-    // const scalar scaleFactor =
-    //     readScalar(stabilisation().dict().lookup("scaleFactor"));
-    // const surfaceTensorField gradDf(fvc::interpolate(gradD));
-    // traction += scaleFactor*impKf_*(fvc::snGrad(D) - (n & gradDf));
-
-    // Enforce traction boundary conditions
-    // enforceTractionBoundaries(traction, Vm, n);
-
-    // solve
-    // (
-    //     chi*Cm*fvm::ddt(Vm)
-    //  == fvc::div(traction)
-    //   - chi*Cm*Iion
-    //   + externalStimulusCurrent
-    // );
-
-
-    // 4) Actualización explícita de Vm
-    // Vm.internalField() += dt/(chi.value()*Cm.value()) * (lapHO - chi.value()*Cm.value()*Iion.internalField() + externalStimulusCurrent.internalField());
-    // Vm.correctBoundaryConditions();
-
-    // 5) Manufactured-specific: reset internal states back to OLD
+    // 4) Manufactured-specific: reset internal states back to OLD
     if (ionicModel_.hasManufacturedSolution())
     {
         refCast<tmanufacturedFDA>(ionicModel_).resetStatesToStatesOld();
     }
 
-    // 6) Advance ionic model in time (ODE solve) with NEW Vm
-    ionicModel_.solveODE(t0, dt, Vm.internalField(), Iion, states);
+    // 5) Advance ionic model in time (ODE solve) with NEW Vm, once per timestep
+    ionicModel_.solveODE
+    (
+        t0,
+        dt,
+        Vm.internalField(),    // Vm_new
+        Iion,
+        states
+    );
 }
 
 

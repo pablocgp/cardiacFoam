@@ -8,7 +8,7 @@ EXE_INC = \
     -I$(SOLIDS4FOAM_DIR)/../solids4foam-ib-pc/src/solids4FoamModels/lnInclude \
     $(VERSION_SPECIFIC_INC) \
     -I/home/pablo/solids4foam-ib/ThirdParty/eigen3 \
-    -Wno-old-style-cast -Wno-deprecated-declarations -Wno-unused-parameter \
+    -Wno-old-style-cast -Wno-deprecated-declarations -Wno-unused-parameter
 
 EXE_LIBS = \
     -L$(FOAM_USER_LIBBIN) \

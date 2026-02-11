@@ -262,11 +262,94 @@ else
 }
 Info<< "---------------------------------------------" << nl;
 
+//HIGH ORDER
+Info<< "Reading numerical spatial solver properties\n" << endl;
+IOdictionary spatialIntegrationProperties
+(
+    IOobject
+    (
+        "spatialIntegrationProperties",
+        runTime.constant(),
+        mesh,
+        IOobject::MUST_READ_IF_MODIFIED,
+        IOobject::NO_WRITE
+    )
+);
+
+volVectorField gradVm_HO
+(
+    IOobject
+    (
+        "gradVm_HO",
+        runTime.timeName(),
+        mesh,
+        IOobject::NO_READ,
+        IOobject::AUTO_WRITE
+    ),
+    mesh,
+    dimensionedVector
+    (
+        "zero",
+        dimVoltage/dimLength,
+        vector::zero
+    )
+);
+
+surfaceVectorField surfaceGradVm_HO
+(
+    IOobject
+    (
+        "gradVm_HO",
+        runTime.timeName(),
+        mesh,
+        IOobject::NO_READ,
+        IOobject::AUTO_WRITE
+    ),
+    mesh,
+    dimensionedVector
+    (
+        "zero",
+        pow3(dimTime)*sqr(dimCurrent)/(dimMass*dimVolume)*(dimVoltage/dimLength),
+        vector::zero
+    )
+);
+
+
+volScalarField lapVm_HO
+(
+    IOobject
+    (
+        "lapVm_HO",
+        runTime.timeName(),
+        mesh,
+        IOobject::NO_READ,
+        IOobject::AUTO_WRITE
+    ),
+    mesh,
+    dimensionedScalar("lapVm_HO", pow3(dimTime)*sqr(dimCurrent)/(dimMass*dimVolume)*(dimVoltage/dimLength)*dimArea/dimVolume, 0)
+);
+
+volScalarField lapVm_standar
+(
+    IOobject
+    (
+        "lapVm_standar",
+        runTime.timeName(),
+        mesh,
+        IOobject::NO_READ,
+        IOobject::AUTO_WRITE
+    ),
+    mesh,
+    dimensionedScalar("lapVm_standar", pow3(dimTime)*sqr(dimCurrent)/(dimMass*dimVolume)*(dimVoltage/dimLength)*dimArea/dimVolume, 0)
+);
+
+//HIGH ORDER
 
 // Merge the dictionaries and create a memory object to read all properties
 dictionary solutionVariablesMemory(cardiacProperties);
 solutionVariablesMemory.merge(timeIntegrationProperties);
 solutionVariablesMemory.merge(stimulusProtocol);
+solutionVariablesMemory.merge(spatialIntegrationProperties);
 
 // Create ionicModelCellML object
 autoPtr<ionicModel> ionicModel =
@@ -334,3 +417,5 @@ forAll(names, i)
         )
     );
 }
+
+
