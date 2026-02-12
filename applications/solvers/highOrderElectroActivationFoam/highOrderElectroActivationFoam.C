@@ -102,48 +102,6 @@ int main(int argc, char* argv[])
         Info<< "Exporting fields: " << exportNames << nl;
     }
 
-    // HIGH ORDER //
-    // Spatial Integration Properties flag
-    const Switch useHighOrder(solutionVariablesMemory.lookup("useHighOrder"));
-    explicitHandler.setSpatialIntegration
-    (
-        useHighOrder,
-        solutionVariablesMemory
-    );
-    // LRE construction
-    boolList includePatchInStencils(mesh.boundaryMesh().size(), false);
-    forAll(includePatchInStencils, patchI)
-    {
-        if
-        (
-            isA<fixedValueFvPatchScalarField>
-            (
-                Vm.boundaryField()[patchI]
-            )
-        )
-        {
-            includePatchInStencils[patchI] = true;
-        }
-    }
-
-    LRE LREInterp(
-        mesh,
-        includePatchInStencils,
-        solutionVariablesMemory.subDict("highOrderCoeffs").subDict("LRECoeffs")
-    );
-
-    const CompactListList<point>& quadPoints = LREInterp.faceQuadPoints();
-    List<List<vector>> gradVmQuad(mesh.nFaces());
-    forAll(gradVmQuad, faceI)
-    {
-        List<vector>& faceGradVmQuad = gradVmQuad[faceI];
-
-        // Initialise face list size
-        faceGradVmQuad.setSize(quadPoints[faceI].size());
-
-    }
-    // HIGH ORDER //
-
     // =============== CASE 1: EXPLICIT SOLVER ====================
     if (solveExplicit)
     {
@@ -249,6 +207,7 @@ int main(int argc, char* argv[])
                     chi,
                     Cm,
                     conductivity,
+                    totalIntegrationPoints,
                     LREInterp,
                     gradVm_HO,
                     lapVm_HO,
@@ -274,10 +233,7 @@ int main(int argc, char* argv[])
                     stimulusDuration.value(),
                     chi,
                     Cm,
-                    conductivity,
-                    gradVm_HO,
-                    lapVm_HO,
-                    lapVm_standar
+                    conductivity
                 );
             }
 

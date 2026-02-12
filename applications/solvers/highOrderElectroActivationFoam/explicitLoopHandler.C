@@ -115,14 +115,9 @@ void explicitLoopHandler::explicitLoop
     const scalar stimulusDuration,
     const dimensionedScalar& chi,
     const dimensionedScalar& Cm,
-    const volTensorField& conductivity,
-    volVectorField& gradVm_HO,
-    volScalarField& lapVm_HO,
-    volScalarField& lapVm_standar
+    const volTensorField& conductivity
 )
 {
-    const fvMesh& mesh = Vm.mesh();
-    
     // 0) Manufactured-specific: store "old" internal states
     if (ionicModel_.hasManufacturedSolution())
     {
@@ -165,19 +160,6 @@ void explicitLoopHandler::explicitLoop
     {
         Iion /= Cm.value();
     }
-
-    // gradVm_HO = fvc::grad(Vm);
-    // gradVm_HO.correctBoundaryConditions();
-
-    // surfaceScalarField flux = fvc::interpolate(conductivity & gradVm_HO) & mesh.Sf() ;// & gradVm_faces;
-
-    // lapVm_HO = fvc::div(flux);
-
-    // lapVm_standar = fvc::laplacian(conductivity, Vm);
-
-    // fvc::div( conductivity & HOgrad(Vm) )
-
-    // fvc::laplacian(conductivity, Vm) = fvc::div(conductivity & fvc::grad(Vm))
 
     solve
     (
@@ -224,6 +206,7 @@ void explicitLoopHandler::highOrderExplicitLoop
     const dimensionedScalar& chi,
     const dimensionedScalar& Cm,
     const volTensorField& conductivity,
+    const label totalIntegrationPoints,
     const LRE& LREInterp,
     volVectorField& gradVm_HO,
     volScalarField& lapVm_HO,
@@ -237,7 +220,7 @@ void explicitLoopHandler::highOrderExplicitLoop
     {
         refCast<tmanufacturedFDA>(ionicModel_).updateStatesOld();
     }
-
+    Info << "Fin 0)" << endl;
     // 1) External stimulus (internal field only)
     scalarField& externalStimulusCurrentI = externalStimulusCurrent;
     externalStimulusCurrentI = 0.0;
@@ -258,22 +241,22 @@ void explicitLoopHandler::highOrderExplicitLoop
         }
     }
     externalStimulusCurrent.correctBoundaryConditions();
+    Info << "Fin 1)" << endl;
+    // // 2) Ionic current using OLD Vm
+    // ionicModel_.calculateCurrent
+    // (
+    //     t0,
+    //     dt,
+    //     Vm.internalField(),   // Vm_old
+    //     Iion,
+    //     states
+    // );
+    // Iion.correctBoundaryConditions();
 
-    // 2) Ionic current using OLD Vm
-    ionicModel_.calculateCurrent
-    (
-        t0,
-        dt,
-        Vm.internalField(),   // Vm_old
-        Iion,
-        states
-    );
-    Iion.correctBoundaryConditions();
-
-    if (ionicModel_.hasManufacturedSolution())
-    {
-        Iion /= Cm.value();
-    }
+    // if (ionicModel_.hasManufacturedSolution())
+    // {
+    //     Iion /= Cm.value();
+    // }
 
     // gradVm_HO = LREInterp.grad(Vm);
     // gradVm_HO = fvc::grad(Vm);
@@ -285,9 +268,77 @@ void explicitLoopHandler::highOrderExplicitLoop
 
     // lapVm_HO = fvc::div(flux);
 
+    const vectorField& C = mesh.C();  // centros de celda
+    const CompactListList<scalar>& cellQuadW = LREInterp.cellQuadWeight();
+    const CompactListList<point>& cellQuadP = LREInterp.cellQuadPoints();
+
     // SURFACE INTERPOLATION
     // Info << "surfaceGradVm_HO.dimensions() " << surfaceGradVm_HO.dimensions() << endl;
 
+    scalarField VmIntegrationPoints( totalIntegrationPoints, 0.0);
+    scalarField IionIntegrationPoints( totalIntegrationPoints, 0.0);
+
+    gradVm_HO = LREInterp.grad(Vm);
+    volVectorField gradIion_HO = LREInterp.grad(Iion);
+
+    label integrationPointPos = 0;
+
+    forAll(mesh.cells(), cellI)
+    {
+        // Info<< Iion[cellI] << " " << Vm[cellI] << " " << gradVm_HO[cellI] << endl;
+        const scalar Vc = Vm[cellI];
+        const scalar Iionc = Iion[cellI];
+        const vector& gradVc = gradVm_HO[cellI];
+        const vector& gradIionc = gradIion_HO[cellI];
+        const vector& xc = C[cellI];
+        // Field<Field<scalar>> statesGauss( cellQuadP[cellI].size(),Field<scalar>(nStates, 0.0));
+
+        forAll(cellQuadP[cellI], gI)
+        {
+            vector dx = cellQuadP[cellI][gI] - xc;
+
+            scalar Vg = Vc + (gradVc & dx);
+            scalar Iiong = Iionc + (gradIionc & dx);
+
+            VmIntegrationPoints[integrationPointPos] = Vg;
+            IionIntegrationPoints[integrationPointPos] = Iiong;
+            // Info << "    " << gI << "/" << cellQuadP[cellI].size() << " " << cellQuadP[cellI][gI] << " " << VmGauss[gI] << endl;
+            // statesGauss[gI] = states[cellI];
+            integrationPointPos++;
+        }
+    }
+    // Info << "Llegue hasta aca" << endl;
+    //         std::cin.get();
+    ionicModel_.calculateCurrent
+    (
+        t0,
+        dt,
+        VmIntegrationPoints,
+        IionIntegrationPoints,
+        states
+    );
+
+    integrationPointPos = 0;
+    forAll(mesh.cells(), cellI)
+    {
+        Iion[cellI] = 0.0;
+        double totCellQuadW = 0.0;
+        forAll(cellQuadP[cellI], gI)
+        {
+            Iion[cellI] += cellQuadW[cellI][gI]*IionIntegrationPoints[integrationPointPos];
+            totCellQuadW += cellQuadW[cellI][gI];
+            integrationPointPos++;
+        }
+        Iion[cellI] /= totCellQuadW; // this should be 1.. but just in case
+        // Info << cellI << " " << totCellQuadW << " " << Iion[cellI] << endl;
+    }
+    Iion.correctBoundaryConditions();
+
+    if (ionicModel_.hasManufacturedSolution())
+    {
+        Iion /= Cm.value();
+    }
+    Info << "Fin 2)" << endl;
     autoPtr<List<List<vector>>> gradQuadVm_ptr = LREInterp.gradScalarFaceQuad(Vm);
     List<List<vector>>& gradQuadVm = gradQuadVm_ptr.ref();
     const CompactListList<scalar>& faceQuadW = LREInterp.faceQuadWeight();
@@ -307,25 +358,6 @@ void explicitLoopHandler::highOrderExplicitLoop
             surfaceGradVm_HO[faceI] += (conductivity[ownerCell] & gradQuadVm[faceI][pI]) * faceQuadW[faceI][pI];
         }
     }
-
-    // Boundary faces
-    // forAll(surfaceGradVm_HO.boundaryField(), patchI)
-    // {
-    //     vectorField& tfPatch = surfaceGradVm_HO.boundaryFieldRef()[patchI];
-
-    //     forAll(tfPatch, faceI)
-    //     {
-    //         const label globalFaceID = mesh.boundaryMesh()[patchI].start() + faceI;
-    //         const label ownerCell = mesh.owner()[globalFaceID];
-    //         const List<vector>& faceQuadVm = quadVm[globalFaceID];
-
-    //         tfPatch[faceI] = vector::zero;
-    //         forAll(faceQuadVm, pI)
-    //         {
-    //             tfPatch[faceI] += (conductivity[ownerCell] & faceQuadVm[pI]) * quadW[globalFaceID][pI];
-    //         }
-    //     }
-    // }
 
     surfaceGradVm_HO.correctBoundaryConditions();
 
@@ -348,52 +380,79 @@ void explicitLoopHandler::highOrderExplicitLoop
     );
 
     Vm.correctBoundaryConditions();
-
+    Info << "Fin 3)" << endl;
     // 4) Manufactured-specific: reset internal states back to OLD
     if (ionicModel_.hasManufacturedSolution())
     {
         refCast<tmanufacturedFDA>(ionicModel_).resetStatesToStatesOld();
     }
 
+    VmIntegrationPoints = 0.0;
+    IionIntegrationPoints = 0.0;
+
+    gradVm_HO = LREInterp.grad(Vm);
+    gradIion_HO = LREInterp.grad(Iion);
+    integrationPointPos = 0;
+
+    forAll(mesh.cells(), cellI)
+    {
+        const scalar Vc = Vm[cellI];
+        const scalar Iionc = Iion[cellI];
+        const vector& gradVc = gradVm_HO[cellI];
+        const vector& gradIionc = gradIion_HO[cellI];
+        const vector& xc = C[cellI];
+        
+        // Field<Field<scalar>> statesGauss( cellQuadP[cellI].size(),Field<scalar>(nStates, 0.0));
+
+        forAll(cellQuadP[cellI], gI)
+        {
+            vector dx = cellQuadP[cellI][gI] - xc;
+
+            scalar Vg = Vc + (gradVc & dx);
+            scalar Iiong = Iionc + (gradIionc & dx);
+
+            VmIntegrationPoints[integrationPointPos] = Vg;
+            IionIntegrationPoints[integrationPointPos] = Iiong;
+            // Info << "    " << gI << "/" << cellQuadP[cellI].size() << " " << cellQuadP[cellI][gI] << " " << VmGauss[gI] << endl;
+            // statesGauss[gI] = states[cellI];
+            integrationPointPos++;
+        }
+    }
+    Info << "Fin 4)" << endl;
     // 5) Advance ionic model in time (ODE solve) with NEW Vm, once per timestep
+    Info << "Ini solve ODE 5)" << endl;
     ionicModel_.solveODE
     (
         t0,
         dt,
-        Vm.internalField(),    // Vm_new
-        Iion,
+        VmIntegrationPoints,    // Vm_new
+        IionIntegrationPoints,
         states
     );
-}
+    Info << "End solve ODE 5)" << endl;
 
-
-void explicitLoopHandler::setSpatialIntegration
-(
-    const Switch useHighOrder,
-    const dictionary& solutionVariablesMemory
-)
-{
-    solutionVariablesMemory_ = solutionVariablesMemory;
-    useHighOrder_ = useHighOrder;
-
-    if (useHighOrder_)
+    integrationPointPos = 0;
+    forAll(mesh.cells(), cellI)
     {
-        highOrderCoeffs_ = solutionVariablesMemory.subDict("highOrderCoeffs");
-        LRECoeffs_       = highOrderCoeffs_.subDict("LRECoeffs");
-        
-        Info<< "Spatial integration: HIGH ORDER\n";
+        Iion[cellI] = 0.0;
+        double totCellQuadW = 0.0;
+        forAll(cellQuadP[cellI], gI)
+        {
+            Iion[cellI] += cellQuadW[cellI][gI]*IionIntegrationPoints[integrationPointPos];
+            totCellQuadW += cellQuadW[cellI][gI];
+            integrationPointPos++;
+        }
+        Iion[cellI] /= totCellQuadW; // this should be 1.. but just in case
+    }
+    Iion.correctBoundaryConditions(); // correct????
 
-        // Info<< "  Jacobian  : "
-        //     << highOrderCoeffs_.lookup("highOrderJacobian") << nl
-        //     << "  Residual  : "
-        //     << highOrderCoeffs_.lookup("highOrderResidual") << nl
-        //     << "  LRE order : "
-        //     << LRECoeffs_.lookup("N") << nl;
-    }
-    else
-    {
-        Info<< "Spatial integration: STANDARD (OpenFOAM)\n";
-    }
+    // if (ionicModel_.hasManufacturedSolution())
+    // {
+    //     Iion /= Cm.value();
+    // }
+    Info << "Fin 5)" << endl;
+    // Info << "Llegue hasta aca" << endl;
+    //         std::cin.get();
 }
 
 // HIGH ORDER //

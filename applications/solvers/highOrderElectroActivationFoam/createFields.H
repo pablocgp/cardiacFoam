@@ -343,6 +343,56 @@ volScalarField lapVm_standar
     dimensionedScalar("lapVm_standar", pow3(dimTime)*sqr(dimCurrent)/(dimMass*dimVolume)*(dimVoltage/dimLength)*dimArea/dimVolume, 0)
 );
 
+const Switch useHighOrder(spatialIntegrationProperties.lookup("useHighOrder"));
+
+// LRE construction
+boolList includePatchInStencils(mesh.boundaryMesh().size(), false);
+forAll(includePatchInStencils, patchI)
+{
+    if
+    (
+        isA<fixedValueFvPatchScalarField>
+        (
+            Vm.boundaryField()[patchI]
+        )
+    )
+    {
+        includePatchInStencils[patchI] = true;
+    }
+}
+
+LRE LREInterp(
+    mesh,
+    includePatchInStencils,
+    spatialIntegrationProperties.subDict("highOrderCoeffs").subDict("LRECoeffs")
+);
+
+const CompactListList<point>& quadPoints = LREInterp.faceQuadPoints();
+List<List<vector>> gradVmQuad(mesh.nFaces());
+forAll(gradVmQuad, faceI)
+{
+    List<vector>& faceGradVmQuad = gradVmQuad[faceI];
+
+    // Initialise face list size
+    faceGradVmQuad.setSize(quadPoints[faceI].size());
+
+}
+
+const CompactListList<point>& cellQuadP = LREInterp.cellQuadPoints();
+label totalIntegrationPoints = 0;
+
+if (useHighOrder)
+{
+    forAll(mesh.cells(), cellI)
+    {
+        totalIntegrationPoints += cellQuadP[cellI].size();
+    }
+}
+else
+{
+    totalIntegrationPoints = mesh.nCells();
+}
+
 //HIGH ORDER
 
 // Merge the dictionaries and create a memory object to read all properties
@@ -355,7 +405,7 @@ solutionVariablesMemory.merge(spatialIntegrationProperties);
 autoPtr<ionicModel> ionicModel =
     ionicModel::New
     (
-        solutionVariablesMemory, mesh.nCells(), runTime.deltaTValue()
+        solutionVariablesMemory, totalIntegrationPoints, runTime.deltaTValue()
     );
 
 // Field to record the activation time, which is the time at which each cell

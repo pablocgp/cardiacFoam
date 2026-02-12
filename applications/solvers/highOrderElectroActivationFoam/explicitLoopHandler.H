@@ -83,10 +83,7 @@ public:
         const scalar stimulusDuration,
         const dimensionedScalar& chi,
         const dimensionedScalar& Cm,
-        const volTensorField& conductivity,
-        volVectorField& gradVm_HO,
-        volScalarField& lapVm_HO,
-        volScalarField& lapVm_standar
+        const volTensorField& conductivity
     );
 
     // HIGH ORDER //
@@ -106,18 +103,13 @@ public:
         const dimensionedScalar& chi,
         const dimensionedScalar& Cm,
         const volTensorField& conductivity,
+        const label totalIntegrationPoints,
         const LRE& LREInterp,
         volVectorField& gradVm_HO,
         volScalarField& lapVm_HO,
         surfaceVectorField& surfaceGradVm_HO
     );
-
-    void setSpatialIntegration
-    (
-        const Switch useHighOrder,
-        const dictionary& solutionVariablesMemory
-    );
-
+    
     // HIGH ORDER //
 
 };

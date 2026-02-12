@@ -69,6 +69,9 @@ const List<List<vector>>& gradQuad_p1 = gradQuadPtr_p1();
 const CompactListList<point>& faceQuadPts_p1 = LREInterp_p1.faceQuadPoints();
 const CompactListList<scalar>& faceQuadW_p1 =  LREInterp_p1.faceQuadWeight();
 
+// Info << "\nfaceQuadPts_p1:" << endl;
+// Info << faceQuadPts_p1 << endl;
+
 // forAll(faceQuadPts_p1, faceI)
 // {
 //     Info << "Face " << faceI
