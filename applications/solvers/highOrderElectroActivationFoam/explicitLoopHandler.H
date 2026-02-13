@@ -42,15 +42,6 @@ private:
     // Internal helper: compute dt stability limit
     scalar computeStableDt(const scalar CFL) const;
 
-    // HIGH ORDER //
-    // Spatial Integration flag
-    Switch useHighOrder_;
-    // Spatial dictionaries
-    dictionary solutionVariablesMemory_;
-    dictionary highOrderCoeffs_;
-    dictionary LRECoeffs_;
-    // HIGH ORDER //
-
 public:
     explicitLoopHandler(const fvMesh& mesh, ionicModel& model);
 
@@ -69,22 +60,6 @@ public:
     );
 
     // Perform one explicit time step
-    void explicitLoop
-    (
-        const scalar t0,
-        const scalar dt,
-        volScalarField& Vm,
-        volScalarField& Iion,
-        Field<Field<scalar>>& states,
-        volScalarField& externalStimulusCurrent,
-        const List<labelList>& stimulusCellIDsList,
-        const List<scalar>& stimulusStartTimes,
-        const scalar stimulusIntensity,
-        const scalar stimulusDuration,
-        const dimensionedScalar& chi,
-        const dimensionedScalar& Cm,
-        const volTensorField& conductivity
-    );
 
     // HIGH ORDER //
 
@@ -103,11 +78,13 @@ public:
         const dimensionedScalar& chi,
         const dimensionedScalar& Cm,
         const volTensorField& conductivity,
-        const label totalIntegrationPoints,
-        const LRE& LREInterp,
-        volVectorField& gradVm_HO,
-        volScalarField& lapVm_HO,
-        surfaceVectorField& surfaceGradVm_HO
+        const label totalIionIntegrationPoints,
+        const LRE& LREInterp_Vm,
+        const LRE& LREInterp_Iion,
+        surfaceVectorField& surfaceGradVm_HO,
+        const Switch useHighOrder_Iion,
+        const Switch useHighOrder_Vm,
+        volScalarField& lapVm
     );
     
     // HIGH ORDER //

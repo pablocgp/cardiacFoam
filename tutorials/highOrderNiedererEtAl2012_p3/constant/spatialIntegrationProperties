@@ -1,0 +1,51 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v1912                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "constant";
+    object      spatialIntegrationProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+useHighOrder_Vm   true;
+useHighOrder_Iion   true;
+
+highOrderCoeffs
+{
+    highOrderJacobian false;
+    highOrderResidual true;
+
+    LRECoeffs_Vm
+    {
+        N 3;
+        Nn 60;
+        weightFunction radiallySymmetricExponential;
+        k 6;
+        maxStencilSize 80;
+        useQRDecomposition true;
+        useGlobalStencils true;
+        calcConditionNumber false;
+    }
+
+    LRECoeffs_Iion
+    {
+        N 1;
+        Nn 40;
+        weightFunction radiallySymmetricExponential;
+        k 6;
+        maxStencilSize 80;
+        useQRDecomposition true;
+        useGlobalStencils true;
+        calcConditionNumber false;
+    }
+}
+
+// ************************************************************************* //

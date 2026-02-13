@@ -101,7 +101,10 @@ void explicitLoopHandler::initializeExplicit
 //----------------------------------------------------------------------
 // Perform a single explicit step
 //----------------------------------------------------------------------
-void explicitLoopHandler::explicitLoop
+
+// HIGH ORDER //
+
+void explicitLoopHandler::highOrderExplicitLoop
 (
     const scalar t0,
     const scalar dt,
@@ -115,16 +118,27 @@ void explicitLoopHandler::explicitLoop
     const scalar stimulusDuration,
     const dimensionedScalar& chi,
     const dimensionedScalar& Cm,
-    const volTensorField& conductivity
+    const volTensorField& conductivity,
+    const label totalIionIntegrationPoints,
+    const LRE& LREInterp_Vm,
+    const LRE& LREInterp_Iion,
+    surfaceVectorField& surfaceGradVm_HO,
+    const Switch useHighOrder_Iion,
+    const Switch useHighOrder_Vm,
+    volScalarField& lapVm
 )
 {
+    const fvMesh& mesh = Vm.mesh();
+
     // 0) Manufactured-specific: store "old" internal states
+    Info << "0) Manufactured-specific: store old internal states" << endl;
     if (ionicModel_.hasManufacturedSolution())
     {
         refCast<tmanufacturedFDA>(ionicModel_).updateStatesOld();
     }
 
     // 1) External stimulus (internal field only)
+    Info << "1) External stimulus (internal field only)" << endl;
     scalarField& externalStimulusCurrentI = externalStimulusCurrent;
     externalStimulusCurrentI = 0.0;
 
@@ -146,14 +160,71 @@ void explicitLoopHandler::explicitLoop
     externalStimulusCurrent.correctBoundaryConditions();
 
     // 2) Ionic current using OLD Vm
-    ionicModel_.calculateCurrent
-    (
-        t0,
-        dt,
-        Vm.internalField(),   // Vm_old
-        Iion,
-        states
-    );
+    Info << "2) Ionic current using OLD Vm" << endl;
+    if ( useHighOrder_Iion)
+    {
+        // Obtaining Vm at Gauss Points
+
+        const vectorField& C = mesh.C();
+        const CompactListList<scalar>& cellIionQuadW = LREInterp_Iion.cellQuadWeight();
+        const CompactListList<point>& cellIionQuadP = LREInterp_Iion.cellQuadPoints();
+
+        scalarField VmIntegrationPoints( totalIionIntegrationPoints, 0.0);
+        scalarField IionIntegrationPoints( totalIionIntegrationPoints, 0.0);
+
+        volVectorField gradVm_HO = LREInterp_Vm.grad(Vm);
+
+        label integrationPointPos = 0;
+
+        forAll(mesh.cells(), cellI)
+        {
+            const scalar Vc = Vm[cellI];
+            const vector& gradVc = gradVm_HO[cellI];
+            const vector& xc = C[cellI];
+            forAll(cellIionQuadP[cellI], gI)
+            {
+                vector dx = cellIionQuadP[cellI][gI] - xc;
+                scalar Vg = Vc + (gradVc & dx);
+                VmIntegrationPoints[integrationPointPos] = Vg;
+                integrationPointPos++;
+            }
+        }
+        // Obtaining Iion at Gauss Points
+        ionicModel_.calculateCurrent
+        (
+            t0,
+            dt,
+            VmIntegrationPoints,
+            IionIntegrationPoints,
+            states
+        );
+        // Obtaining Iion at Cell centers
+        integrationPointPos = 0;
+        forAll(mesh.cells(), cellI)
+        {
+            Iion[cellI] = 0.0;
+            double totCellQuadW = 0.0;
+            forAll(cellIionQuadP[cellI], gI)
+            {
+                Iion[cellI] += cellIionQuadW[cellI][gI]*IionIntegrationPoints[integrationPointPos];
+                totCellQuadW += cellIionQuadW[cellI][gI];
+                integrationPointPos++;
+            }
+            Iion[cellI] /= totCellQuadW; // this should be 1.. but just in case
+        }
+    }
+    else
+    {
+        // Obtaining Iion at Cells centers
+        ionicModel_.calculateCurrent
+        (
+            t0,
+            dt,
+            Vm.internalField(),   // Vm_old
+            Iion,
+            states
+        );
+    }
     Iion.correctBoundaryConditions();
 
     if (ionicModel_.hasManufacturedSolution())
@@ -161,10 +232,43 @@ void explicitLoopHandler::explicitLoop
         Iion /= Cm.value();
     }
 
+    // Discretization of the laplacian
+    //
+    if ( useHighOrder_Vm)
+    {
+        // Obtaining a HO laplacian aproximation
+        autoPtr<List<List<vector>>> gradVmQuad_ptr = LREInterp_Vm.gradScalarFaceQuad(Vm);
+        List<List<vector>>& gradVmQuad = gradVmQuad_ptr.ref();
+        const CompactListList<scalar>& faceVmQuadW = LREInterp_Vm.faceQuadWeight();
+
+        // Internal faces
+        forAll(surfaceGradVm_HO, faceI)
+        {
+            const label ownerCell = mesh.owner()[faceI];
+            surfaceGradVm_HO[faceI] = vector::zero;
+            forAll(gradVmQuad[faceI], pI)
+            {
+                surfaceGradVm_HO[faceI] += (conductivity[ownerCell] & gradVmQuad[faceI][pI]) * faceVmQuadW[faceI][pI];
+            }
+        }
+
+        surfaceGradVm_HO.correctBoundaryConditions();
+
+
+        lapVm = fvc::div(mesh.Sf() & surfaceGradVm_HO );
+    }
+    else
+    {
+        // Obtaining a standar laplacian aproximation
+        lapVm = fvc::laplacian(conductivity,Vm);
+    }
+
+    // 3) Solving equation
+    Info << "// 3) Solving equation" << endl;
     solve
     (
         chi*Cm*fvm::ddt(Vm)
-     == fvc::laplacian(conductivity, Vm)
+     == lapVm
       - chi*Cm*Iion
       + externalStimulusCurrent
     );
@@ -172,287 +276,92 @@ void explicitLoopHandler::explicitLoop
     Vm.correctBoundaryConditions();
 
     // 4) Manufactured-specific: reset internal states back to OLD
+    Info << "4) Manufactured-specific: reset internal states back to OLD" << endl;
     if (ionicModel_.hasManufacturedSolution())
     {
         refCast<tmanufacturedFDA>(ionicModel_).resetStatesToStatesOld();
     }
 
     // 5) Advance ionic model in time (ODE solve) with NEW Vm, once per timestep
-    ionicModel_.solveODE
-    (
-        t0,
-        dt,
-        Vm.internalField(),    // Vm_new
-        Iion,
-        states
-    );
-
-}
-
-// HIGH ORDER //
-
-void explicitLoopHandler::highOrderExplicitLoop
-(
-    const scalar t0,
-    const scalar dt,
-    volScalarField& Vm,
-    volScalarField& Iion,
-    Field<Field<scalar>>& states,
-    volScalarField& externalStimulusCurrent,
-    const List<labelList>& stimulusCellIDsList,
-    const List<scalar>& stimulusStartTimes,
-    const scalar stimulusIntensity,
-    const scalar stimulusDuration,
-    const dimensionedScalar& chi,
-    const dimensionedScalar& Cm,
-    const volTensorField& conductivity,
-    const label totalIntegrationPoints,
-    const LRE& LREInterp,
-    volVectorField& gradVm_HO,
-    volScalarField& lapVm_HO,
-    surfaceVectorField& surfaceGradVm_HO
-)
-{
-    const fvMesh& mesh = Vm.mesh();
-
-    // 0) Manufactured-specific: store "old" internal states
-    if (ionicModel_.hasManufacturedSolution())
+    Info << "5) Advance ionic model in time (ODE solve) with NEW Vm, once per timestep)" << endl;
+    if ( useHighOrder_Iion)
     {
-        refCast<tmanufacturedFDA>(ionicModel_).updateStatesOld();
-    }
-    Info << "Fin 0)" << endl;
-    // 1) External stimulus (internal field only)
-    scalarField& externalStimulusCurrentI = externalStimulusCurrent;
-    externalStimulusCurrentI = 0.0;
+        // Obtaining a Vm and Iion at Gauss Points
+        scalarField VmIntegrationPoints( totalIionIntegrationPoints, 0.0);
+        scalarField IionIntegrationPoints( totalIionIntegrationPoints, 0.0);
 
-    forAll(stimulusCellIDsList, bI)
-    {
-        const scalar tStart = stimulusStartTimes[bI];
-        if (t0 < tStart || t0 > (tStart + stimulusDuration))
+        const vectorField& C = mesh.C();
+        const CompactListList<scalar>& cellIionQuadW = LREInterp_Iion.cellQuadWeight();
+        const CompactListList<point>& cellIionQuadP = LREInterp_Iion.cellQuadPoints();
+
+        volVectorField gradVm_HO = LREInterp_Vm.grad(Vm);
+        volVectorField gradIion_HO = LREInterp_Iion.grad(Iion);
+        label integrationPointPos = 0;
+
+        forAll(mesh.cells(), cellI)
         {
-            continue;
-        }
+            const scalar Vc = Vm[cellI];
+            const scalar Iionc = Iion[cellI];
+            const vector& gradVc = gradVm_HO[cellI];
+            const vector& gradIionc = gradIion_HO[cellI];
+            const vector& xc = C[cellI];
+            
+            // Field<Field<scalar>> statesGauss( cellIionQuadP[cellI].size(),Field<scalar>(nStates, 0.0));
 
-        const labelList& stimulusCellIDs = stimulusCellIDsList[bI];
-        forAll(stimulusCellIDs, cI)
+            forAll(cellIionQuadP[cellI], gI)
+            {
+                vector dx = cellIionQuadP[cellI][gI] - xc;
+
+                scalar Vg = Vc + (gradVc & dx);
+                scalar Iiong = Iionc + (gradIionc & dx);
+
+                VmIntegrationPoints[integrationPointPos] = Vg;
+                IionIntegrationPoints[integrationPointPos] = Iiong;
+                // Info << "    " << gI << "/" << cellIionQuadP[cellI].size() << " " << cellIionQuadP[cellI][gI] << " " << VmGauss[gI] << endl;
+                // statesGauss[gI] = states[cellI];
+                integrationPointPos++;
+            }
+        }
+        // Obtaining update of Iion at Gauss Points
+        Info << "Ini solve ODE 5)" << endl;
+        ionicModel_.solveODE
+        (
+            t0,
+            dt,
+            VmIntegrationPoints,    // Vm_new
+            IionIntegrationPoints,
+            states
+        );
+        Info << "End solve ODE 5)" << endl;
+        // Obtaining update of Iion at cell centers
+        integrationPointPos = 0;
+        forAll(mesh.cells(), cellI)
         {
-            const label id = stimulusCellIDs[cI];
-            externalStimulusCurrentI[id] = stimulusIntensity;
+            Iion[cellI] = 0.0;
+            double totCellQuadW = 0.0;
+            forAll(cellIionQuadP[cellI], gI)
+            {
+                Iion[cellI] += cellIionQuadW[cellI][gI]*IionIntegrationPoints[integrationPointPos];
+                totCellQuadW += cellIionQuadW[cellI][gI];
+                integrationPointPos++;
+            }
+            Iion[cellI] /= totCellQuadW; // this should be 1.. but just in case
         }
+        Iion.correctBoundaryConditions(); // correct????
     }
-    externalStimulusCurrent.correctBoundaryConditions();
-    Info << "Fin 1)" << endl;
-    // // 2) Ionic current using OLD Vm
-    // ionicModel_.calculateCurrent
-    // (
-    //     t0,
-    //     dt,
-    //     Vm.internalField(),   // Vm_old
-    //     Iion,
-    //     states
-    // );
-    // Iion.correctBoundaryConditions();
-
-    // if (ionicModel_.hasManufacturedSolution())
-    // {
-    //     Iion /= Cm.value();
-    // }
-
-    // gradVm_HO = LREInterp.grad(Vm);
-    // gradVm_HO = fvc::grad(Vm);
-    // gradVm_HO.correctBoundaryConditions();
-
-    // surfaceVectorField gradVm_faces = fvc::interpolate(gradVm_HO);
-
-    // surfaceScalarField flux = fvc::interpolate(conductivity & gradVm_HO) & mesh.Sf() ;// & gradVm_faces;
-
-    // lapVm_HO = fvc::div(flux);
-
-    const vectorField& C = mesh.C();  // centros de celda
-    const CompactListList<scalar>& cellQuadW = LREInterp.cellQuadWeight();
-    const CompactListList<point>& cellQuadP = LREInterp.cellQuadPoints();
-
-    // SURFACE INTERPOLATION
-    // Info << "surfaceGradVm_HO.dimensions() " << surfaceGradVm_HO.dimensions() << endl;
-
-    scalarField VmIntegrationPoints( totalIntegrationPoints, 0.0);
-    scalarField IionIntegrationPoints( totalIntegrationPoints, 0.0);
-
-    gradVm_HO = LREInterp.grad(Vm);
-    volVectorField gradIion_HO = LREInterp.grad(Iion);
-
-    label integrationPointPos = 0;
-
-    forAll(mesh.cells(), cellI)
+    else
     {
-        // Info<< Iion[cellI] << " " << Vm[cellI] << " " << gradVm_HO[cellI] << endl;
-        const scalar Vc = Vm[cellI];
-        const scalar Iionc = Iion[cellI];
-        const vector& gradVc = gradVm_HO[cellI];
-        const vector& gradIionc = gradIion_HO[cellI];
-        const vector& xc = C[cellI];
-        // Field<Field<scalar>> statesGauss( cellQuadP[cellI].size(),Field<scalar>(nStates, 0.0));
-
-        forAll(cellQuadP[cellI], gI)
-        {
-            vector dx = cellQuadP[cellI][gI] - xc;
-
-            scalar Vg = Vc + (gradVc & dx);
-            scalar Iiong = Iionc + (gradIionc & dx);
-
-            VmIntegrationPoints[integrationPointPos] = Vg;
-            IionIntegrationPoints[integrationPointPos] = Iiong;
-            // Info << "    " << gI << "/" << cellQuadP[cellI].size() << " " << cellQuadP[cellI][gI] << " " << VmGauss[gI] << endl;
-            // statesGauss[gI] = states[cellI];
-            integrationPointPos++;
-        }
-    }
-    // Info << "Llegue hasta aca" << endl;
-    //         std::cin.get();
-    ionicModel_.calculateCurrent
-    (
-        t0,
-        dt,
-        VmIntegrationPoints,
-        IionIntegrationPoints,
-        states
-    );
-
-    integrationPointPos = 0;
-    forAll(mesh.cells(), cellI)
-    {
-        Iion[cellI] = 0.0;
-        double totCellQuadW = 0.0;
-        forAll(cellQuadP[cellI], gI)
-        {
-            Iion[cellI] += cellQuadW[cellI][gI]*IionIntegrationPoints[integrationPointPos];
-            totCellQuadW += cellQuadW[cellI][gI];
-            integrationPointPos++;
-        }
-        Iion[cellI] /= totCellQuadW; // this should be 1.. but just in case
-        // Info << cellI << " " << totCellQuadW << " " << Iion[cellI] << endl;
-    }
-    Iion.correctBoundaryConditions();
-
-    if (ionicModel_.hasManufacturedSolution())
-    {
-        Iion /= Cm.value();
-    }
-    Info << "Fin 2)" << endl;
-    autoPtr<List<List<vector>>> gradQuadVm_ptr = LREInterp.gradScalarFaceQuad(Vm);
-    List<List<vector>>& gradQuadVm = gradQuadVm_ptr.ref();
-    const CompactListList<scalar>& faceQuadW = LREInterp.faceQuadWeight();
-
-    // Info << "quadVm.size() = " << quadVm.size() << endl;
-    // Info << "quadW.size() = " << quadW.size() << endl;
-    // Info << "nInternalFaces = " << mesh.nInternalFaces() << endl;
-    // Info << "nTotalFaces = " << mesh.nFaces() << endl;
-
-    // Internal faces
-    forAll(surfaceGradVm_HO, faceI)
-    {
-        const label ownerCell = mesh.owner()[faceI];
-        surfaceGradVm_HO[faceI] = vector::zero;
-        forAll(gradQuadVm[faceI], pI)
-        {
-            surfaceGradVm_HO[faceI] += (conductivity[ownerCell] & gradQuadVm[faceI][pI]) * faceQuadW[faceI][pI];
-        }
+        // Obtaining update of Iion at cell centers
+        ionicModel_.solveODE
+        (
+            t0,
+            dt,
+            Vm.internalField(),    // Vm_new
+            Iion,
+            states
+        );
     }
 
-    surfaceGradVm_HO.correctBoundaryConditions();
-
-    // volScalarField lapVm_HO2 = fvc::div(surfaceGradVm_HO & mesh.Sf());
-
-    // Info << "Vm.dimensions()               " << Vm.dimensions() << endl;
-    // Info << "conductivity.dimensions()     " << conductivity.dimensions() << endl;
-    // Info << "surfaceGradVm_HO.dimensions() " << surfaceGradVm_HO.dimensions() << endl;
-    // Info << "lapVm_HO2.dimensions()        " << lapVm_HO2.dimensions() << endl;
-    // Info << "externalStimulusCurrent.dimensions() " << externalStimulusCurrent.dimensions() << endl;
-
-    lapVm_HO = fvc::div(mesh.Sf() & surfaceGradVm_HO );
-
-    solve
-    (
-        chi*Cm*fvm::ddt(Vm)
-     == lapVm_HO
-      - chi*Cm*Iion
-      + externalStimulusCurrent
-    );
-
-    Vm.correctBoundaryConditions();
-    Info << "Fin 3)" << endl;
-    // 4) Manufactured-specific: reset internal states back to OLD
-    if (ionicModel_.hasManufacturedSolution())
-    {
-        refCast<tmanufacturedFDA>(ionicModel_).resetStatesToStatesOld();
-    }
-
-    VmIntegrationPoints = 0.0;
-    IionIntegrationPoints = 0.0;
-
-    gradVm_HO = LREInterp.grad(Vm);
-    gradIion_HO = LREInterp.grad(Iion);
-    integrationPointPos = 0;
-
-    forAll(mesh.cells(), cellI)
-    {
-        const scalar Vc = Vm[cellI];
-        const scalar Iionc = Iion[cellI];
-        const vector& gradVc = gradVm_HO[cellI];
-        const vector& gradIionc = gradIion_HO[cellI];
-        const vector& xc = C[cellI];
-        
-        // Field<Field<scalar>> statesGauss( cellQuadP[cellI].size(),Field<scalar>(nStates, 0.0));
-
-        forAll(cellQuadP[cellI], gI)
-        {
-            vector dx = cellQuadP[cellI][gI] - xc;
-
-            scalar Vg = Vc + (gradVc & dx);
-            scalar Iiong = Iionc + (gradIionc & dx);
-
-            VmIntegrationPoints[integrationPointPos] = Vg;
-            IionIntegrationPoints[integrationPointPos] = Iiong;
-            // Info << "    " << gI << "/" << cellQuadP[cellI].size() << " " << cellQuadP[cellI][gI] << " " << VmGauss[gI] << endl;
-            // statesGauss[gI] = states[cellI];
-            integrationPointPos++;
-        }
-    }
-    Info << "Fin 4)" << endl;
-    // 5) Advance ionic model in time (ODE solve) with NEW Vm, once per timestep
-    Info << "Ini solve ODE 5)" << endl;
-    ionicModel_.solveODE
-    (
-        t0,
-        dt,
-        VmIntegrationPoints,    // Vm_new
-        IionIntegrationPoints,
-        states
-    );
-    Info << "End solve ODE 5)" << endl;
-
-    integrationPointPos = 0;
-    forAll(mesh.cells(), cellI)
-    {
-        Iion[cellI] = 0.0;
-        double totCellQuadW = 0.0;
-        forAll(cellQuadP[cellI], gI)
-        {
-            Iion[cellI] += cellQuadW[cellI][gI]*IionIntegrationPoints[integrationPointPos];
-            totCellQuadW += cellQuadW[cellI][gI];
-            integrationPointPos++;
-        }
-        Iion[cellI] /= totCellQuadW; // this should be 1.. but just in case
-    }
-    Iion.correctBoundaryConditions(); // correct????
-
-    // if (ionicModel_.hasManufacturedSolution())
-    // {
-    //     Iion /= Cm.value();
-    // }
-    Info << "Fin 5)" << endl;
-    // Info << "Llegue hasta aca" << endl;
-    //         std::cin.get();
 }
 
 // HIGH ORDER //
