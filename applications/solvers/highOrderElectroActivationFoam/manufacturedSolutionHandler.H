@@ -45,7 +45,17 @@ public:
         volScalarField& Vm,
         PtrList<volScalarField>& outFields,
         scalar dxstructured,
-        int dim
+        int dim,
+        const vectorField& pos
+    );
+
+    void initializeManufacturedIntegrationPoints
+    (
+        scalarField& VmIntegrationPoints,
+        PtrList<scalarField>& outFieldsIntegrationPoints,
+        scalar dxstructured,
+        int dim,
+        const vectorField& posIntegrationPoints
     );
 
 
@@ -56,7 +66,20 @@ public:
         const PtrList<volScalarField>& outFields,
         const scalar dt,
         const int nsteps,
-        const bool solveExplicit
+        const bool solveExplicit,
+        const vectorField& pos,
+        const scalar Tfinal
+    ) const;
+
+    void postProcessIntegrationPoints
+    (
+        const scalarField& VmIntegrationPoints,
+        const PtrList<scalarField>& outFieldsIntegrationPoints,
+        const scalar dt,
+        const int nsteps,
+        const bool solveExplicit,
+        const vectorField& posIntegrationPoints,
+        const scalar Tfinal
     ) const;
 
 

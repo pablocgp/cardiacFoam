@@ -76,6 +76,10 @@ int main(int argc, char* argv[])
     (
         mesh.nCells(),Field<scalar>(nStates, 0.0)
     );
+    Field<Field<scalar>> statesIntegrationPoints
+    (
+        totalIionIntegrationPoints,Field<scalar>(nStates, 0.0)
+    );
 
     // Initialisation
     pimpleControl pimple(mesh);
@@ -87,9 +91,15 @@ int main(int argc, char* argv[])
     scalar dt = runTime.deltaTValue();
     int nsteps = int(ceil(runTime.endTime().value()/dt));
 
+    scalarField VmIntegrationPoints( totalIionIntegrationPoints, 0.0);
+    scalarField IionIntegrationPoints( totalIionIntegrationPoints, 0.0);
+
     if (ionicModel->hasManufacturedSolution())
     {
-        msHandler.initializeManufactured(Vm, outFields, dx ,dim);
+        msHandler.initializeManufactured(Vm, 
+            outFields, dx ,dim, mesh.C());
+        msHandler.initializeManufacturedIntegrationPoints(VmIntegrationPoints, 
+            outFieldsIntegrationPoints, dx ,dim, posIntegrationPoints);
     }
 
     // Solution methodology flag
@@ -141,7 +151,8 @@ int main(int argc, char* argv[])
                 chi,
                 Cm,
                 conductivity,
-                totalIionIntegrationPoints,
+                VmIntegrationPoints,
+                IionIntegrationPoints,
                 LREInterp_Vm,
                 LREInterp_Iion,
                 surfaceGradVm_HO,
@@ -150,7 +161,20 @@ int main(int argc, char* argv[])
                 lapVm
             );
 
-            ionicModel->exportStates(states, outFields);
+            // Info << "states.size() = " << states.size() << nl;
+            // Info << "states[0].size() = " << states[0].size() << nl;
+            // Info << "statesIntegrationPoints.size() = " << statesIntegrationPoints.size() << nl;
+            // Info << "statesIntegrationPoints[0].size() = " << statesIntegrationPoints[0].size() << nl;
+
+            if ( useHighOrder_Iion)
+            {
+                const CompactListList<scalar>& cellIionQuadW = LREInterp_Iion.cellQuadWeight();
+                ionicModel->exportStatesIntegrationPoints(states, outFields, cellIionQuadW);
+            }
+            else
+            {
+                ionicModel->exportStates(states, outFields);
+            }
 
             #include "updateActivationTimes.H"
 
@@ -197,7 +221,12 @@ int main(int argc, char* argv[])
     // Manufactured-solution post-processing
     if (ionicModel->hasManufacturedSolution())
     {
-        msHandler.postProcess(Vm, outFields, dt, nsteps, solveExplicit);
+        msHandler.postProcess(Vm, outFields,
+             dt, nsteps, solveExplicit, mesh.C(),
+             Vm.time().value());
+        // msHandler.postProcessIntegrationPoints(VmIntegrationPoints, outFieldsIntegrationPoints,
+        //      dt, nsteps, solveExplicit, posIntegrationPoints,
+        //      Vm.time().value());
     }
 
     runTime.printExecutionTime(Info);

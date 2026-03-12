@@ -43,7 +43,8 @@ void manufacturedSolutionHandler::initializeManufactured
     volScalarField& Vm,
     PtrList<volScalarField>& outFields,
     scalar dxstructured,
-    int dim
+    int dim,
+    const vectorField& pos
 )
 {
     Info << "Manufactured solution needs to export u1,u2,u3 always for error computation" << nl;
@@ -60,7 +61,40 @@ void manufacturedSolutionHandler::initializeManufactured
     volScalarField& u3 = outFields[iu3];
 
     // Analytic initialization from tmanufacturedFields via the ionic model
-    ionicModel_.initializeFields(Vm, u1, u2, u3, mesh_.C());
+    ionicModel_.initializeFields(Vm, u1, u2, u3, pos);
+    dim_ = dim;     // from the mesh-based general dimension
+    dx_  = dxstructured;      // the generalized dx you computed in main()
+    const double totalCells =
+         returnReduce(mesh_.nCells(), sumOp<int>());
+
+    N_ = std::round(Foam::pow(totalCells, 1.0/dim_));
+}
+
+void manufacturedSolutionHandler::initializeManufacturedIntegrationPoints
+(
+    scalarField& VmIntegrationPoints,
+    PtrList<scalarField>& outFieldsIntegrationPoints,
+    scalar dxstructured,
+    int dim,
+    const vectorField& posIntegrationPoints
+)
+{
+    Info << "Manufactured solution needs to export u1,u2,u3 always for error computation" << nl;
+
+    // Get exported variable names from the ionic model
+    Foam::wordList names = ionicModel_.exportedFieldNames();
+
+    const label iu1 = names.find("u1");
+    const label iu2 = names.find("u2");
+    const label iu3 = names.find("u3");
+
+    scalarField& u1IntegrationPoints = outFieldsIntegrationPoints[iu1];
+    scalarField& u2IntegrationPoints = outFieldsIntegrationPoints[iu2];
+    scalarField& u3IntegrationPoints = outFieldsIntegrationPoints[iu3];
+
+    // Analytic initialization from tmanufacturedFields via the ionic model
+    ionicModel_.initializeFieldsIntegrationPoints(VmIntegrationPoints, u1IntegrationPoints, 
+        u2IntegrationPoints, u3IntegrationPoints, posIntegrationPoints);
     dim_ = dim;     // from the mesh-based general dimension
     dx_  = dxstructured;      // the generalized dx you computed in main()
     const double totalCells =
@@ -78,7 +112,9 @@ void manufacturedSolutionHandler::postProcess
     const PtrList<volScalarField>& outFields,
     const scalar dt,
     const int nsteps,
-    const bool solveExplicit
+    const bool solveExplicit,
+    const vectorField& pos,
+    const scalar Tfinal
 ) const
 {
     Info << "\nCalculating manufactured-solution errors..." << nl;
@@ -92,18 +128,56 @@ void manufacturedSolutionHandler::postProcess
     const volScalarField& u1 = outFields[iu1];
     const volScalarField& u2 = outFields[iu2];
 
-    const scalarField x = mesh_.C().component(vector::X);
-    const scalarField y = mesh_.C().component(vector::Y);
-    const scalarField z = mesh_.C().component(vector::Z);
-
-    const scalar Tfinal = Vm.time().value();
-
-    // Compare numerical Vm,u1,u2 with analytic manufactured solution
+    const scalarField x = pos.component(vector::X);
+    const scalarField y = pos.component(vector::Y);
+    const scalarField z = pos.component(vector::Z);
+    
+    // Compare numerical Vm,u1,u2 with analytic manufactured solution at volume cells
     computeAndPrintErrors
     (
-        Vm.internalField(),
-        u1.internalField(),
-        u2.internalField(),
+        Vm,
+        u1,
+        u2,
+        x, y, z,
+        Tfinal,
+        ionicModel_.tissue(),
+        N_, dx_, dt, nsteps,
+        solveExplicit
+    );
+}
+
+void manufacturedSolutionHandler::postProcessIntegrationPoints
+(
+    const scalarField& VmIntegrationPoints,
+    const PtrList<scalarField>& outFieldsIntegrationPoints,
+    const scalar dt,
+    const int nsteps,
+    const bool solveExplicit,
+    const vectorField& posIntegrationPoints,
+    const scalar Tfinal
+) const
+{
+    Info << "\nCalculating manufactured-solution errors..." << nl;
+
+    // Lookup u1 and u2 from exported fields (numerical solution)
+    Foam::wordList names = ionicModel_.exportedFieldNames();
+
+    const label iu1 = names.find("u1");
+    const label iu2 = names.find("u2");
+
+    const scalarField& u1IntegrationPoints = outFieldsIntegrationPoints[iu1];
+    const scalarField& u2IntegrationPoints = outFieldsIntegrationPoints[iu2];
+
+    const scalarField x = posIntegrationPoints.component(vector::X);
+    const scalarField y = posIntegrationPoints.component(vector::Y);
+    const scalarField z = posIntegrationPoints.component(vector::Z);
+    
+    // Compare numerical Vm,u1,u2 with analytic manufactured solution at Integration Points
+    computeAndPrintErrors
+    (
+        VmIntegrationPoints,
+        u1IntegrationPoints,
+        u2IntegrationPoints,
         x, y, z,
         Tfinal,
         ionicModel_.tissue(),

@@ -47,6 +47,21 @@ tmanufacturedFDAinitConsts(double* CONSTANTS, double* RATES, double *STATES, int
 void
 tmanufacturedFDAcomputeVariables(double VOI, double* CONSTANTS, double* RATES, double* STATES, double* ALGEBRAIC,int dimension, bool solveVmWithinODESolver)
 {
+    // std::cout << "RATES[V] = " << RATES[V] << std::endl;
+    // std::cout << "RATES[u1] = " << RATES[u1] << std::endl;
+    // std::cout << "RATES[u2] = " << RATES[u2] << std::endl;
+    // std::cout << "RATES[u3] = " << RATES[u3] << std::endl;
+    // std::cout << "Iion = " << ALGEBRAIC[Iion] << std::endl;
+    // std::cout << "STATES[V] = " << STATES[V] << std::endl;
+    // std::cout << "STATES[u1] = " << STATES[u1] << std::endl;
+    // std::cout << "STATES[u2] = " << STATES[u2] << std::endl;
+    // std::cout << "STATES[u3] = " << STATES[u3] << std::endl;
+    // if (STATES[u1]>100)
+    //     STATES[u1] = 0.0;
+    // if (STATES[u2]>100)
+    //     STATES[u2] = 0.0;
+    // if (STATES[u3]>100)
+    // STATES[u3] = 0.0;
     // Local variables
     RATES[V] = 0.0;
     RATES[u1] = pow(STATES[u1] + STATES[u3] - STATES[V], 2.0) * pow(STATES[u2], 2.0) + 0.5 * (STATES[u1] + STATES[u3] - STATES[V]) * pow(STATES[u2], 2.0) * (STATES[V] - STATES[u3]);

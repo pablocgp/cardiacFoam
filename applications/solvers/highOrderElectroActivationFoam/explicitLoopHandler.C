@@ -24,6 +24,7 @@ License
 
 // HIGH ORDER //
 #include "LRE.H"
+#include "deltaVectors.H"
 // HIGH ORDER //
 
 explicitLoopHandler::explicitLoopHandler
@@ -119,7 +120,8 @@ void explicitLoopHandler::highOrderExplicitLoop
     const dimensionedScalar& chi,
     const dimensionedScalar& Cm,
     const volTensorField& conductivity,
-    const label totalIionIntegrationPoints,
+    scalarField& VmIntegrationPoints,
+    scalarField& IionIntegrationPoints,
     const LRE& LREInterp_Vm,
     const LRE& LREInterp_Iion,
     surfaceVectorField& surfaceGradVm_HO,
@@ -169,10 +171,16 @@ void explicitLoopHandler::highOrderExplicitLoop
         const CompactListList<scalar>& cellIionQuadW = LREInterp_Iion.cellQuadWeight();
         const CompactListList<point>& cellIionQuadP = LREInterp_Iion.cellQuadPoints();
 
-        scalarField VmIntegrationPoints( totalIionIntegrationPoints, 0.0);
-        scalarField IionIntegrationPoints( totalIionIntegrationPoints, 0.0);
+        // Gradient
+        tmp<volVectorField> tGradVm = LREInterp_Vm.grad(Vm);
+        const vectorField& gradVm_HO = tGradVm->internalField();
 
-        volVectorField gradVm_HO = LREInterp_Vm.grad(Vm);
+        // Hessian
+        tmp<volSymmTensorField> tHessVm = LREInterp_Vm.hessian(Vm);
+        const symmTensorField& HessVm_HO = tHessVm->internalField();
+
+        // Third derivative
+        autoPtr<List<LRE::symmTensor3Order>> ThirdDerVm_HO = LREInterp_Vm.thirdDeriv(Vm);
 
         label integrationPointPos = 0;
 
@@ -184,7 +192,22 @@ void explicitLoopHandler::highOrderExplicitLoop
             forAll(cellIionQuadP[cellI], gI)
             {
                 vector dx = cellIionQuadP[cellI][gI] - xc;
-                scalar Vg = Vc + (gradVc & dx);
+                // Linear part
+                scalar Vg = Vc + (gradVc & dx) ;
+                // Quadratic part
+                if (LREInterp_Vm.order() >= 2)
+                {
+                    Vg += 0.5*(dx & (HessVm_HO[cellI] & dx));
+                }
+                // Cubic part
+                if (LREInterp_Vm.order() >= 3)
+                {
+                    const bool twoD = (mesh.nGeometricD() == 2);
+                    const scalar oneOverSix = 1.0/6.0;
+
+                    Vg += oneOverSix *
+                        LRE::cubicForm((*ThirdDerVm_HO)[cellI], dx, twoD);
+                }
                 VmIntegrationPoints[integrationPointPos] = Vg;
                 integrationPointPos++;
             }
@@ -252,10 +275,95 @@ void explicitLoopHandler::highOrderExplicitLoop
             }
         }
 
+        // stabilization
+        // const labelList& own = mesh.owner();
+        // const labelList& nei = mesh.neighbour();
+
+        // const surfaceVectorField n(mesh.Sf()/mesh.magSf());
+        // const vectorField& nI = n.internalField();
+
+        // const vectorField deltaI(deltaVectors(mesh));
+        // const surfaceVectorField& Cf = mesh.Cf();
+        // const vectorField& C = mesh.C();
+
+        // const scalarField& VmI = Vm.internalField();
+
+        // // High-order gradient
+        // tmp<volVectorField> tGradVm = LREInterp_Vm.grad(Vm);
+        // const vectorField& gradVmI = tGradVm->internalField();
+
+        // // Hessian
+        // tmp<volSymmTensorField> tHessVm = LREInterp_Vm.hessian(Vm);
+        // const symmTensorField& hessVmI = tHessVm->internalField();
+
+        // // Third derivative
+        // autoPtr<List<LRE::symmTensor3Order>> tThirdDerVm;
+
+        // if (LREInterp_Vm.order() >= 3)
+        // {
+        //     tThirdDerVm = LREInterp_Vm.thirdDeriv(Vm);
+        // }
+
+        // forAll(nei, faceI)
+        // {
+        //     const label ownCellID = own[faceI];
+        //     const label neiCellID = nei[faceI];
+
+        //     const scalar& ownVm = VmI[ownCellID];
+        //     const scalar& neiVm = VmI[neiCellID];
+
+        //     const vector& ownGradVm = gradVmI[ownCellID];
+        //     const vector& neiGradVm = gradVmI[neiCellID];
+
+        //     const vector& d = deltaI[faceI];
+
+        //     const vector dOwn = Cf[faceI] - C[ownCellID];
+        //     const vector dNei = Cf[faceI] - C[neiCellID];
+
+        //     // Linear part
+        //     scalar extrapOwnVm = ownVm + (ownGradVm & dOwn);
+        //     scalar extrapNeiVm = neiVm + (neiGradVm & dNei);
+
+        //     // Quadratic part
+        //     if (LREInterp_Vm.order() >= 2)
+        //     {
+        //         extrapOwnVm += 0.5*(dOwn & (hessVmI[ownCellID] & dOwn));
+        //         extrapNeiVm += 0.5*(dNei & (hessVmI[neiCellID] & dNei));
+        //     }
+
+        //     // Cubic part
+        //     if (LREInterp_Vm.order() >= 3)
+        //     {
+        //         const bool twoD = (mesh.nGeometricD() == 2);
+        //         const scalar oneOverSix = 1.0/6.0;
+
+        //         extrapOwnVm += oneOverSix *
+        //             LRE::cubicForm((*tThirdDerVm)[ownCellID], dOwn, twoD);
+
+        //         extrapNeiVm += oneOverSix *
+        //             LRE::cubicForm((*tThirdDerVm)[neiCellID], dNei, twoD);
+        //     }
+
+        //     const vector& n = nI[faceI];
+        //     const scalar denom = max(mag(n & d), VSMALL);
+
+        //     scalar h = mag(deltaI[faceI]);
+        //     scalar alpha_val = 0.1;
+
+        //     // alpha_val = scaleFactor*impKf_[faceI] this should be changed
+        //     const scalar faceDamping =
+        //         alpha_val*(extrapNeiVm - extrapOwnVm)/denom;
+
+        //     surfaceGradVm_HO[faceI] += faceDamping * n;
+        // }
+
         surfaceGradVm_HO.correctBoundaryConditions();
 
 
-        lapVm = fvc::div(mesh.Sf() & surfaceGradVm_HO );
+        lapVm = fvc::div(mesh.Sf() & surfaceGradVm_HO ) 
+                // + fvc::laplacian(conductivity,Vm) 
+                // - fvc::div(conductivity & fvc::grad(Vm))
+                ;
     }
     else
     {
@@ -286,16 +394,27 @@ void explicitLoopHandler::highOrderExplicitLoop
     Info << "5) Advance ionic model in time (ODE solve) with NEW Vm, once per timestep)" << endl;
     if ( useHighOrder_Iion)
     {
-        // Obtaining a Vm and Iion at Gauss Points
-        scalarField VmIntegrationPoints( totalIionIntegrationPoints, 0.0);
-        scalarField IionIntegrationPoints( totalIionIntegrationPoints, 0.0);
 
         const vectorField& C = mesh.C();
         const CompactListList<scalar>& cellIionQuadW = LREInterp_Iion.cellQuadWeight();
         const CompactListList<point>& cellIionQuadP = LREInterp_Iion.cellQuadPoints();
 
-        volVectorField gradVm_HO = LREInterp_Vm.grad(Vm);
-        volVectorField gradIion_HO = LREInterp_Iion.grad(Iion);
+        // Gradient
+        tmp<volVectorField> tGradVm = LREInterp_Vm.grad(Vm);
+        const vectorField& gradVm_HO = tGradVm->internalField();
+        tmp<volVectorField> tGradIion = LREInterp_Iion.grad(Iion);
+        const vectorField& gradIion_HO = tGradIion->internalField();
+
+        // Hessian
+        tmp<volSymmTensorField> tHessVm = LREInterp_Vm.hessian(Vm);
+        const symmTensorField& HessVm_HO = tHessVm->internalField();
+        tmp<volSymmTensorField> tHessIion = LREInterp_Iion.hessian(Iion);
+        const symmTensorField& HessIion_HO = tHessIion->internalField();
+
+        // Third derivative
+        autoPtr<List<LRE::symmTensor3Order>> ThirdDerVm_HO = LREInterp_Vm.thirdDeriv(Vm);
+        autoPtr<List<LRE::symmTensor3Order>> ThirdDerIion_HO = LREInterp_Iion.thirdDeriv(Iion);
+
         label integrationPointPos = 0;
 
         forAll(mesh.cells(), cellI)
@@ -305,20 +424,43 @@ void explicitLoopHandler::highOrderExplicitLoop
             const vector& gradVc = gradVm_HO[cellI];
             const vector& gradIionc = gradIion_HO[cellI];
             const vector& xc = C[cellI];
-            
-            // Field<Field<scalar>> statesGauss( cellIionQuadP[cellI].size(),Field<scalar>(nStates, 0.0));
 
             forAll(cellIionQuadP[cellI], gI)
             {
                 vector dx = cellIionQuadP[cellI][gI] - xc;
 
+                // Linear part
                 scalar Vg = Vc + (gradVc & dx);
                 scalar Iiong = Iionc + (gradIionc & dx);
+                // Quadratic part
+                if (LREInterp_Vm.order() >= 2)
+                {
+                    Vg += 0.5*(dx & (HessVm_HO[cellI] & dx));
+                }
+                if (LREInterp_Iion.order() >= 2)
+                {
+                    Iiong += 0.5*(dx & (HessIion_HO[cellI] & dx));
+                }
+                // Cubic part
+                if (LREInterp_Vm.order() >= 3)
+                {
+                    const bool twoD = (mesh.nGeometricD() == 2);
+                    const scalar oneOverSix = 1.0/6.0;
+
+                    Vg += oneOverSix *
+                        LRE::cubicForm((*ThirdDerVm_HO)[cellI], dx, twoD);
+                }
+                if (LREInterp_Iion.order() >= 3)
+                {
+                    const bool twoD = (mesh.nGeometricD() == 2);
+                    const scalar oneOverSix = 1.0/6.0;
+
+                    Iiong += oneOverSix *
+                        LRE::cubicForm((*ThirdDerIion_HO)[cellI], dx, twoD);
+                }
 
                 VmIntegrationPoints[integrationPointPos] = Vg;
                 IionIntegrationPoints[integrationPointPos] = Iiong;
-                // Info << "    " << gI << "/" << cellIionQuadP[cellI].size() << " " << cellIionQuadP[cellI][gI] << " " << VmGauss[gI] << endl;
-                // statesGauss[gI] = states[cellI];
                 integrationPointPos++;
             }
         }

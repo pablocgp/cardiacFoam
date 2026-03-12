@@ -15,56 +15,56 @@ LRE LREInterp_p2(
     LRECoeffs_p2
 );
 
-volVectorField gradTestFun_num_HO_p2
+volVectorField gradVolTestFun_num_HO_p2
 (
     IOobject
     (
-        "gradTestFun_num_HO",
+        "gradVolTestFun_num_HO",
         runTime.timeName(),
         mesh,
         IOobject::NO_READ,
         IOobject::AUTO_WRITE
     ),
-    LREInterp_p2.grad(TestFun)
+    LREInterp_p2.grad(volTestFun)
 );
 
-volVectorField error_HO_p2
+volVectorField error_HO_p2_vol
 (
     IOobject
     (
-        "gradError_HO_p2",
+        "error_HO_p2_vol",
         runTime.timeName(),
         mesh,
         IOobject::NO_READ,
         IOobject::AUTO_WRITE
     ),
-    gradTestFun_num_HO_p2 - gradTestFun_exact
+    gradVolTestFun_num_HO_p2 - gradVolTestFun_exact
 );
 
 // Normas del error
 double L2_HO_p2 =
     Foam::sqrt
     (
-        gSum(magSqr(error_HO_p2) * mesh.V())
+        gSum(magSqr(error_HO_p2_vol) * mesh.V())
         / gSum(mesh.V())
     );
 
-volScalarField magError_HO_p2
+volScalarField magError_HO_p2_vol
 (
     IOobject
     (
-        "magError_HO_p2",
+        "magError_HO_p2_vol",
         runTime.timeName(),
         mesh,
         IOobject::NO_READ,
         IOobject::AUTO_WRITE
     ),
-    mag(error_HO_p2)
+    mag(error_HO_p2_vol)
 );
 
-double Linf_HO_p2 = gMax(magError_HO_p2);
+double Linf_HO_p2 = gMax(magError_HO_p2_vol);
 
-autoPtr<List<List<vector>>> gradQuadPtr_p2 = LREInterp_p2.gradScalarFaceQuad(TestFun);
+autoPtr<List<List<vector>>> gradQuadPtr_p2 = LREInterp_p2.gradScalarFaceQuad(volTestFun);
 const List<List<vector>>& gradQuad_p2 = gradQuadPtr_p2();
 const CompactListList<point>& faceQuadPts_p2 = LREInterp_p2.faceQuadPoints();
 const CompactListList<scalar>& faceQuadW_p2 =  LREInterp_p2.faceQuadWeight();
@@ -83,7 +83,7 @@ forAll(mesh.owner(), faceI)
         const scalar y = p.y();
         const scalar z = p.z();
 
-        // gradiente analítico exacto
+        // gradiente analítico exacto en punto de gauss pI de la cara faceI
         vector gradEx
         (
            -coefPI
@@ -123,4 +123,3 @@ Info << "HO p2: "
         << "   L2_srf_HO_p2 = " << L2_srf_HO_p2
         << "   Linf_srf_HO_p2 = " << Linf_srf_HO_p2
         << endl;
-        

@@ -138,7 +138,16 @@ public:
             volScalarField& u1,
             volScalarField& u2,
             volScalarField& u3,
-            const volVectorField& C
+            const vectorField& pos
+        );
+
+        void initializeFieldsIntegrationPoints
+        (
+            scalarField& VmIntegrationPoints,
+            scalarField& u1IntegrationPoints,
+            scalarField& u2IntegrationPoints,
+            scalarField& u3IntegrationPoints,
+            const vectorField& posIntegrationPoints
         );
 
 
@@ -169,6 +178,13 @@ public:
         (
             const Field<Field<scalar>>&,
             PtrList<volScalarField>&
+        );
+        
+        virtual void exportStatesIntegrationPoints
+        (
+            const Field<Field<scalar>>&,
+            PtrList<volScalarField>&,
+            const CompactListList<scalar>& cellIionQuadW
         );
 
         // Override to print variables in solver

@@ -187,7 +187,6 @@ namespace Foam {
         return filtered;
     }
 
-
     void Foam::ionicModelIO::exportStateFields
     (
         const PtrList<scalarField>& STATES,
@@ -212,13 +211,14 @@ namespace Foam {
         );
 
         // 2. Populate volScalarFields
-        forAll(STATES, cellI)
+        forAll(outFields[0], cellI) // its not perfect...
         {
             const scalarField& S = STATES[cellI];
             const scalarField& A = ALGEBRAIC[cellI];
-
+            // Info << "cellI " << cellI << " S.size() " << S.size() << " A.size() " << A.size() << " outFields.size() " << outFields.size() << endl;
             forAll(outFields, k)
             {
+                // Info << "     k " << k << " outFields[k].size() " << outFields[k].size() << " stateIndex[k] " << stateIndex[k] << endl;
                 if (stateIndex[k] >= 0)
                 {
                     outFields[k][cellI] = S[stateIndex[k]];
@@ -227,6 +227,79 @@ namespace Foam {
                 {
                     outFields[k][cellI] = A[algIndex[k]];
                 }
+            }
+        }
+
+        // 3. Boundaries
+        forAll(outFields, k)
+        {
+            outFields[k].correctBoundaryConditions();
+        }
+    }
+
+    void Foam::ionicModelIO::exportStateFieldsIntegrationPoints
+    (
+        const PtrList<scalarField>& STATES,
+        const PtrList<scalarField>& ALGEBRAIC,
+        const wordList& exportedNames,
+        const char* const stateNames[],
+        int nStates,
+        const char* const algNames[],
+        int nAlg,
+        PtrList<volScalarField>& outFields,
+        const CompactListList<scalar>& cellIionQuadW
+    )
+    {
+        // 1. mapping
+        List<label> stateIndex, algIndex;
+        mapVariableNames
+        (
+            exportedNames,
+            stateNames, nStates,
+            algNames,  nAlg,
+            stateIndex,
+            algIndex
+        );
+
+        // 2. Populate volScalarFields
+        forAll(outFields, k)
+        {
+            outFields[k] = 0.0;
+        }
+
+        label integrationPointPos = 0;
+
+        const label nCells = outFields[0].size();
+        for (label cellI = 0; cellI < nCells; ++cellI)
+        {
+            scalar totCellQuadW = 0.0;
+
+            forAll(cellIionQuadW[cellI], gI)
+            {
+                const scalar w = cellIionQuadW[cellI][gI];
+
+                const scalarField& S = STATES[integrationPointPos];
+                const scalarField& A = ALGEBRAIC[integrationPointPos];
+
+                forAll(outFields, k)
+                {
+                    if (stateIndex[k] >= 0)
+                    {
+                        outFields[k][cellI] += w * S[stateIndex[k]];
+                    }
+                    else
+                    {
+                        outFields[k][cellI] += w * A[algIndex[k]];
+                    }
+                }
+
+                totCellQuadW += w;
+                integrationPointPos++;
+            }
+
+            forAll(outFields, k)
+            {
+                outFields[k][cellI] /= totCellQuadW;
             }
         }
 

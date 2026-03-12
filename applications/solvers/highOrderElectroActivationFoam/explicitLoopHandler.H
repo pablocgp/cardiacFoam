@@ -24,6 +24,7 @@ License
 
 // HIGH ORDER //
 #include "LRE.H"
+#include "deltaVectors.H"
 // HIGH ORDER //
 
 using namespace Foam;
@@ -78,7 +79,8 @@ public:
         const dimensionedScalar& chi,
         const dimensionedScalar& Cm,
         const volTensorField& conductivity,
-        const label totalIionIntegrationPoints,
+        scalarField& VmIntegrationPoints,
+        scalarField& IionIntegrationPoints,
         const LRE& LREInterp_Vm,
         const LRE& LREInterp_Iion,
         surfaceVectorField& surfaceGradVm_HO,

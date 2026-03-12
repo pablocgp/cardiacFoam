@@ -246,8 +246,10 @@ inline void computeAndPrintErrors
         // outFilename = filenameSS.str();
         fileName outFilename
         (
-            Foam::name(N) + "_cells_"
-          + word(solveExplicit ? "explicit" : "implicit") + ".dat"
+            Foam::name(dimension) + "D_"
+        + Foam::name(N) + "_cells_"
+        + word(solveExplicit ? "explicit" : "implicit")
+        + ".dat"
         );
 
         //        std::ofstream fout(outFilename, std::ios::out | std::ios::app);

@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
         (
             isA<fixedValueFvPatchScalarField>
             (
-                TestFun.boundaryField()[patchI]
+                volTestFun.boundaryField()[patchI]
             )
         )
         {

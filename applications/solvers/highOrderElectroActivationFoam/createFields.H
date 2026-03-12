@@ -299,7 +299,7 @@ surfaceVectorField surfaceGradVm_HO
 (
     IOobject
     (
-        "gradVm_HO",
+        "surfaceGradVm_HO",
         runTime.timeName(),
         mesh,
         IOobject::NO_READ,
@@ -399,6 +399,32 @@ else
     totalIionIntegrationPoints = mesh.nCells();
 }
 
+vectorField posIntegrationPoints(totalIionIntegrationPoints);
+
+label globalI = 0;
+
+if (useHighOrder_Iion)
+{
+    forAll(mesh.cells(), cellI)
+    {
+        forAll(cellIionQuadP[cellI], gI)
+        {
+            posIntegrationPoints[globalI] = cellIionQuadP[cellI][gI];
+            globalI++;
+        }
+    }
+}
+else
+{
+    const vectorField& C = mesh.C();  // centros de celda
+
+    forAll(mesh.cells(), cellI)
+    {
+        posIntegrationPoints[globalI] = C[cellI];
+        globalI++;
+    }
+}
+
 //HIGH ORDER
 
 // Merge the dictionaries and create a memory object to read all properties
@@ -474,4 +500,14 @@ forAll(names, i)
     );
 }
 
+PtrList<scalarField> outFieldsIntegrationPoints;
+outFieldsIntegrationPoints.setSize(names.size());
 
+forAll(names, i)
+{
+    outFieldsIntegrationPoints.set
+    (
+        i,
+        new scalarField(totalIionIntegrationPoints, 0.0)
+    );
+}

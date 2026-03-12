@@ -77,6 +77,20 @@ public:
         int nAlg,
         PtrList<volScalarField>& outFields
     );
+
+    static void exportStateFieldsIntegrationPoints
+    (
+        const PtrList<scalarField>& STATES,
+        const PtrList<scalarField>& ALGEBRAIC,
+        const wordList& exportedNames,
+        const char* const stateNames[],
+        int nStates,
+        const char* const algNames[],
+        int nAlg,
+        PtrList<volScalarField>& outFields,
+        const CompactListList<scalar>& cellIionQuadW
+    );
+
     static void debugPrintFields
     (
         const PtrList<scalarField>& STATES,

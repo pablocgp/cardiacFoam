@@ -1,42 +1,42 @@
-Info << "Creating analytic scalar field TestFun" << endl;
+Info << "Creating analytic cell center scalar field volTestFun" << endl;
 
 double coefPI = Foam::constant::mathematical::pi;
 
-volScalarField TestFun
+volScalarField volTestFun
 (
     IOobject
     (
-        "TestFun",
+        "volTestFun",
         runTime.timeName(),
         mesh,
         IOobject::NO_READ,
         IOobject::AUTO_WRITE
     ),
     mesh,
-    dimensionedScalar("TestFun", dimless, 0.0),
+    dimensionedScalar("volTestFun", dimless, 0.0),
     zeroGradientFvPatchScalarField::typeName
 );
 
 const vectorField& C = mesh.C();
 
-forAll(TestFun, cellI)
+forAll(volTestFun, cellI)
 {
     const double x = C[cellI].x();
     const double y = C[cellI].y();
     const double z = C[cellI].z();
 
-    TestFun[cellI] = Foam::cos(coefPI*x)*Foam::cos(coefPI*y)*Foam::cos(coefPI*z);
+    volTestFun[cellI] = Foam::cos(coefPI*x)*Foam::cos(coefPI*y)*Foam::cos(coefPI*z);
 }
 
-TestFun.correctBoundaryConditions();
+volTestFun.correctBoundaryConditions();
 
-Info << "Computing exact gradient of TestFun" << endl;
+Info << "Computing exact gradient of volTestFun" << endl;
 
-volVectorField gradTestFun_exact
+volVectorField gradVolTestFun_exact
 (
     IOobject
     (
-        "gradTestFun_exact",
+        "gradVolTestFun_exact",
         runTime.timeName(),
         mesh,
         IOobject::NO_READ,
@@ -52,13 +52,13 @@ volVectorField gradTestFun_exact
     zeroGradientFvPatchVectorField::typeName
 );
 
-forAll(gradTestFun_exact, cellI)
+forAll(gradVolTestFun_exact, cellI)
 {
     const double x = C[cellI].x();
     const double y = C[cellI].y();
     const double z = C[cellI].z();
 
-    gradTestFun_exact[cellI] =
+    gradVolTestFun_exact[cellI] =
         vector
         (
             -coefPI*Foam::sin(coefPI*x)*Foam::cos(coefPI*y)*Foam::cos(coefPI*z),
@@ -67,5 +67,5 @@ forAll(gradTestFun_exact, cellI)
         );
 }
 
-gradTestFun_exact.correctBoundaryConditions();
+gradVolTestFun_exact.correctBoundaryConditions();
 

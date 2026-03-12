@@ -107,12 +107,12 @@ void Foam::tmanufacturedFDA::initializeFields
     volScalarField& u1m,
     volScalarField& u2m,
     volScalarField& u3m,
-    const volVectorField& C
+    const vectorField& pos
 )
 {
-    scalarField X = C.component(vector::X);
-    scalarField Y = C.component(vector::Y);
-    scalarField Z = C.component(vector::Z);
+    scalarField X = pos.component(vector::X);
+    scalarField Y = pos.component(vector::Y);
+    scalarField Z = pos.component(vector::Z);
     const scalar t = 0.0;
 
     computeManufacturedV(Vm, X, Y, Z, t, tissue());
@@ -137,6 +137,35 @@ void Foam::tmanufacturedFDA::initializeFields
     Info<< "Boundary conditions corrected." << endl;
 }
 
+void Foam::tmanufacturedFDA::initializeFieldsIntegrationPoints
+(
+    scalarField& VmIntegrationPoints,
+    scalarField& u1mIntegrationPoints,
+    scalarField& u2mIntegrationPoints,
+    scalarField& u3mIntegrationPoints,
+    const vectorField& posIntegrationPoints
+)
+{
+    scalarField X = posIntegrationPoints.component(vector::X);
+    scalarField Y = posIntegrationPoints.component(vector::Y);
+    scalarField Z = posIntegrationPoints.component(vector::Z);
+    const scalar t = 0.0;
+
+    computeManufacturedV(VmIntegrationPoints, X, Y, Z, t, tissue());
+    computeManufacturedU(u1mIntegrationPoints, u2mIntegrationPoints, u3mIntegrationPoints, X, Y, Z, t, tissue());
+
+    forAll(STATES_, i)
+    {
+        scalarField& S = STATES_[i];
+        S[V]  = VmIntegrationPoints[i];
+        S[u1] = u1mIntegrationPoints[i];
+        S[u2] = u2mIntegrationPoints[i];
+        S[u3] = u3mIntegrationPoints[i];
+
+        STATES_OLD_[i] = S;
+    }
+}
+
 void Foam::tmanufacturedFDA::calculateCurrent
 (
     const scalar stepStartTime,
@@ -146,6 +175,26 @@ void Foam::tmanufacturedFDA::calculateCurrent
     Field<Field<scalar>>& states
 )
 {
+    // Info << "STATES_.size() = " << STATES_.size() << nl;
+
+    // if (STATES_.size() > 0)
+    // {
+    //     Info << "STATES_[0].size() = " << STATES_[0].size() << nl;
+    //     Info << STATES_[0][0] << " "  << STATES_[0][1] << " "  << STATES_[0][2] << " "  << STATES_[0][3] << nl;
+    // }
+
+    // Info << "STATES_OLD_.size() = " << STATES_OLD_.size() << nl;
+
+    // if (STATES_OLD_.size() > 0)
+    // {
+    //     Info << "STATES_OLD_[0].size() = " << STATES_OLD_[0].size() << nl;
+    // }
+
+    // forAll(STATES_, integrationPtI)
+    // {
+    //     Info << integrationPtI << " " << STATES_OLD_[integrationPtI][0] << " " << STATES_OLD_[integrationPtI][1] << nl;
+    // }
+
     const label monitorCell = 0;
     STATES_ = STATES_OLD_;
     const scalar tStart = stepStartTime;
@@ -291,6 +340,24 @@ void Foam::tmanufacturedFDA::exportStates
         tmanufacturedFDASTATES_NAMES,NUM_STATES,
         tmanufacturedFDAALGEBRAIC_NAMES,NUM_ALGEBRAIC,
         outFields
+    );
+}
+
+void Foam::tmanufacturedFDA::exportStatesIntegrationPoints
+(
+    const Field<Field<scalar>>&,
+    PtrList<volScalarField>& outFields,
+    const CompactListList<scalar>& cellIionQuadW
+)
+{
+    ionicModelIO::exportStateFieldsIntegrationPoints
+    (
+        STATES_,ALGEBRAIC_,
+        exportedFieldNames(),
+        tmanufacturedFDASTATES_NAMES,NUM_STATES,
+        tmanufacturedFDAALGEBRAIC_NAMES,NUM_ALGEBRAIC,
+        outFields,
+        cellIionQuadW
     );
 }
 

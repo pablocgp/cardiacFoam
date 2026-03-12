@@ -15,56 +15,56 @@ LRE LREInterp_p3(
     LRECoeffs_p3
 );
 
-volVectorField gradTestFun_num_HO_p3
+volVectorField gradVolTestFun_num_HO_p3
 (
     IOobject
     (
-        "gradTestFun_num_HO",
+        "gradVolTestFun_num_HO",
         runTime.timeName(),
         mesh,
         IOobject::NO_READ,
         IOobject::AUTO_WRITE
     ),
-    LREInterp_p3.grad(TestFun)
+    LREInterp_p3.grad(volTestFun)
 );
 
-volVectorField error_HO_p3
+volVectorField error_HO_p3_vol
 (
     IOobject
     (
-        "gradError_HO_p3",
+        "error_HO_p3_vol",
         runTime.timeName(),
         mesh,
         IOobject::NO_READ,
         IOobject::AUTO_WRITE
     ),
-    gradTestFun_num_HO_p3 - gradTestFun_exact
+    gradVolTestFun_num_HO_p3 - gradVolTestFun_exact
 );
 
 // Normas del error
 double L2_HO_p3 =
     Foam::sqrt
     (
-        gSum(magSqr(error_HO_p3) * mesh.V())
+        gSum(magSqr(error_HO_p3_vol) * mesh.V())
         / gSum(mesh.V())
     );
 
-volScalarField magError_HO_p3
+volScalarField magError_HO_p3_vol
 (
     IOobject
     (
-        "magError_HO_p3",
+        "magError_HO_p3_vol",
         runTime.timeName(),
         mesh,
         IOobject::NO_READ,
         IOobject::AUTO_WRITE
     ),
-    mag(error_HO_p3)
+    mag(error_HO_p3_vol)
 );
 
-double Linf_HO_p3 = gMax(magError_HO_p3);
+double Linf_HO_p3 = gMax(magError_HO_p3_vol);
 
-autoPtr<List<List<vector>>> gradQuadPtr_p3 = LREInterp_p3.gradScalarFaceQuad(TestFun);
+autoPtr<List<List<vector>>> gradQuadPtr_p3 = LREInterp_p3.gradScalarFaceQuad(volTestFun);
 const List<List<vector>>& gradQuad_p3 = gradQuadPtr_p3();
 const CompactListList<point>& faceQuadPts_p3 = LREInterp_p3.faceQuadPoints();
 const CompactListList<scalar>& faceQuadW_p3 =  LREInterp_p3.faceQuadWeight();
@@ -83,7 +83,7 @@ forAll(mesh.owner(), faceI)
         const scalar y = p.y();
         const scalar z = p.z();
 
-        // gradiente analítico exacto
+        // gradiente analítico exacto en punto de gauss pI de la cara faceI
         vector gradEx
         (
            -coefPI
