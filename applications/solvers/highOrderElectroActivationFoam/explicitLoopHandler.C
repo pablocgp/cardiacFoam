@@ -127,7 +127,8 @@ void explicitLoopHandler::highOrderExplicitLoop
     surfaceVectorField& surfaceGradVm_HO,
     const Switch useHighOrder_Iion,
     const Switch useHighOrder_Vm,
-    volScalarField& lapVm
+    volScalarField& lapVm,
+    const dimensionedScalar dtDim
 )
 {
     const fvMesh& mesh = Vm.mesh();
@@ -348,7 +349,7 @@ void explicitLoopHandler::highOrderExplicitLoop
         //     const scalar denom = max(mag(n & d), VSMALL);
 
         //     scalar h = mag(deltaI[faceI]);
-        //     scalar alpha_val = 0.1;
+        //     scalar alpha_val = 0.001;
 
         //     // alpha_val = scaleFactor*impKf_[faceI] this should be changed
         //     const scalar faceDamping =
@@ -358,7 +359,6 @@ void explicitLoopHandler::highOrderExplicitLoop
         // }
 
         surfaceGradVm_HO.correctBoundaryConditions();
-
 
         lapVm = fvc::div(mesh.Sf() & surfaceGradVm_HO ) 
                 // + fvc::laplacian(conductivity,Vm) 
@@ -376,9 +376,9 @@ void explicitLoopHandler::highOrderExplicitLoop
     solve
     (
         chi*Cm*fvm::ddt(Vm)
-     == lapVm
-      - chi*Cm*Iion
-      + externalStimulusCurrent
+    == lapVm
+    - chi*Cm*Iion
+    + externalStimulusCurrent
     );
 
     Vm.correctBoundaryConditions();

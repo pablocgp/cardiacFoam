@@ -86,7 +86,8 @@ public:
         surfaceVectorField& surfaceGradVm_HO,
         const Switch useHighOrder_Iion,
         const Switch useHighOrder_Vm,
-        volScalarField& lapVm
+        volScalarField& lapVm,
+        const dimensionedScalar dtDim
     );
     
     // HIGH ORDER //

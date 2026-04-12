@@ -89,6 +89,7 @@ int main(int argc, char* argv[])
     int dim = mesh.nGeometricD();
 
     scalar dt = runTime.deltaTValue();
+    dimensionedScalar dtDim = runTime.deltaT();
     int nsteps = int(ceil(runTime.endTime().value()/dt));
 
     scalarField VmIntegrationPoints( totalIionIntegrationPoints, 0.0);
@@ -158,7 +159,8 @@ int main(int argc, char* argv[])
                 surfaceGradVm_HO,
                 useHighOrder_Iion,
                 useHighOrder_Vm,
-                lapVm
+                lapVm,
+                dtDim
             );
 
             // Info << "states.size() = " << states.size() << nl;
