@@ -1,0 +1,462 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{geometry}
+\usepackage{hyperref}
+\geometry{margin=2.2cm}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
+
+\title{MMS Verification Report\\
+\large \texttt{testHighOrderHeatEquationStationary}}
+\author{Automatically generated from current case results}
+\date{April 23, 2026}
+
+\begin{document}
+\maketitle
+
+\section{Objective}
+This report documents solver \texttt{testHighOrderHeatEquationStationary}, its numerical formulation, and the spatial-convergence study for five MMS examples (\texttt{example\_0} to \texttt{example\_4}) in:
+\begin{itemize}
+\item Solver: \texttt{/home/pablo/cardiacFoam-pc/applications/solvers/testHighOrderHeatEquationStationary/}
+\item Case and results: \texttt{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials\_electro/testHighOrderHeatEquationStationary/}
+\end{itemize}
+
+\section{Governing Equation and MMS}
+The solver addresses the stationary diffusion problem in $\Omega=[0,1]^3$:
+\begin{equation}
+\nabla\cdot\left(\alpha\nabla T\right) + Q = 0,
+\end{equation}
+with constant diffusivity $\alpha$ (here, $\alpha=1$).
+
+In MMS, an exact temperature $T_{\mathrm{ex}}$ is prescribed and the source is set as:
+\begin{equation}
+Q = -\nabla\cdot\left(\alpha\nabla T_{\mathrm{ex}}\right).
+\end{equation}
+
+In this solver, for all five implemented examples, $Q$ is proportional to $T_{\mathrm{ex}}$ (Table~\ref{tab:mms-defs}).
+
+\begin{table}[htbp]
+\centering
+\caption{Exact solutions and MMS source terms implemented in the solver.}
+\label{tab:mms-defs}
+\small
+\begin{tabular}{lll}
+\toprule
+Case & $T_{\mathrm{ex}}$ & $Q$ \\
+\midrule
+\texttt{example\_0} & $T_{\mathrm{ex}} = A\sin(\beta\pi x)\sin(\beta\pi y)\sin(\beta\pi z)$ & $Q = 3\alpha(\beta\pi)^2 T_{\mathrm{ex}}$ \\
+\texttt{example\_1} & $T_{\mathrm{ex}} = A\cos(\beta\pi x)\sin(\beta\pi y)\sin(\beta\pi z)$ & $Q = 3\alpha(\beta\pi)^2 T_{\mathrm{ex}}$ \\
+\texttt{example\_2} & $T_{\mathrm{ex}} = A\cos(\beta\pi x)\cos(\beta\pi y)\sin(\beta\pi z)$ & $Q = 3\alpha(\beta\pi)^2 T_{\mathrm{ex}}$ \\
+\texttt{example\_3} & $T_{\mathrm{ex}} = A\cos(\beta\pi x)\cos(\beta\pi y)\cos(\beta\pi z)$ & $Q = 3\alpha(\beta\pi)^2 T_{\mathrm{ex}}$ \\
+\texttt{example\_4} & $T_{\mathrm{ex}} = A\sin(kx)\sin(ky)\sin(kz),\; k=\tfrac{1}{2}\gamma\pi$ & $Q = 3\alpha k^2 T_{\mathrm{ex}}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Parameters used in available results: $A=1.0$, $\beta=4.0$ (examples 0--3), $\gamma=3.0$ (example 4).
+
+\section{Numerical Discretization}
+\subsection{Spatial Operator}
+A high-order diffusive face-flux approximation is used via LRE (Least-Squares Reproducing Kernel) and face quadrature:
+\begin{equation}
+\phi_f = \int_{A_f} \mathbf{n}_f\cdot(\mathbf{K}\nabla T)\,dA \approx A_f\sum_q w_{f,q}\,\mathbf{n}_f\cdot(\mathbf{K}\nabla T)_q,
+\end{equation}
+with $\mathbf{K}=\alpha\mathbf{I}$. Then $\nabla\cdot(\mathbf{K}\nabla T)$ is assembled with \texttt{fvc::div(fluxT\_HO)}.
+
+When \texttt{useHighOrder\_T=false}, the solver falls back to \texttt{fvc::laplacian(conductivity, T)}.
+
+\subsection{Stationary Solution Strategy (Pseudo-Time)}
+There is no physical time derivative $\partial T/\partial t$. The steady problem is solved by explicit pseudo-time relaxation:
+\begin{equation}
+T^{k+1} = T^k + \Delta\tau\,R^k, \qquad R^k = \nabla\cdot(\alpha\nabla T^k)+Q.
+\end{equation}
+
+The pseudo-time step is:
+\begin{equation}
+\Delta\tau = \texttt{pseudoCFL}\,\frac{\Delta x^2}{\alpha}.
+\end{equation}
+Iterations stop when $\lVert R \rVert_{\infty}<\texttt{residualTol}$ (or \texttt{maxPseudoSteps} is reached).
+
+\paragraph{Important note on mass matrices and implicit/explicit time integration.}
+This stationary solver has no mass term (no $dT/dt$), therefore there is no consistent/lumped mass matrix and no physical-time implicit integration. The method is explicit only in pseudo-time, as an iterative route to the steady state.
+
+\subsection{Boundary Stencils}
+In \texttt{createFields.H}, \texttt{includePatchInStencils} is enabled only for \texttt{fixedValue}/\texttt{fixedVoltage} patches.
+\texttt{zeroGradient} patches are excluded from boundary LRE stencils. This can affect near-boundary accuracy and global rates (especially in $L_\infty$-type norms).
+
+\section{Error Definitions and Convergence Orders}
+\subsection{Cell-Centered Errors}
+With $e_i = T_i - T_{\mathrm{ex},i}$ and cell volume $V_i$:
+\begin{align}
+L_1 &= \frac{\sum_i |e_i|V_i}{\sum_i V_i}, \\
+L_2 &= \sqrt{\frac{\sum_i e_i^2 V_i}{\sum_i V_i}}, \\
+L_\infty &= \max_i |e_i|.
+\end{align}
+
+The solver also reports \texttt{error\_T} as:
+\begin{equation}
+\texttt{error\_T}=\sqrt{\sum_i e_i^2},
+\end{equation}
+which is not volume-normalized. On uniform 3D meshes, its expected slope approximately follows
+\begin{equation}
+p_{\texttt{error\_T}} \approx p_{L_2}-\tfrac{3}{2}.
+\end{equation}
+
+\subsection{Gauss-Point Reconstructed Errors}
+At each cell quadrature point $\mathbf{x}_q$, the solver reconstructs:
+\begin{equation}
+T_h(\mathbf{x}_q)=T_C+\nabla T_C\cdot\mathbf{d}+\frac{1}{2}\mathbf{d}^T\mathbf{H}_C\mathbf{d}+\frac{1}{6}\mathcal{T}_C(\mathbf{d},\mathbf{d},\mathbf{d}),
+\end{equation}
+with $\mathbf{d}=\mathbf{x}_q-\mathbf{x}_C$. Hessian and third-derivative terms are included when the LRE order supports them.
+
+Then:
+\begin{align}
+G_1 &= \frac{\sum_{i,q}V_i w_{iq}|T_h(\mathbf{x}_{iq})-T_{\mathrm{ex}}(\mathbf{x}_{iq})|}{\sum_{i,q}V_i w_{iq}}, \\
+G_2 &= \sqrt{\frac{\sum_{i,q}V_i w_{iq}(T_h-T_{\mathrm{ex}})^2}{\sum_{i,q}V_i w_{iq}}}, \\
+G_\infty &= \max_{i,q}|T_h(\mathbf{x}_{iq})-T_{\mathrm{ex}}(\mathbf{x}_{iq})|.
+\end{align}
+
+\subsection{Convergence Rates (\texttt{run\_convergence.py})}
+Using $h=1/N$, for two consecutive meshes $(N_1,N_2)$:
+\begin{equation}
+p_{N_1\to N_2}=\frac{\log(e_1/e_2)}{\log(h_1/h_2)}=\frac{\log(e_1/e_2)}{\log(N_2/N_1)}.
+\end{equation}
+Additionally, a global fitted slope $p_{\mathrm{fit}}$ is computed by log--log linear regression over all meshes.
+
+\section{Run Configuration}
+\begin{itemize}
+\item Meshes: $N=10,15,20,25,30$ on cube $[0,1]^3$ (uniform $N^3$ meshes).
+\item \texttt{alpha}=1.0.
+\item \texttt{useHighOrder\_T=true}.
+\item LRE: \texttt{N=3}, \texttt{Nn=60}, \texttt{k=6}, \texttt{maxStencilSize=80}, \texttt{useQRDecomposition=true}, \texttt{useGlobalStencils=true}.
+\item Pseudo iteration: \texttt{pseudoCFL=0.1}, \texttt{residualTol=1e-10}, \texttt{maxPseudoSteps=200000}.
+\end{itemize}
+
+\section{Results: \texttt{example\_0}}
+\paragraph{MMS definition.}
+$T_{\mathrm{ex}} = A\sin(\beta\pi x)\sin(\beta\pi y)\sin(\beta\pi z)$ and $Q = 3\alpha(\beta\pi)^2 T_{\mathrm{ex}}$.
+\paragraph{BCs in case template.}
+Template in $0/T$: six faces with \texttt{fixedVoltage} (homogeneous Dirichlet).
+\begin{table}[htbp]
+\centering
+\caption{Meshwise errors for \texttt{example\_0} (file \texttt{errors\_vs\_N\_stationary.dat}).}
+\label{tab:errors-example-0}
+\scriptsize
+\begin{tabular}{rccccccc}
+\toprule
+$N$ & $L_1$ & $L_2$ & $L_\infty$ & $\texttt{error\_T}$ & $G_1$ & $G_2$ & $G_\infty$ \\
+\midrule
+10 & 7.048810e-02 & 1.239924e-01 & 6.719479e-01 & 3.920985e+00 & 9.273971e-02 & 1.501178e-01 & 9.332560e-01 \\
+15 & 1.452173e-02 & 2.395150e-02 & 1.286408e-01 & 1.391456e+00 & 2.120367e-02 & 3.112282e-02 & 1.686667e-01 \\
+20 & 5.456393e-03 & 7.761052e-03 & 2.780076e-02 & 6.941696e-01 & 7.545237e-03 & 1.027444e-02 & 3.819653e-02 \\
+25 & 2.262793e-03 & 3.237674e-03 & 9.105407e-03 & 4.047093e-01 & 3.228864e-03 & 4.335222e-03 & 2.612068e-02 \\
+30 & 1.121086e-03 & 1.576019e-03 & 5.013332e-03 & 2.589663e-01 & 1.606778e-03 & 2.126752e-03 & 1.475454e-02 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\caption{Global fitted rates $p_{\mathrm{fit}}$ for \texttt{example\_0} (log--log fit over all meshes).}
+\label{tab:fit-example-0}
+\small
+\begin{tabular}{lccccccc}
+\toprule
+Metric & $L_1$ & $L_2$ & $L_\infty$ & $\texttt{error\_T}$ & $G_1$ & $G_2$ & $G_\infty$ \\
+\midrule
+$p_{\mathrm{fit}}$ & 3.744 & 3.967 & 4.596 & 2.467 & 3.683 & 3.871 & 3.823 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\caption{Pairwise refinement rates for \texttt{example\_0} ($p_{N_1\to N_2}$).}
+\label{tab:pair-example-0}
+\scriptsize
+\begin{tabular}{rrcccccc}
+\toprule
+$N_1$ & $N_2$ & $p_{L_1}$ & $p_{L_2}$ & $p_{L_\infty}$ & $p_{G_1}$ & $p_{G_2}$ & $p_{G_\infty}$ \\
+\midrule
+10 & 15 & 3.896 & 4.055 & 4.077 & 3.639 & 3.881 & 4.219 \\
+15 & 20 & 3.403 & 3.917 & 5.325 & 3.592 & 3.852 & 5.163 \\
+20 & 25 & 3.944 & 3.918 & 5.002 & 3.804 & 3.867 & 1.703 \\
+25 & 30 & 3.852 & 3.949 & 3.273 & 3.828 & 3.906 & 3.133 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\noindent Final convergence summary (mesh $N=30$):
+\begin{itemize}
+\item Pseudo step: $\Delta\tau=1.111111e-04$
+\item Pseudo iterations: 1550
+\item Final residual: $\|R\|_\infty=9.868018e-11$
+\end{itemize}
+\section{Results: \texttt{example\_1}}
+\paragraph{MMS definition.}
+$T_{\mathrm{ex}} = A\cos(\beta\pi x)\sin(\beta\pi y)\sin(\beta\pi z)$ and $Q = 3\alpha(\beta\pi)^2 T_{\mathrm{ex}}$.
+\paragraph{BCs in case template.}
+Template in $0/T$: $x_{\min},x_{\max}$ with \texttt{zeroGradient}; faces in $y,z$ with \texttt{fixedVoltage}.
+\begin{table}[htbp]
+\centering
+\caption{Meshwise errors for \texttt{example\_1} (file \texttt{errors\_vs\_N\_stationary.dat}).}
+\label{tab:errors-example-1}
+\scriptsize
+\begin{tabular}{rccccccc}
+\toprule
+$N$ & $L_1$ & $L_2$ & $L_\infty$ & $\texttt{error\_T}$ & $G_1$ & $G_2$ & $G_\infty$ \\
+\midrule
+10 & 7.763737e-02 & 1.274425e-01 & 6.282979e-01 & 4.030086e+00 & 9.923409e-02 & 1.537929e-01 & 9.644991e-01 \\
+15 & 1.682324e-02 & 2.540476e-02 & 9.723462e-02 & 1.475883e+00 & 2.306572e-02 & 3.285809e-02 & 3.230757e-01 \\
+20 & 5.759780e-03 & 8.089638e-03 & 2.850658e-02 & 7.235593e-01 & 7.892973e-03 & 1.070184e-02 & 9.012217e-02 \\
+25 & 2.379635e-03 & 3.354571e-03 & 1.015775e-02 & 4.193214e-01 & 3.341111e-03 & 4.477018e-03 & 2.955055e-02 \\
+30 & 1.175889e-03 & 1.634527e-03 & 5.346623e-03 & 2.685803e-01 & 1.654070e-03 & 2.191262e-03 & 1.332941e-02 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\caption{Global fitted rates $p_{\mathrm{fit}}$ for \texttt{example\_1} (log--log fit over all meshes).}
+\label{tab:fit-example-1}
+\small
+\begin{tabular}{lccccccc}
+\toprule
+Metric & $L_1$ & $L_2$ & $L_\infty$ & $\texttt{error\_T}$ & $G_1$ & $G_2$ & $G_\infty$ \\
+\midrule
+$p_{\mathrm{fit}}$ & 3.811 & 3.966 & 4.374 & 2.466 & 3.728 & 3.872 & 3.973 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\caption{Pairwise refinement rates for \texttt{example\_1} ($p_{N_1\to N_2}$).}
+\label{tab:pair-example-1}
+\scriptsize
+\begin{tabular}{rrcccccc}
+\toprule
+$N_1$ & $N_2$ & $p_{L_1}$ & $p_{L_2}$ & $p_{L_\infty}$ & $p_{G_1}$ & $p_{G_2}$ & $p_{G_\infty}$ \\
+\midrule
+10 & 15 & 3.772 & 3.977 & 4.602 & 3.599 & 3.807 & 2.697 \\
+15 & 20 & 3.726 & 3.978 & 4.265 & 3.728 & 3.899 & 4.438 \\
+20 & 25 & 3.961 & 3.945 & 4.624 & 3.853 & 3.905 & 4.997 \\
+25 & 30 & 3.866 & 3.943 & 3.520 & 3.856 & 3.919 & 4.367 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\noindent Final convergence summary (mesh $N=30$):
+\begin{itemize}
+\item Pseudo step: $\Delta\tau=1.111111e-04$
+\item Pseudo iterations: 2566
+\item Final residual: $\|R\|_\infty=9.974599e-11$
+\end{itemize}
+\section{Results: \texttt{example\_2}}
+\paragraph{MMS definition.}
+$T_{\mathrm{ex}} = A\cos(\beta\pi x)\cos(\beta\pi y)\sin(\beta\pi z)$ and $Q = 3\alpha(\beta\pi)^2 T_{\mathrm{ex}}$.
+\paragraph{BCs in case template.}
+Template in $0/T$: faces in $x$ and $y$ with \texttt{zeroGradient}; faces in $z$ with \texttt{fixedVoltage}.
+\begin{table}[htbp]
+\centering
+\caption{Meshwise errors for \texttt{example\_2} (file \texttt{errors\_vs\_N\_stationary.dat}).}
+\label{tab:errors-example-2}
+\scriptsize
+\begin{tabular}{rccccccc}
+\toprule
+$N$ & $L_1$ & $L_2$ & $L_\infty$ & $\texttt{error\_T}$ & $G_1$ & $G_2$ & $G_\infty$ \\
+\midrule
+10 & 9.353306e-02 & 1.391322e-01 & 5.201538e-01 & 4.399746e+00 & 1.150925e-01 & 1.692636e-01 & 1.367801e+00 \\
+15 & 1.847575e-02 & 2.604867e-02 & 8.784381e-02 & 1.513291e+00 & 2.437095e-02 & 3.317289e-02 & 2.807206e-01 \\
+20 & 6.099421e-03 & 8.617974e-03 & 3.226959e-02 & 7.708150e-01 & 8.222187e-03 & 1.109065e-02 & 1.076271e-01 \\
+25 & 2.548152e-03 & 3.584617e-03 & 1.474382e-02 & 4.480771e-01 & 3.481938e-03 & 4.660725e-03 & 4.363761e-02 \\
+30 & 1.258804e-03 & 1.735708e-03 & 8.018710e-03 & 2.852059e-01 & 1.716143e-03 & 2.275558e-03 & 2.345329e-02 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\caption{Global fitted rates $p_{\mathrm{fit}}$ for \texttt{example\_2} (log--log fit over all meshes).}
+\label{tab:fit-example-2}
+\small
+\begin{tabular}{lccccccc}
+\toprule
+Metric & $L_1$ & $L_2$ & $L_\infty$ & $\texttt{error\_T}$ & $G_1$ & $G_2$ & $G_\infty$ \\
+\midrule
+$p_{\mathrm{fit}}$ & 3.917 & 3.976 & 3.775 & 2.476 & 3.823 & 3.911 & 3.696 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\caption{Pairwise refinement rates for \texttt{example\_2} ($p_{N_1\to N_2}$).}
+\label{tab:pair-example-2}
+\scriptsize
+\begin{tabular}{rrcccccc}
+\toprule
+$N_1$ & $N_2$ & $p_{L_1}$ & $p_{L_2}$ & $p_{L_\infty}$ & $p_{G_1}$ & $p_{G_2}$ & $p_{G_\infty}$ \\
+\midrule
+10 & 15 & 4.000 & 4.132 & 4.386 & 3.829 & 4.019 & 3.906 \\
+15 & 20 & 3.852 & 3.845 & 3.481 & 3.777 & 3.808 & 3.332 \\
+20 & 25 & 3.911 & 3.931 & 3.510 & 3.851 & 3.885 & 4.046 \\
+25 & 30 & 3.868 & 3.978 & 3.341 & 3.881 & 3.932 & 3.406 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\noindent Final convergence summary (mesh $N=30$):
+\begin{itemize}
+\item Pseudo step: $\Delta\tau=1.111111e-04$
+\item Pseudo iterations: 3788
+\item Final residual: $\|R\|_\infty=9.953283e-11$
+\end{itemize}
+\section{Results: \texttt{example\_3}}
+\paragraph{MMS definition.}
+$T_{\mathrm{ex}} = A\cos(\beta\pi x)\cos(\beta\pi y)\cos(\beta\pi z)$ and $Q = 3\alpha(\beta\pi)^2 T_{\mathrm{ex}}$.
+\paragraph{BCs in case template.}
+Template in $0/T$: six faces with \texttt{zeroGradient}.
+\begin{table}[htbp]
+\centering
+\caption{Meshwise errors for \texttt{example\_3} (file \texttt{errors\_vs\_N\_stationary.dat}).}
+\label{tab:errors-example-3}
+\scriptsize
+\begin{tabular}{rccccccc}
+\toprule
+$N$ & $L_1$ & $L_2$ & $L_\infty$ & $\texttt{error\_T}$ & $G_1$ & $G_2$ & $G_\infty$ \\
+\midrule
+10 & 9.537305e-02 & 1.395818e-01 & 4.317914e-01 & 4.413963e+00 & 1.172532e-01 & 1.751385e-01 & 1.262408e+00 \\
+15 & 2.147890e-02 & 2.952477e-02 & 1.199727e-01 & 1.715234e+00 & 2.669534e-02 & 3.574145e-02 & 2.498895e-01 \\
+20 & 6.390003e-03 & 9.261010e-03 & 3.894466e-02 & 8.283299e-01 & 8.502088e-03 & 1.141211e-02 & 6.334695e-02 \\
+25 & 2.703762e-03 & 3.788625e-03 & 1.368730e-02 & 4.735781e-01 & 3.600480e-03 & 4.763333e-03 & 1.831269e-02 \\
+30 & 1.345030e-03 & 1.826917e-03 & 8.025505e-03 & 3.001931e-01 & 1.774048e-03 & 2.332400e-03 & 1.119903e-02 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\caption{Global fitted rates $p_{\mathrm{fit}}$ for \texttt{example\_3} (log--log fit over all meshes).}
+\label{tab:fit-example-3}
+\small
+\begin{tabular}{lccccccc}
+\toprule
+Metric & $L_1$ & $L_2$ & $L_\infty$ & $\texttt{error\_T}$ & $G_1$ & $G_2$ & $G_\infty$ \\
+\midrule
+$p_{\mathrm{fit}}$ & 3.907 & 3.954 & 3.722 & 2.454 & 3.828 & 3.934 & 4.452 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\caption{Pairwise refinement rates for \texttt{example\_3} ($p_{N_1\to N_2}$).}
+\label{tab:pair-example-3}
+\scriptsize
+\begin{tabular}{rrcccccc}
+\toprule
+$N_1$ & $N_2$ & $p_{L_1}$ & $p_{L_2}$ & $p_{L_\infty}$ & $p_{G_1}$ & $p_{G_2}$ & $p_{G_\infty}$ \\
+\midrule
+10 & 15 & 3.677 & 3.831 & 3.159 & 3.650 & 3.920 & 3.995 \\
+15 & 20 & 4.214 & 4.030 & 3.911 & 3.977 & 3.968 & 4.771 \\
+20 & 25 & 3.854 & 4.006 & 4.686 & 3.851 & 3.916 & 5.562 \\
+25 & 30 & 3.830 & 4.000 & 2.928 & 3.882 & 3.916 & 2.697 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\noindent Final convergence summary (mesh $N=30$):
+\begin{itemize}
+\item Pseudo step: $\Delta\tau=1.111111e-04$
+\item Pseudo iterations: 3276
+\item Final residual: $\|R\|_\infty=9.936230e-11$
+\end{itemize}
+\section{Results: \texttt{example\_4}}
+\paragraph{MMS definition.}
+$T_{\mathrm{ex}} = A\sin(kx)\sin(ky)\sin(kz),\; k=\tfrac{1}{2}\gamma\pi$ and $Q = 3\alpha k^2 T_{\mathrm{ex}}$.
+\paragraph{BCs in case template.}
+Template in $0/T$: $x_{\min},y_{\min},z_{\min}$ with \texttt{fixedVoltage}; $x_{\max},y_{\max},z_{\max}$ with \texttt{zeroGradient}.
+\begin{table}[htbp]
+\centering
+\caption{Meshwise errors for \texttt{example\_4} (file \texttt{errors\_vs\_N\_stationary.dat}).}
+\label{tab:errors-example-4}
+\scriptsize
+\begin{tabular}{rccccccc}
+\toprule
+$N$ & $L_1$ & $L_2$ & $L_\infty$ & $\texttt{error\_T}$ & $G_1$ & $G_2$ & $G_\infty$ \\
+\midrule
+10 & 2.396599e-03 & 3.377504e-03 & 1.203293e-02 & 1.068061e-01 & 3.089920e-03 & 4.220842e-03 & 3.560411e-02 \\
+15 & 4.473111e-04 & 6.193994e-04 & 2.927116e-03 & 3.598385e-02 & 5.975104e-04 & 7.966491e-04 & 7.330207e-03 \\
+20 & 1.370265e-04 & 1.893778e-04 & 9.206440e-04 & 1.693846e-02 & 1.862934e-04 & 2.472761e-04 & 2.136154e-03 \\
+25 & 5.442065e-05 & 7.591736e-05 & 3.576909e-04 & 9.489670e-03 & 7.526875e-05 & 9.996437e-05 & 1.029571e-03 \\
+30 & 2.582922e-05 & 3.604490e-05 & 1.717897e-04 & 5.922781e-03 & 3.594828e-05 & 4.771781e-05 & 5.443255e-04 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\caption{Global fitted rates $p_{\mathrm{fit}}$ for \texttt{example\_4} (log--log fit over all meshes).}
+\label{tab:fit-example-4}
+\small
+\begin{tabular}{lccccccc}
+\toprule
+Metric & $L_1$ & $L_2$ & $L_\infty$ & $\texttt{error\_T}$ & $G_1$ & $G_2$ & $G_\infty$ \\
+\midrule
+$p_{\mathrm{fit}}$ & 4.125 & 4.132 & 3.891 & 2.632 & 4.054 & 4.079 & 3.833 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\caption{Pairwise refinement rates for \texttt{example\_4} ($p_{N_1\to N_2}$).}
+\label{tab:pair-example-4}
+\scriptsize
+\begin{tabular}{rrcccccc}
+\toprule
+$N_1$ & $N_2$ & $p_{L_1}$ & $p_{L_2}$ & $p_{L_\infty}$ & $p_{G_1}$ & $p_{G_2}$ & $p_{G_\infty}$ \\
+\midrule
+10 & 15 & 4.140 & 4.183 & 3.486 & 4.052 & 4.112 & 3.898 \\
+15 & 20 & 4.112 & 4.119 & 4.021 & 4.051 & 4.067 & 4.286 \\
+20 & 25 & 4.138 & 4.096 & 4.237 & 4.061 & 4.059 & 3.271 \\
+25 & 30 & 4.087 & 4.086 & 4.023 & 4.053 & 4.056 & 3.496 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\noindent Final convergence summary (mesh $N=30$):
+\begin{itemize}
+\item Pseudo step: $\Delta\tau=1.111111e-04$
+\item Pseudo iterations: 12977
+\item Final residual: $\|R\|_\infty=9.956125e-11$
+\end{itemize}
+\section{Global Comparison Across Examples}
+Table~\ref{tab:global-summary} summarizes representative fitted rates for each example. For a fourth-order spatial operator, expected behavior is $p\approx 4$ in smooth norms (especially $L_2$ and $G_2$).
+
+\begin{table}[htbp]
+\centering
+\caption{Global summary of fitted rates and pseudo-iteration cost (N=30).}
+\label{tab:global-summary}
+\small
+\begin{tabular}{lccccccc}
+\toprule
+Case & $p_{L_2}$ & $p_{G_2}$ & $p_{L_1}$ & $p_{G_1}$ & $p_{L_\infty}$ & $p_{G_\infty}$ & pseudo steps \\
+\midrule
+\texttt{example\_0} & 3.967 & 3.871 & 3.744 & 3.683 & 4.596 & 3.823 & 1550 \\
+\texttt{example\_1} & 3.966 & 3.872 & 3.811 & 3.728 & 4.374 & 3.973 & 2566 \\
+\texttt{example\_2} & 3.976 & 3.911 & 3.917 & 3.823 & 3.775 & 3.696 & 3788 \\
+\texttt{example\_3} & 3.954 & 3.934 & 3.907 & 3.828 & 3.722 & 4.452 & 3276 \\
+\texttt{example\_4} & 4.132 & 4.079 & 4.125 & 4.054 & 3.891 & 3.833 & 12977 \\
+\bottomrule
+\end{tabular}
+\end{table}
+Main observations:
+\begin{itemize}
+\item Across all five examples, $L_2$ and $G_2$ slopes are close to 4 (about $3.87$ to $4.13$), consistent with the high-order spatial objective.
+\item $L_\infty$ and $G_\infty$ are more sensitive to boundary-local errors and show larger variability.
+\item \texttt{example\_4} has the smallest absolute errors and rates very close to fourth order.
+\item \texttt{error\_T} slopes are around $2.45$--$2.63$, consistent with its non-normalized 3D definition ($p_{L_2}-1.5$ approximately).
+\end{itemize}
+\section{Conclusions}
+The solver correctly implements stationary MMS verification for a high-order LRE-based diffusion operator. Results across the five examples confirm near fourth-order spatial convergence in energy/average norms ($L_2$, $G_2$), with max-norm variability attributable to local sensitivity and boundary-stencil treatment (notably, \texttt{zeroGradient} patches excluded from boundary LRE stencils).
+
+\section*{Referenced Files}
+\begin{itemize}
+\item Solver: \texttt{/home/pablo/cardiacFoam-pc/applications/solvers/testHighOrderHeatEquationStationary/testHighOrderHeatEquationStationary.C}
+\item Field setup: \texttt{/home/pablo/cardiacFoam-pc/applications/solvers/testHighOrderHeatEquationStationary/createFields.H}
+\item Convergence script: \texttt{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials\_electro/testHighOrderHeatEquationStationary/run\_convergence.py}
+\item Results: \texttt{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials\_electro/testHighOrderHeatEquationStationary/results/example\_*/stationary/}
+\end{itemize}
+\end{document}

@@ -1,0 +1,780 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\geometry{margin=2.2cm}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
+
+\title{Explicit Transient MMS Report\\
+\large \texttt{testHighOrderHeatEquationExplicit}}
+\author{Automatically generated from current solver and results}
+\date{April 23, 2026}
+
+\begin{document}
+\maketitle
+\section{Objective}
+This report documents solver \texttt{testHighOrderHeatEquationExplicit} and the current results under \texttt{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials\_electro/testHighOrderHeatEquationExplicit/results}.
+It covers: governing equation, high-order spatial discretization, explicit time integration, error definitions, convergence-rate calculations, and per-example result summaries.
+\section{Governing Equation}
+The solver integrates the transient diffusion equation:
+\begin{equation}
+\rho C_p\,\frac{\partial T}{\partial t} = \nabla\cdot(\alpha\nabla T) + Q,
+\end{equation}
+with constant material coefficients ($\alpha=1$, $\rho=1$, $C_p=1$ in the current case setup).
+In code, the spatial residual is defined as $R = \nabla\cdot(\alpha\nabla T)+Q$, and the explicit update is:
+\begin{equation}
+T_i^{n+1}=T_i^n + \frac{\Delta t}{\rho C_p}\,R_i^n.
+\end{equation}
+\section{MMS Implemented in the Solver}
+The solver supports five manufactured-solution families. The implemented expressions are:
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{MMS families implemented in \texttt{testHighOrderHeatEquationExplicit.C}.}
+\label{tab:mms-impl-explicit}
+\begin{tabular}{lll}
+\toprule
+Case & $T_{\mathrm{ex}}$ & $Q$ \\
+\midrule
+\texttt{example\_0} & $T_{\mathrm{ex}} = A\sin(\beta\pi x)\sin(\beta\pi y)\sin(\beta\pi z)\sin(\beta\pi t)$ & $Q = A\sin(\beta\pi x)\sin(\beta\pi y)\sin(\beta\pi z)\left(\rho C_p\beta\pi\cos(\beta\pi t) + 3\alpha(\beta\pi)^2\sin(\beta\pi t)\right)$ \\
+\texttt{example\_1} & $T_{\mathrm{ex}} = A\cos(\beta\pi x)\sin(\beta\pi y)\sin(\beta\pi z)\sin(\beta\pi t)$ & $Q = A\cos(\beta\pi x)\sin(\beta\pi y)\sin(\beta\pi z)\left(\rho C_p\beta\pi\cos(\beta\pi t) + 3\alpha(\beta\pi)^2\sin(\beta\pi t)\right)$ \\
+\texttt{example\_2} & $T_{\mathrm{ex}} = A\cos(\beta\pi x)\cos(\beta\pi y)\sin(\beta\pi z)\sin(\beta\pi t)$ & $Q = A\cos(\beta\pi x)\cos(\beta\pi y)\sin(\beta\pi z)\left(\rho C_p\beta\pi\cos(\beta\pi t) + 3\alpha(\beta\pi)^2\sin(\beta\pi t)\right)$ \\
+\texttt{example\_3} & $T_{\mathrm{ex}} = A\cos(\beta\pi x)\cos(\beta\pi y)\cos(\beta\pi z)\sin(\beta\pi t)$ & $Q = A\cos(\beta\pi x)\cos(\beta\pi y)\cos(\beta\pi z)\left(\rho C_p\beta\pi\cos(\beta\pi t) + 3\alpha(\beta\pi)^2\sin(\beta\pi t)\right)$ \\
+\texttt{example\_4} & $T_{\mathrm{ex}} = A\sin(kx)\sin(ky)\sin(kz)\sin(\omega\pi t),\; k=\tfrac{1}{2}\gamma\pi$ & $Q = \rho C_p\,\partial_t T_{\mathrm{ex}} - \alpha\nabla^2 T_{\mathrm{ex}} = A\sin(kx)\sin(ky)\sin(kz)\left(\rho C_p\omega\pi\cos(\omega\pi t) + 3\alpha k^2\sin(\omega\pi t)\right)$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+\section{Numerical Method}
+\subsection{Space: high-order LRE}
+When \texttt{useHighOrder\_T=true}, diffusive face fluxes are integrated by face quadrature using LRE-reconstructed gradients (\texttt{gradScalarFaceQuad}, \texttt{faceQuadWeight}), and assembled with \texttt{fvc::div(fluxT\_HO)}.
+
+\subsection{Time: explicit Euler}
+No implicit temperature linear solve is performed at each time step; integration is fully explicit at the cell level.
+In semi-discrete form:
+\begin{equation}
+\mathbf{M}\,\dot{\mathbf{T}} = \mathbf{R}(\mathbf{T},t), \qquad \mathbf{M}_{ii}=\rho C_p V_i,
+\end{equation}
+i.e. a diagonal (lumped) mass matrix naturally arising from cell-centered FV. A consistent non-diagonal mass matrix is not used here.
+
+\subsection{Boundary stencils}
+In \texttt{createFields.H}, \texttt{includePatchInStencils} enables boundary contribution for \texttt{fixedValue}, \texttt{fixedVoltage}, and \texttt{zeroGradient} patches.
+\section{Errors and Convergence Orders}
+\subsection{Cell-centered errors}
+With $e_i=T_i-T_{\mathrm{ex},i}$:
+\begin{align}
+L_1 &= \frac{\sum_i |e_i|V_i}{\sum_i V_i}, \\
+L_2 &= \sqrt{\frac{\sum_i e_i^2V_i}{\sum_i V_i}}, \\
+L_\infty &= \max_i |e_i|, \\
+\texttt{error\_T} &= \sqrt{\sum_i e_i^2}.
+\end{align}
+
+\subsection{Gauss-point reconstructed errors}
+The solver reconstructs $T_h$ at cell quadrature points (using gradient/Hessian/third derivative according to LRE order) and computes $G_1$, $G_2$, $G_\infty$ analogously.
+
+\subsection{Spatial and temporal rates}
+For each fixed $\Delta t$, spatial rates are estimated from fits $e\sim h^p$ (reported in \texttt{spatial\_convergence\_rate\_dt\_...\_total.dat}) and pairwise slopes between consecutive meshes (reported in \texttt{...\_pairwise.dat}).
+Temporal rates are estimated from finest-mesh errors ($N=30$) via $e\sim (\Delta t)^{p_t}$.
+\section{Observed Run Configuration}
+\begin{itemize}
+\item Domain: cube $[0,1]^3$, uniform meshes $N=10,15,20,25,30$.
+\item \texttt{endTime = 0.125} (from transient summaries).
+\item \texttt{DT\_VALUES} in \texttt{run\_convergence.py}: $[5\times10^{-3},10^{-3},5\times10^{-4},2.5\times10^{-4},10^{-4},10^{-5}]$.
+\item \texttt{useHighOrder\_T=true}, with LRE settings \texttt{N=3, Nn=60, k=6, maxStencilSize=80, useQRDecomposition=true, useGlobalStencils=true}.
+\end{itemize}
+\section{Results: folder \texttt{example\_0}}
+\textbf{Stored mmsType:} \texttt{example\_0}.
+
+\textbf{Exact temperature used:} $T_{\mathrm{ex}} = A\sin(\beta\pi x)\sin(\beta\pi y)\sin(\beta\pi z)\sin(\beta\pi t)$
+\textbf{Source term used:} $Q = A\sin(\beta\pi x)\sin(\beta\pi y)\sin(\beta\pi z)\left(\rho C_p\beta\pi\cos(\beta\pi t) + 3\alpha(\beta\pi)^2\sin(\beta\pi t)\right)$
+
+\textbf{Stored parameters (from \texttt{exactSolutionProperties.used}):} $A=1.0$, $\beta=4.0$, $\gamma=3.0$, $\omega=4.0$.
+\begin{table}[htbp]
+\centering
+\small
+\caption{Available $\Delta t$ values in \texttt{example\_0} (descending order).}
+\begin{tabular}{c}
+\toprule
+$\Delta t$ \\
+\midrule
+5.000000e-03 \\
+1.000000e-03 \\
+5.000000e-04 \\
+2.500000e-04 \\
+1.000000e-04 \\
+1.000000e-05 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Global spatial fit rates $p_{fit}$ (cell-centered norms) for \texttt{example\_0}.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cccccc}
+\toprule
+$\Delta t$ & $p_{L_1}$ & $p_{L_2}$ & $p_{L_\infty}$ & $p_{error_T}$ & Comment \\
+\midrule
+5.000000e-03 & -52.182 & -52.897 & -53.399 & -54.397 & unstable/divergent \\
+1.000000e-03 & -205.545 & -206.990 & -207.970 & -208.490 & unstable/divergent \\
+5.000000e-04 & -178.351 & -179.653 & -180.555 & -181.153 & unstable/divergent \\
+2.500000e-04 & 3.735 & 3.960 & 4.593 & 2.460 & stable-like \\
+1.000000e-04 & 3.739 & 3.964 & 4.594 & 2.464 & stable-like \\
+1.000000e-05 & 3.741 & 3.967 & 4.594 & 2.467 & stable-like \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Global spatial fit rates $p_{fit}$ (Gauss-point norms) for \texttt{example\_0}.}
+\begin{tabular}{cccc}
+\toprule
+$\Delta t$ & $p_{G_1}$ & $p_{G_2}$ & $p_{G_\infty}$ \\
+\midrule
+5.000000e-03 & -52.158 & -52.970 & -53.468 \\
+1.000000e-03 & -205.358 & -207.132 & -208.977 \\
+5.000000e-04 & -178.181 & -179.795 & -181.494 \\
+2.500000e-04 & 3.677 & 3.866 & 3.819 \\
+1.000000e-04 & 3.680 & 3.869 & 3.819 \\
+1.000000e-05 & 3.682 & 3.871 & 3.819 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Final errors on the finest mesh (typically $N=30$) for \texttt{example\_0}.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cccccccccc}
+\toprule
+$\Delta t$ & $N$ & $L_2$ & $G_2$ & $L_\infty$ & $G_\infty$ & $error_T$ & final $\|R\|_\infty$ & steps & $t_{end}$ \\
+\midrule
+5.000000e-03 & 30 & 7.180828e+31 & 9.830636e+31 & 9.616567e+32 & 3.144975e+33 & 1.179930e+34 & 6.909668e+36 & 25 & 0.12500 \\
+1.000000e-03 & 30 & 2.001368e+92 & 2.807602e+92 & 2.991551e+93 & 1.009176e+94 & 3.288583e+94 & 2.167778e+97 & 125 & 0.12500 \\
+5.000000e-04 & 30 & 8.427804e+97 & 1.187557e+98 & 1.104694e+99 & 3.776955e+99 & 1.384830e+100 & 8.044271e+102 & 250 & 0.12500 \\
+2.500000e-04 & 30 & 1.584127e-03 & 2.134367e-03 & 5.013583e-03 & 1.475396e-02 & 2.602987e-01 & 1.073363e-02 & 500 & 0.12500 \\
+1.000000e-04 & 30 & 1.575267e-03 & 2.126048e-03 & 5.012768e-03 & 1.475351e-02 & 2.588428e-01 & 1.105109e-03 & 1250 & 0.12500 \\
+1.000000e-05 & 30 & 1.569984e-03 & 2.121089e-03 & 5.012286e-03 & 1.475326e-02 & 2.579747e-01 & 6.561897e-03 & 12501 & 0.12501 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+\begin{table}[htbp]
+\centering
+\small
+\caption{Temporal fit slopes from finest-mesh errors: $e\sim (\Delta t)^{p_t}$ for \texttt{example\_0}.}
+\begin{tabular}{lcc}
+\toprule
+Metric & $p_t$ (all available $\Delta t$) & $p_t$ (stable-like subset) \\
+\midrule
+L1 & 27.329 & 0.002 \\
+L2 & 27.654 & 0.003 \\
+Linf & 27.954 & 0.000 \\
+G1 & 27.284 & 0.002 \\
+G2 & 27.659 & 0.002 \\
+GInf & 27.978 & 0.000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Pairwise spatial convergence rates (all available $\Delta t$) for \texttt{example\_0}.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cccccccccc}
+\toprule
+$\Delta t$ & $N_1$ & $N_2$ & $p_{L_1}$ & $p_{L_2}$ & $p_{L_\infty}$ & $p_{error_T}$ & $p_{G_1}$ & $p_{G_2}$ & $p_{G_\infty}$ \\
+\midrule
+5.000000e-03 & 10 & 15 & -57.451 & -57.741 & -57.121 & -59.241 & -57.403 & -57.938 & -57.213 \\
+5.000000e-03 & 15 & 20 & -51.211 & -52.427 & -54.018 & -53.927 & -51.198 & -52.395 & -53.972 \\
+5.000000e-03 & 20 & 25 & -48.768 & -49.384 & -49.976 & -50.884 & -48.775 & -49.417 & -50.124 \\
+5.000000e-03 & 25 & 30 & -46.306 & -47.061 & -47.624 & -48.561 & -46.264 & -47.142 & -47.781 \\
+1.000000e-03 & 10 & 15 & 3.881 & 4.045 & 4.073 & 2.545 & 3.629 & 3.873 & 4.211 \\
+1.000000e-03 & 15 & 20 & -303.121 & -306.686 & -308.931 & -308.186 & -302.294 & -306.921 & -312.183 \\
+1.000000e-03 & 20 & 25 & -331.327 & -332.187 & -332.519 & -333.687 & -331.316 & -332.225 & -332.554 \\
+1.000000e-03 & 25 & 30 & -294.297 & -295.681 & -297.354 & -297.181 & -294.272 & -295.685 & -297.363 \\
+5.000000e-04 & 10 & 15 & 3.883 & 4.047 & 4.074 & 2.547 & 3.630 & 3.875 & 4.211 \\
+5.000000e-04 & 15 & 20 & 3.396 & 3.910 & 5.321 & 2.410 & 3.587 & 3.847 & 5.158 \\
+5.000000e-04 & 20 & 25 & -414.174 & -420.565 & -426.798 & -422.065 & -413.334 & -420.843 & -430.905 \\
+5.000000e-04 & 25 & 30 & -748.083 & -748.640 & -748.135 & -750.140 & -748.073 & -748.644 & -748.107 \\
+2.500000e-04 & 10 & 15 & 3.884 & 4.048 & 4.074 & 2.548 & 3.631 & 3.875 & 4.212 \\
+2.500000e-04 & 15 & 20 & 3.400 & 3.914 & 5.323 & 2.414 & 3.590 & 3.850 & 5.158 \\
+2.500000e-04 & 20 & 25 & 3.937 & 3.910 & 4.993 & 2.410 & 3.798 & 3.861 & 1.705 \\
+2.500000e-04 & 25 & 30 & 3.833 & 3.928 & 3.279 & 2.428 & 3.815 & 3.892 & 3.132 \\
+1.000000e-04 & 10 & 15 & 3.884 & 4.049 & 4.075 & 2.549 & 3.632 & 3.876 & 4.212 \\
+1.000000e-04 & 15 & 20 & 3.402 & 3.917 & 5.324 & 2.417 & 3.591 & 3.852 & 5.157 \\
+1.000000e-04 & 20 & 25 & 3.943 & 3.917 & 5.002 & 2.417 & 3.803 & 3.866 & 1.705 \\
+1.000000e-04 & 25 & 30 & 3.847 & 3.944 & 3.266 & 2.444 & 3.825 & 3.903 & 3.132 \\
+1.000000e-05 & 10 & 15 & 3.885 & 4.050 & 4.075 & 2.550 & 3.632 & 3.876 & 4.212 \\
+1.000000e-05 & 15 & 20 & 3.403 & 3.919 & 5.324 & 2.419 & 3.593 & 3.853 & 5.157 \\
+1.000000e-05 & 20 & 25 & 3.947 & 3.921 & 5.007 & 2.421 & 3.805 & 3.869 & 1.705 \\
+1.000000e-05 & 25 & 30 & 3.856 & 3.953 & 3.258 & 2.453 & 3.831 & 3.909 & 3.132 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+\paragraph{Short interpretation.}
+Large time steps show explosive error growth (very large negative spatial slopes), consistent with explicit-scheme instability for diffusion-dominated dynamics. Within the stable subset, $p_{L_2}$ ranges from 3.960 to 3.967, and $p_{G_2}$ from 3.866 to 3.871.
+\section{Results: folder \texttt{example\_1}}
+\textbf{Stored mmsType:} \texttt{example\_1}.
+
+\textbf{Exact temperature used:} $T_{\mathrm{ex}} = A\cos(\beta\pi x)\sin(\beta\pi y)\sin(\beta\pi z)\sin(\beta\pi t)$
+\textbf{Source term used:} $Q = A\cos(\beta\pi x)\sin(\beta\pi y)\sin(\beta\pi z)\left(\rho C_p\beta\pi\cos(\beta\pi t) + 3\alpha(\beta\pi)^2\sin(\beta\pi t)\right)$
+
+\textbf{Stored parameters (from \texttt{exactSolutionProperties.used}):} $A=1.0$, $\beta=4.0$, $\gamma=3.0$, $\omega=4.0$.
+\begin{table}[htbp]
+\centering
+\small
+\caption{Available $\Delta t$ values in \texttt{example\_1} (descending order).}
+\begin{tabular}{c}
+\toprule
+$\Delta t$ \\
+\midrule
+5.000000e-03 \\
+1.000000e-03 \\
+5.000000e-04 \\
+2.500000e-04 \\
+1.000000e-04 \\
+1.000000e-05 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Global spatial fit rates $p_{fit}$ (cell-centered norms) for \texttt{example\_1}.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cccccc}
+\toprule
+$\Delta t$ & $p_{L_1}$ & $p_{L_2}$ & $p_{L_\infty}$ & $p_{error_T}$ & Comment \\
+\midrule
+5.000000e-03 & -51.247 & -52.234 & -53.161 & -53.734 & unstable/divergent \\
+1.000000e-03 & -204.732 & -206.819 & -208.658 & -208.319 & unstable/divergent \\
+5.000000e-04 & -178.357 & -180.243 & -181.771 & -181.743 & unstable/divergent \\
+2.500000e-04 & 3.797 & 3.957 & 4.361 & 2.457 & stable-like \\
+1.000000e-04 & 3.801 & 3.961 & 4.364 & 2.461 & stable-like \\
+1.000000e-05 & 3.804 & 3.963 & 4.366 & 2.463 & stable-like \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Global spatial fit rates $p_{fit}$ (Gauss-point norms) for \texttt{example\_1}.}
+\begin{tabular}{cccc}
+\toprule
+$\Delta t$ & $p_{G_1}$ & $p_{G_2}$ & $p_{G_\infty}$ \\
+\midrule
+5.000000e-03 & -51.250 & -52.244 & -53.176 \\
+1.000000e-03 & -204.584 & -206.968 & -209.319 \\
+5.000000e-04 & -178.223 & -180.396 & -182.447 \\
+2.500000e-04 & 3.719 & 3.865 & 3.965 \\
+1.000000e-04 & 3.722 & 3.868 & 3.964 \\
+1.000000e-05 & 3.724 & 3.870 & 3.964 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Final errors on the finest mesh (typically $N=30$) for \texttt{example\_1}.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cccccccccc}
+\toprule
+$\Delta t$ & $N$ & $L_2$ & $G_2$ & $L_\infty$ & $G_\infty$ & $error_T$ & final $\|R\|_\infty$ & steps & $t_{end}$ \\
+\midrule
+5.000000e-03 & 30 & 4.150444e+31 & 5.764111e+31 & 9.615788e+32 & 3.167268e+33 & 6.819875e+33 & 6.918056e+36 & 25 & 0.12500 \\
+1.000000e-03 & 30 & 1.920615e+92 & 2.691570e+92 & 5.139745e+93 & 1.741483e+94 & 3.155892e+94 & 3.730646e+97 & 125 & 0.12500 \\
+5.000000e-04 & 30 & 1.138973e+98 & 1.616883e+98 & 2.561121e+99 & 8.879485e+99 & 1.871524e+100 & 1.871079e+103 & 250 & 0.12500 \\
+2.500000e-04 & 30 & 1.642459e-03 & 2.198700e-03 & 5.364449e-03 & 1.332935e-02 & 2.698836e-01 & 1.085436e-02 & 500 & 0.12500 \\
+1.000000e-04 & 30 & 1.633740e-03 & 2.190532e-03 & 5.343755e-03 & 1.332939e-02 & 2.684508e-01 & 1.255104e-03 & 1250 & 0.12500 \\
+1.000000e-05 & 30 & 1.628541e-03 & 2.185664e-03 & 5.331415e-03 & 1.332941e-02 & 2.675965e-01 & 6.619011e-03 & 12501 & 0.12501 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+\begin{table}[htbp]
+\centering
+\small
+\caption{Temporal fit slopes from finest-mesh errors: $e\sim (\Delta t)^{p_t}$ for \texttt{example\_1}.}
+\begin{tabular}{lcc}
+\toprule
+Metric & $p_t$ (all available $\Delta t$) & $p_t$ (stable-like subset) \\
+\midrule
+L1 & 27.144 & 0.002 \\
+L2 & 27.582 & 0.002 \\
+Linf & 27.991 & 0.002 \\
+G1 & 27.102 & 0.002 \\
+G2 & 27.590 & 0.002 \\
+GInf & 28.050 & -0.000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Pairwise spatial convergence rates (all available $\Delta t$) for \texttt{example\_1}.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cccccccccc}
+\toprule
+$\Delta t$ & $N_1$ & $N_2$ & $p_{L_1}$ & $p_{L_2}$ & $p_{L_\infty}$ & $p_{error_T}$ & $p_{G_1}$ & $p_{G_2}$ & $p_{G_\infty}$ \\
+\midrule
+5.000000e-03 & 10 & 15 & -53.302 & -54.276 & -55.544 & -55.776 & -53.314 & -54.173 & -55.350 \\
+5.000000e-03 & 15 & 20 & -53.934 & -54.922 & -55.524 & -56.422 & -53.964 & -54.999 & -55.681 \\
+5.000000e-03 & 20 & 25 & -47.474 & -48.436 & -49.224 & -49.936 & -47.438 & -48.501 & -49.344 \\
+5.000000e-03 & 25 & 30 & -45.254 & -46.321 & -47.433 & -47.821 & -45.231 & -46.363 & -47.459 \\
+1.000000e-03 & 10 & 15 & 3.743 & 3.962 & 4.577 & 2.462 & 3.582 & 3.795 & 2.676 \\
+1.000000e-03 & 15 & 20 & -301.477 & -307.095 & -311.843 & -308.595 & -300.843 & -307.409 & -311.976 \\
+1.000000e-03 & 20 & 25 & -329.090 & -329.971 & -331.737 & -331.471 & -329.092 & -329.952 & -331.655 \\
+1.000000e-03 & 25 & 30 & -295.853 & -297.201 & -298.228 & -298.701 & -295.862 & -297.170 & -298.220 \\
+5.000000e-04 & 10 & 15 & 3.745 & 3.964 & 4.576 & 2.464 & 3.583 & 3.796 & 2.675 \\
+5.000000e-04 & 15 & 20 & 3.718 & 3.970 & 4.261 & 2.470 & 3.722 & 3.894 & 4.434 \\
+5.000000e-04 & 20 & 25 & -416.811 & -425.360 & -432.865 & -426.860 & -415.993 & -425.674 & -433.280 \\
+5.000000e-04 & 25 & 30 & -743.412 & -744.196 & -745.186 & -745.696 & -743.411 & -744.201 & -745.182 \\
+2.500000e-04 & 10 & 15 & 3.746 & 3.965 & 4.575 & 2.465 & 3.583 & 3.797 & 2.675 \\
+2.500000e-04 & 15 & 20 & 3.722 & 3.974 & 4.260 & 2.474 & 3.725 & 3.897 & 4.434 \\
+2.500000e-04 & 20 & 25 & 3.954 & 3.937 & 4.620 & 2.437 & 3.847 & 3.900 & 4.996 \\
+2.500000e-04 & 25 & 30 & 3.848 & 3.924 & 3.506 & 2.424 & 3.843 & 3.905 & 4.367 \\
+1.000000e-04 & 10 & 15 & 3.746 & 3.965 & 4.575 & 2.465 & 3.584 & 3.797 & 2.675 \\
+1.000000e-04 & 15 & 20 & 3.724 & 3.977 & 4.260 & 2.477 & 3.727 & 3.899 & 4.434 \\
+1.000000e-04 & 20 & 25 & 3.960 & 3.944 & 4.629 & 2.444 & 3.852 & 3.905 & 4.996 \\
+1.000000e-04 & 25 & 30 & 3.862 & 3.939 & 3.516 & 2.439 & 3.853 & 3.916 & 4.366 \\
+1.000000e-05 & 10 & 15 & 3.747 & 3.966 & 4.574 & 2.466 & 3.584 & 3.798 & 2.675 \\
+1.000000e-05 & 15 & 20 & 3.725 & 3.978 & 4.259 & 2.478 & 3.728 & 3.900 & 4.434 \\
+1.000000e-05 & 20 & 25 & 3.964 & 3.948 & 4.634 & 2.448 & 3.854 & 3.907 & 4.996 \\
+1.000000e-05 & 25 & 30 & 3.871 & 3.948 & 3.523 & 2.448 & 3.859 & 3.922 & 4.366 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+\paragraph{Short interpretation.}
+Large time steps show explosive error growth (very large negative spatial slopes), consistent with explicit-scheme instability for diffusion-dominated dynamics. Within the stable subset, $p_{L_2}$ ranges from 3.957 to 3.963, and $p_{G_2}$ from 3.865 to 3.870.
+\section{Results: folder \texttt{example\_2}}
+\textbf{Stored mmsType:} \texttt{example\_2}.
+
+\textbf{Exact temperature used:} $T_{\mathrm{ex}} = A\cos(\beta\pi x)\cos(\beta\pi y)\sin(\beta\pi z)\sin(\beta\pi t)$
+\textbf{Source term used:} $Q = A\cos(\beta\pi x)\cos(\beta\pi y)\sin(\beta\pi z)\left(\rho C_p\beta\pi\cos(\beta\pi t) + 3\alpha(\beta\pi)^2\sin(\beta\pi t)\right)$
+
+\textbf{Stored parameters (from \texttt{exactSolutionProperties.used}):} $A=1.0$, $\beta=4.0$, $\gamma=3.0$, $\omega=4.0$.
+\begin{table}[htbp]
+\centering
+\small
+\caption{Available $\Delta t$ values in \texttt{example\_2} (descending order).}
+\begin{tabular}{c}
+\toprule
+$\Delta t$ \\
+\midrule
+5.000000e-03 \\
+1.000000e-03 \\
+5.000000e-04 \\
+2.500000e-04 \\
+1.000000e-04 \\
+1.000000e-05 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Global spatial fit rates $p_{fit}$ (cell-centered norms) for \texttt{example\_2}.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cccccc}
+\toprule
+$\Delta t$ & $p_{L_1}$ & $p_{L_2}$ & $p_{L_\infty}$ & $p_{error_T}$ & Comment \\
+\midrule
+5.000000e-03 & -54.556 & -55.195 & -56.005 & -56.695 & unstable/divergent \\
+1.000000e-03 & -151.896 & -153.268 & -154.400 & -154.768 & unstable/divergent \\
+5.000000e-04 & -71.521 & -72.323 & -73.049 & -73.823 & unstable/divergent \\
+2.500000e-04 & 3.905 & 3.967 & 3.764 & 2.467 & stable-like \\
+1.000000e-04 & 3.909 & 3.971 & 3.763 & 2.471 & stable-like \\
+1.000000e-05 & 3.912 & 3.973 & 3.762 & 2.473 & stable-like \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Global spatial fit rates $p_{fit}$ (Gauss-point norms) for \texttt{example\_2}.}
+\begin{tabular}{cccc}
+\toprule
+$\Delta t$ & $p_{G_1}$ & $p_{G_2}$ & $p_{G_\infty}$ \\
+\midrule
+5.000000e-03 & -54.547 & -55.214 & -56.184 \\
+1.000000e-03 & -151.766 & -153.416 & -154.926 \\
+5.000000e-04 & -71.486 & -72.436 & -73.402 \\
+2.500000e-04 & 3.815 & 3.904 & 3.688 \\
+1.000000e-04 & 3.818 & 3.907 & 3.688 \\
+1.000000e-05 & 3.819 & 3.909 & 3.688 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Final errors on the finest mesh (typically $N=30$) for \texttt{example\_2}.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cccccccccc}
+\toprule
+$\Delta t$ & $N$ & $L_2$ & $G_2$ & $L_\infty$ & $G_\infty$ & $error_T$ & final $\|R\|_\infty$ & steps & $t_{end}$ \\
+\midrule
+5.000000e-03 & 30 & 2.151270e+28 & 2.945364e+28 & 2.329873e+29 & 9.811018e+29 & 3.534898e+30 & 1.232871e+33 & 25 & 0.12500 \\
+1.000000e-03 & 30 & 3.854051e+72 & 5.403267e+72 & 4.560195e+73 & 2.018663e+74 & 6.332852e+74 & 2.440137e+77 & 125 & 0.12500 \\
+5.000000e-04 & 30 & 4.322776e+49 & 6.124657e+49 & 4.554453e+50 & 2.062396e+51 & 7.103045e+51 & 2.460392e+54 & 250 & 0.12500 \\
+2.500000e-04 & 30 & 1.743386e-03 & 2.282798e-03 & 8.003458e-03 & 2.343952e-02 & 2.864675e-01 & 1.101609e-02 & 500 & 0.12500 \\
+1.000000e-04 & 30 & 1.734826e-03 & 2.274754e-03 & 8.017566e-03 & 2.345021e-02 & 2.850610e-01 & 1.596621e-03 & 1250 & 0.12500 \\
+1.000000e-05 & 30 & 1.729723e-03 & 2.269959e-03 & 8.025995e-03 & 2.345662e-02 & 2.842225e-01 & 6.866831e-03 & 12501 & 0.12501 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+\begin{table}[htbp]
+\centering
+\small
+\caption{Temporal fit slopes from finest-mesh errors: $e\sim (\Delta t)^{p_t}$ for \texttt{example\_2}.}
+\begin{tabular}{lcc}
+\toprule
+Metric & $p_t$ (all available $\Delta t$) & $p_t$ (stable-like subset) \\
+\midrule
+L1 & 21.200 & 0.002 \\
+L2 & 21.459 & 0.002 \\
+Linf & 21.637 & -0.001 \\
+G1 & 21.155 & 0.002 \\
+G2 & 21.470 & 0.002 \\
+GInf & 21.717 & -0.000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Pairwise spatial convergence rates (all available $\Delta t$) for \texttt{example\_2}.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cccccccccc}
+\toprule
+$\Delta t$ & $N_1$ & $N_2$ & $p_{L_1}$ & $p_{L_2}$ & $p_{L_\infty}$ & $p_{error_T}$ & $p_{G_1}$ & $p_{G_2}$ & $p_{G_\infty}$ \\
+\midrule
+5.000000e-03 & 10 & 15 & -64.557 & -65.488 & -67.379 & -66.988 & -64.553 & -65.262 & -65.703 \\
+5.000000e-03 & 15 & 20 & -52.505 & -52.548 & -51.179 & -54.048 & -52.492 & -52.730 & -53.512 \\
+5.000000e-03 & 20 & 25 & -47.435 & -48.348 & -50.361 & -49.848 & -47.462 & -48.467 & -50.258 \\
+5.000000e-03 & 25 & 30 & -45.258 & -46.168 & -47.517 & -47.668 & -45.175 & -46.245 & -47.648 \\
+1.000000e-03 & 10 & 15 & 3.975 & 4.116 & 4.357 & 2.616 & 3.812 & 4.007 & 3.881 \\
+1.000000e-03 & 15 & 20 & -96.746 & -100.139 & -102.809 & -101.639 & -96.175 & -100.496 & -103.986 \\
+1.000000e-03 & 20 & 25 & -375.164 & -375.875 & -376.409 & -377.375 & -375.157 & -375.879 & -376.377 \\
+1.000000e-03 & 25 & 30 & -317.212 & -318.669 & -320.697 & -320.169 & -317.212 & -318.628 & -320.656 \\
+5.000000e-04 & 10 & 15 & 3.977 & 4.118 & 4.358 & 2.618 & 3.814 & 4.008 & 3.881 \\
+5.000000e-04 & 15 & 20 & 3.848 & 3.838 & 3.472 & 2.338 & 3.773 & 3.804 & 3.333 \\
+5.000000e-04 & 20 & 25 & 3.891 & 3.913 & 3.517 & 2.413 & 3.838 & 3.872 & 4.047 \\
+5.000000e-04 & 25 & 30 & -650.331 & -657.720 & -662.913 & -659.220 & -649.243 & -658.199 & -665.238 \\
+2.500000e-04 & 10 & 15 & 3.978 & 4.119 & 4.359 & 2.619 & 3.814 & 4.009 & 3.880 \\
+2.500000e-04 & 15 & 20 & 3.851 & 3.842 & 3.475 & 2.342 & 3.775 & 3.806 & 3.333 \\
+2.500000e-04 & 20 & 25 & 3.902 & 3.924 & 3.509 & 2.424 & 3.845 & 3.880 & 4.047 \\
+2.500000e-04 & 25 & 30 & 3.850 & 3.959 & 3.348 & 2.459 & 3.868 & 3.919 & 3.410 \\
+1.000000e-04 & 10 & 15 & 3.978 & 4.119 & 4.359 & 2.619 & 3.815 & 4.009 & 3.880 \\
+1.000000e-04 & 15 & 20 & 3.854 & 3.844 & 3.476 & 2.344 & 3.777 & 3.808 & 3.333 \\
+1.000000e-04 & 20 & 25 & 3.909 & 3.930 & 3.504 & 2.430 & 3.850 & 3.884 & 4.047 \\
+1.000000e-04 & 25 & 30 & 3.864 & 3.973 & 3.340 & 2.473 & 3.877 & 3.929 & 3.408 \\
+1.000000e-05 & 10 & 15 & 3.979 & 4.120 & 4.360 & 2.620 & 3.815 & 4.010 & 3.880 \\
+1.000000e-05 & 15 & 20 & 3.855 & 3.846 & 3.477 & 2.346 & 3.778 & 3.809 & 3.333 \\
+1.000000e-05 & 20 & 25 & 3.913 & 3.933 & 3.501 & 2.433 & 3.852 & 3.887 & 4.047 \\
+1.000000e-05 & 25 & 30 & 3.872 & 3.982 & 3.335 & 2.482 & 3.883 & 3.935 & 3.406 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+\paragraph{Short interpretation.}
+Large time steps show explosive error growth (very large negative spatial slopes), consistent with explicit-scheme instability for diffusion-dominated dynamics. Within the stable subset, $p_{L_2}$ ranges from 3.967 to 3.973, and $p_{G_2}$ from 3.904 to 3.909.
+\section{Results: folder \texttt{example\_3}}
+\textbf{Stored mmsType:} \texttt{example\_3}.
+
+\textbf{Exact temperature used:} $T_{\mathrm{ex}} = A\cos(\beta\pi x)\cos(\beta\pi y)\cos(\beta\pi z)\sin(\beta\pi t)$
+\textbf{Source term used:} $Q = A\cos(\beta\pi x)\cos(\beta\pi y)\cos(\beta\pi z)\left(\rho C_p\beta\pi\cos(\beta\pi t) + 3\alpha(\beta\pi)^2\sin(\beta\pi t)\right)$
+
+\textbf{Stored parameters (from \texttt{exactSolutionProperties.used}):} $A=1.0$, $\beta=4.0$, $\gamma=3.0$, $\omega=4.0$.
+\begin{table}[htbp]
+\centering
+\small
+\caption{Available $\Delta t$ values in \texttt{example\_3} (descending order).}
+\begin{tabular}{c}
+\toprule
+$\Delta t$ \\
+\midrule
+5.000000e-03 \\
+1.000000e-03 \\
+5.000000e-04 \\
+2.500000e-04 \\
+1.000000e-04 \\
+1.000000e-05 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Global spatial fit rates $p_{fit}$ (cell-centered norms) for \texttt{example\_3}.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cccccc}
+\toprule
+$\Delta t$ & $p_{L_1}$ & $p_{L_2}$ & $p_{L_\infty}$ & $p_{error_T}$ & Comment \\
+\midrule
+5.000000e-03 & -52.955 & -53.008 & -53.343 & -54.508 & unstable/divergent \\
+1.000000e-03 & -91.645 & -91.672 & -92.093 & -93.172 & unstable/divergent \\
+5.000000e-04 & 3.886 & 3.937 & 3.704 & 2.437 & stable-like \\
+2.500000e-04 & 3.893 & 3.944 & 3.707 & 2.444 & stable-like \\
+1.000000e-04 & 3.897 & 3.948 & 3.708 & 2.448 & stable-like \\
+1.000000e-05 & 3.899 & 3.950 & 3.709 & 2.450 & stable-like \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Global spatial fit rates $p_{fit}$ (Gauss-point norms) for \texttt{example\_3}.}
+\begin{tabular}{cccc}
+\toprule
+$\Delta t$ & $p_{G_1}$ & $p_{G_2}$ & $p_{G_\infty}$ \\
+\midrule
+5.000000e-03 & -52.809 & -52.824 & -52.678 \\
+1.000000e-03 & -91.351 & -91.329 & -91.036 \\
+5.000000e-04 & 3.814 & 3.922 & 4.446 \\
+2.500000e-04 & 3.819 & 3.927 & 4.444 \\
+1.000000e-04 & 3.821 & 3.929 & 4.443 \\
+1.000000e-05 & 3.823 & 3.931 & 4.442 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Final errors on the finest mesh (typically $N=30$) for \texttt{example\_3}.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cccccccccc}
+\toprule
+$\Delta t$ & $N$ & $L_2$ & $G_2$ & $L_\infty$ & $G_\infty$ & $error_T$ & final $\|R\|_\infty$ & steps & $t_{end}$ \\
+\midrule
+5.000000e-03 & 30 & 1.491988e+24 & 1.492579e+24 & 6.417102e+24 & 8.785831e+24 & 2.451586e+26 & 2.474957e+28 & 25 & 0.12500 \\
+1.000000e-03 & 30 & 6.936892e+48 & 6.207645e+48 & 3.910339e+49 & 3.890913e+49 & 1.139848e+51 & 1.498366e+53 & 125 & 0.12500 \\
+5.000000e-04 & 30 & 1.849106e-03 & 2.353291e-03 & 8.058094e-03 & 1.113863e-02 & 3.038390e-01 & 3.087358e-02 & 250 & 0.12500 \\
+2.500000e-04 & 30 & 1.834616e-03 & 2.339671e-03 & 8.034973e-03 & 1.118092e-02 & 3.014581e-01 & 1.106320e-02 & 500 & 0.12500 \\
+1.000000e-04 & 30 & 1.825928e-03 & 2.331509e-03 & 8.021102e-03 & 1.120629e-02 & 3.000306e-01 & 1.928229e-03 & 1250 & 0.12500 \\
+1.000000e-05 & 30 & 1.820749e-03 & 2.326645e-03 & 8.012839e-03 & 1.122141e-02 & 2.991796e-01 & 7.108645e-03 & 12501 & 0.12501 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+\begin{table}[htbp]
+\centering
+\small
+\caption{Temporal fit slopes from finest-mesh errors: $e\sim (\Delta t)^{p_t}$ for \texttt{example\_3}.}
+\begin{tabular}{lcc}
+\toprule
+Metric & $p_t$ (all available $\Delta t$) & $p_t$ (stable-like subset) \\
+\midrule
+L1 & 14.335 & 0.004 \\
+L2 & 14.355 & 0.003 \\
+Linf & 14.366 & 0.001 \\
+G1 & 14.284 & 0.003 \\
+G2 & 14.304 & 0.003 \\
+GInf & 14.344 & -0.002 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Pairwise spatial convergence rates (all available $\Delta t$) for \texttt{example\_3}.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cccccccccc}
+\toprule
+$\Delta t$ & $N_1$ & $N_2$ & $p_{L_1}$ & $p_{L_2}$ & $p_{L_\infty}$ & $p_{error_T}$ & $p_{G_1}$ & $p_{G_2}$ & $p_{G_\infty}$ \\
+\midrule
+5.000000e-03 & 10 & 15 & -50.739 & -50.818 & -52.377 & -52.318 & -50.362 & -50.220 & -49.715 \\
+5.000000e-03 & 15 & 20 & -57.638 & -57.945 & -58.297 & -59.445 & -57.718 & -58.006 & -58.364 \\
+5.000000e-03 & 20 & 25 & -51.643 & -51.467 & -50.882 & -52.967 & -51.479 & -51.457 & -51.109 \\
+5.000000e-03 & 25 & 30 & -48.960 & -48.681 & -47.227 & -50.181 & -48.885 & -48.676 & -48.570 \\
+1.000000e-03 & 10 & 15 & 3.646 & 3.813 & 3.127 & 2.313 & 3.632 & 3.907 & 3.981 \\
+1.000000e-03 & 15 & 20 & 4.200 & 4.014 & 3.898 & 2.514 & 3.967 & 3.956 & 4.758 \\
+1.000000e-03 & 20 & 25 & -231.828 & -231.677 & -231.284 & -233.177 & -230.091 & -230.195 & -229.169 \\
+1.000000e-03 & 25 & 30 & -358.428 & -358.933 & -361.042 & -360.433 & -358.625 & -358.998 & -360.936 \\
+5.000000e-04 & 10 & 15 & 3.648 & 3.814 & 3.127 & 2.314 & 3.634 & 3.908 & 3.981 \\
+5.000000e-04 & 15 & 20 & 4.207 & 4.022 & 3.901 & 2.522 & 3.972 & 3.962 & 4.761 \\
+5.000000e-04 & 20 & 25 & 3.835 & 3.988 & 4.678 & 2.488 & 3.838 & 3.903 & 5.555 \\
+5.000000e-04 & 25 & 30 & 3.790 & 3.961 & 2.911 & 2.461 & 3.854 & 3.888 & 2.731 \\
+2.500000e-04 & 10 & 15 & 3.649 & 3.815 & 3.127 & 2.315 & 3.634 & 3.909 & 3.981 \\
+2.500000e-04 & 15 & 20 & 4.211 & 4.025 & 3.903 & 2.525 & 3.974 & 3.965 & 4.763 \\
+2.500000e-04 & 20 & 25 & 3.846 & 3.998 & 4.681 & 2.498 & 3.845 & 3.910 & 5.557 \\
+2.500000e-04 & 25 & 30 & 3.812 & 3.983 & 2.920 & 2.483 & 3.869 & 3.904 & 2.705 \\
+1.000000e-04 & 10 & 15 & 3.649 & 3.816 & 3.127 & 2.316 & 3.635 & 3.909 & 3.981 \\
+1.000000e-04 & 15 & 20 & 4.213 & 4.028 & 3.904 & 2.528 & 3.976 & 3.966 & 4.763 \\
+1.000000e-04 & 20 & 25 & 3.853 & 4.004 & 4.682 & 2.504 & 3.850 & 3.914 & 5.558 \\
+1.000000e-04 & 25 & 30 & 3.825 & 3.996 & 2.925 & 2.496 & 3.879 & 3.913 & 2.689 \\
+1.000000e-05 & 10 & 15 & 3.649 & 3.816 & 3.127 & 2.316 & 3.635 & 3.910 & 3.981 \\
+1.000000e-05 & 15 & 20 & 4.214 & 4.029 & 3.904 & 2.529 & 3.977 & 3.968 & 4.764 \\
+1.000000e-05 & 20 & 25 & 3.857 & 4.008 & 4.683 & 2.508 & 3.852 & 3.917 & 5.558 \\
+1.000000e-05 & 25 & 30 & 3.833 & 4.004 & 2.928 & 2.504 & 3.885 & 3.919 & 2.680 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+\paragraph{Short interpretation.}
+Large time steps show explosive error growth (very large negative spatial slopes), consistent with explicit-scheme instability for diffusion-dominated dynamics. Within the stable subset, $p_{L_2}$ ranges from 3.937 to 3.950, and $p_{G_2}$ from 3.922 to 3.931.
+\section{Results: folder \texttt{example\_4}}
+\textbf{Stored mmsType:} \texttt{example\_4}.
+
+\textbf{Exact temperature used:} $T_{\mathrm{ex}} = A\sin(kx)\sin(ky)\sin(kz)\sin(\omega\pi t),\; k=\tfrac{1}{2}\gamma\pi$
+\textbf{Source term used:} $Q = \rho C_p\,\partial_t T_{\mathrm{ex}} - \alpha\nabla^2 T_{\mathrm{ex}} = A\sin(kx)\sin(ky)\sin(kz)\left(\rho C_p\omega\pi\cos(\omega\pi t) + 3\alpha k^2\sin(\omega\pi t)\right)$
+
+\textbf{Stored parameters (from \texttt{exactSolutionProperties.used}):} $A=1.0$, $\beta=4.0$, $\gamma=3.0$, $\omega=4.0$.
+\begin{table}[htbp]
+\centering
+\small
+\caption{Available $\Delta t$ values in \texttt{example\_4} (descending order).}
+\begin{tabular}{c}
+\toprule
+$\Delta t$ \\
+\midrule
+5.000000e-03 \\
+1.000000e-03 \\
+5.000000e-04 \\
+2.500000e-04 \\
+1.000000e-04 \\
+1.000000e-05 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Global spatial fit rates $p_{fit}$ (cell-centered norms) for \texttt{example\_4}.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cccccc}
+\toprule
+$\Delta t$ & $p_{L_1}$ & $p_{L_2}$ & $p_{L_\infty}$ & $p_{error_T}$ & Comment \\
+\midrule
+5.000000e-03 & -48.933 & -49.811 & -50.755 & -51.311 & unstable/divergent \\
+1.000000e-03 & -206.070 & -208.549 & -210.728 & -210.049 & unstable/divergent \\
+5.000000e-04 & -180.113 & -182.324 & -184.172 & -183.824 & unstable/divergent \\
+2.500000e-04 & 3.193 & 3.223 & 3.372 & 1.723 & stable-like \\
+1.000000e-04 & 4.052 & 4.067 & 3.921 & 2.567 & stable-like \\
+1.000000e-05 & 5.159 & 4.951 & 3.548 & 3.451 & stable-like \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Global spatial fit rates $p_{fit}$ (Gauss-point norms) for \texttt{example\_4}.}
+\begin{tabular}{cccc}
+\toprule
+$\Delta t$ & $p_{G_1}$ & $p_{G_2}$ & $p_{G_\infty}$ \\
+\midrule
+5.000000e-03 & -48.922 & -49.840 & -50.824 \\
+1.000000e-03 & -205.936 & -208.697 & -210.999 \\
+5.000000e-04 & -179.956 & -182.428 & -184.332 \\
+2.500000e-04 & 3.337 & 3.355 & 4.098 \\
+1.000000e-04 & 4.000 & 4.030 & 3.820 \\
+1.000000e-05 & 4.654 & 4.643 & 3.679 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Final errors on the finest mesh (typically $N=30$) for \texttt{example\_4}.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cccccccccc}
+\toprule
+$\Delta t$ & $N$ & $L_2$ & $G_2$ & $L_\infty$ & $G_\infty$ & $error_T$ & final $\|R\|_\infty$ & steps & $t_{end}$ \\
+\midrule
+5.000000e-03 & 30 & 1.241005e+30 & 1.752587e+30 & 3.384822e+31 & 1.172736e+32 & 2.039180e+32 & 2.473231e+35 & 25 & 0.12500 \\
+1.000000e-03 & 30 & 1.809660e+91 & 2.564984e+91 & 5.306231e+92 & 1.834765e+93 & 2.973575e+93 & 3.875946e+96 & 125 & 0.12500 \\
+5.000000e-04 & 30 & 1.958097e+97 & 2.779876e+97 & 5.126847e+98 & 1.777951e+99 & 3.217482e+99 & 3.748419e+102 & 250 & 0.12500 \\
+2.500000e-04 & 30 & 9.715900e-05 & 1.073237e-04 & 3.240713e-04 & 3.865856e-04 & 1.596485e-02 & 1.169685e-02 & 500 & 0.12500 \\
+1.000000e-04 & 30 & 3.773190e-05 & 4.933325e-05 & 1.726853e-04 & 5.406700e-04 & 6.199984e-03 & 3.619999e-04 & 1250 & 0.12500 \\
+1.000000e-05 & 30 & 1.323858e-05 & 2.334927e-05 & 2.678560e-04 & 6.393165e-04 & 2.175320e-03 & 4.889751e-03 & 12501 & 0.12501 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+\begin{table}[htbp]
+\centering
+\small
+\caption{Temporal fit slopes from finest-mesh errors: $e\sim (\Delta t)^{p_t}$ for \texttt{example\_4}.}
+\begin{tabular}{lcc}
+\toprule
+Metric & $p_t$ (all available $\Delta t$) & $p_t$ (stable-like subset) \\
+\midrule
+L1 & 27.467 & 0.689 \\
+L2 & 27.890 & 0.587 \\
+Linf & 28.038 & 0.011 \\
+G1 & 27.350 & 0.459 \\
+G2 & 27.863 & 0.445 \\
+GInf & 28.107 & -0.140 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Pairwise spatial convergence rates (all available $\Delta t$) for \texttt{example\_4}.}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cccccccccc}
+\toprule
+$\Delta t$ & $N_1$ & $N_2$ & $p_{L_1}$ & $p_{L_2}$ & $p_{L_\infty}$ & $p_{error_T}$ & $p_{G_1}$ & $p_{G_2}$ & $p_{G_\infty}$ \\
+\midrule
+5.000000e-03 & 10 & 15 & -54.079 & -55.211 & -56.420 & -56.711 & -54.058 & -55.250 & -56.489 \\
+5.000000e-03 & 15 & 20 & -47.725 & -48.451 & -49.280 & -49.951 & -47.730 & -48.479 & -49.391 \\
+5.000000e-03 & 20 & 25 & -45.434 & -46.168 & -46.951 & -47.668 & -45.410 & -46.189 & -46.985 \\
+5.000000e-03 & 25 & 30 & -44.248 & -45.094 & -45.901 & -46.594 & -44.242 & -45.109 & -45.934 \\
+1.000000e-03 & 10 & 15 & 3.331 & 3.414 & 3.125 & 1.914 & 3.463 & 3.526 & 3.951 \\
+1.000000e-03 & 15 & 20 & -308.315 & -314.834 & -319.957 & -316.334 & -308.039 & -315.406 & -321.647 \\
+1.000000e-03 & 20 & 25 & -326.511 & -327.696 & -328.991 & -329.196 & -326.507 & -327.702 & -329.011 \\
+1.000000e-03 & 25 & 30 & -292.323 & -293.565 & -294.794 & -295.065 & -292.323 & -293.568 & -294.797 \\
+5.000000e-04 & 10 & 15 & 3.844 & 3.916 & 3.468 & 2.416 & 3.847 & 3.917 & 3.903 \\
+5.000000e-04 & 15 & 20 & 2.719 & 2.732 & 3.192 & 1.232 & 2.992 & 2.989 & 4.590 \\
+5.000000e-04 & 20 & 25 & -423.935 & -433.234 & -440.739 & -434.734 & -423.638 & -434.052 & -444.050 \\
+5.000000e-04 & 25 & 30 & -742.053 & -743.074 & -744.225 & -744.574 & -742.050 & -743.080 & -744.220 \\
+2.500000e-04 & 10 & 15 & 4.152 & 4.215 & 3.592 & 2.715 & 4.063 & 4.134 & 3.880 \\
+2.500000e-04 & 15 & 20 & 3.573 & 3.593 & 3.820 & 2.093 & 3.667 & 3.686 & 4.335 \\
+2.500000e-04 & 20 & 25 & 2.348 & 2.322 & 3.109 & 0.822 & 2.711 & 2.683 & 3.770 \\
+2.500000e-04 & 25 & 30 & 1.013 & 1.089 & 2.002 & -0.411 & 1.540 & 1.493 & 4.719 \\
+1.000000e-04 & 10 & 15 & 4.362 & 4.409 & 3.537 & 2.909 & 4.203 & 4.269 & 3.866 \\
+1.000000e-04 & 15 & 20 & 4.362 & 4.355 & 4.265 & 2.855 & 4.203 & 4.222 & 4.116 \\
+1.000000e-04 & 20 & 25 & 3.892 & 3.863 & 4.148 & 2.363 & 3.891 & 3.898 & 3.359 \\
+1.000000e-04 & 25 & 30 & 2.599 & 2.675 & 3.627 & 1.175 & 3.060 & 3.065 & 3.771 \\
+1.000000e-05 & 10 & 15 & 4.496 & 4.530 & 3.511 & 3.030 & 4.289 & 4.351 & 3.858 \\
+1.000000e-05 & 15 & 20 & 5.028 & 4.907 & 4.178 & 3.407 & 4.578 & 4.574 & 3.993 \\
+1.000000e-05 & 20 & 25 & 5.767 & 5.481 & 3.177 & 3.981 & 4.970 & 4.913 & 3.152 \\
+1.000000e-05 & 25 & 30 & 6.251 & 5.251 & 2.633 & 3.751 & 5.304 & 5.153 & 3.325 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+\paragraph{Short interpretation.}
+Large time steps show explosive error growth (very large negative spatial slopes), consistent with explicit-scheme instability for diffusion-dominated dynamics. Within the stable subset, $p_{L_2}$ ranges from 3.223 to 4.951, and $p_{G_2}$ from 3.355 to 4.643.
+\section{Global Discussion}
+\begin{itemize}
+\item Across examples, large time steps generally lead to unstable/divergent behavior, reflected by large negative fitted spatial slopes.
+\item For stable-like subsets, observed spatial orders are approximately fourth order in $L_2$ and around fourth order in $G_2$, depending on the MMS case.
+\item This version explicitly includes pairwise spatial convergence tables for every example and every available $\Delta t$.
+\end{itemize}
+\section{Conclusions}
+The report consolidates all currently available examples (0 through 4) into a traceable MMS summary for the explicit solver, with both fitted and pairwise spatial rates extracted directly from the latest \texttt{results/} dataset.
+\section*{Referenced Files}
+\begin{itemize}
+\item Solver source: \texttt{/home/pablo/cardiacFoam-pc/applications/solvers/testHighOrderHeatEquationExplicit/testHighOrderHeatEquationExplicit.C}
+\item Run script: \texttt{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials\_electro/testHighOrderHeatEquationExplicit/run\_convergence.py}
+\item Results root: \texttt{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials\_electro/testHighOrderHeatEquationExplicit/results}
+\end{itemize}
+\end{document}

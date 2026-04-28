@@ -1,0 +1,14 @@
+EXE_INC = \
+    -I$(LIB_SRC)/finiteVolume/lnInclude \
+    -I$(LIB_SRC)/meshTools/lnInclude \
+    -I$(SOLIDS4FOAM_DIR)/../solids4foam-ib-pc/src/solids4FoamModels/lnInclude \
+    $(VERSION_SPECIFIC_INC) \
+    -I/home/pablo/solids4foam-ib/ThirdParty/eigen3 \
+    -Wno-old-style-cast -Wno-deprecated-declarations -Wno-unused-parameter \
+
+EXE_LIBS = \
+    -L$(FOAM_USER_LIBBIN) \
+    -lfiniteVolume \
+    -lfvOptions \
+    -lmeshTools \
+    -lsolids4FoamModels 
