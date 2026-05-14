@@ -5,6 +5,7 @@
 #include <Eigen/Sparse>
 #include <Eigen/SparseLU>
 #include <Eigen/IterativeLinearSolvers>
+#include <sys/resource.h>
 #include <vector>
 
 namespace
@@ -35,6 +36,20 @@ namespace
         scalar Linf;
         scalar normL2;
         scalar relL2;
+    };
+
+    struct PicardConvergenceRecord
+    {
+        scalar time;
+        label step;
+        label iterations;
+        label maxIterations;
+        bool converged;
+        scalar VmResidual;
+        scalar u1Residual;
+        scalar u2Residual;
+        scalar u3Residual;
+        scalar maxStateResidual;
     };
 
     scalar computeF(const point& p, const label dim)
@@ -146,7 +161,7 @@ namespace
           + (beta/(chiVal*CmVal))*(V - u3);
     }
 
-    scalar vmSplitSourcePDE
+    scalar vmSourcePDE
     (
         const scalar V,
         const scalar u1,
@@ -157,9 +172,7 @@ namespace
         const scalar CmVal
     )
     {
-        return
-            0.5*(u1 + u3 - V)*sqr(u2)*(V - u3)
-          + (beta/(chiVal*CmVal))*u3;
+        return -ionicCurrentPDE(V, u1, u2, u3, beta, chiVal, CmVal);
     }
 
     scalar computeBeta(const volTensorField& conductivity, const label dim)
@@ -242,6 +255,46 @@ namespace
     scalar cellErrorNorm(const volScalarField& fld)
     {
         return std::sqrt(gSum(sqr(fld.primitiveField())));
+    }
+
+    scalar relativeL2Difference
+    (
+        const scalarField& current,
+        const scalarField& previous
+    )
+    {
+        if (current.size() != previous.size())
+        {
+            FatalErrorInFunction
+                << "Mismatched field sizes: current = " << current.size()
+                << ", previous = " << previous.size()
+                << exit(FatalError);
+        }
+
+        scalar num = 0.0;
+        scalar den = 0.0;
+
+        forAll(current, i)
+        {
+            num += sqr(current[i] - previous[i]);
+            den += sqr(previous[i]);
+        }
+
+        reduce(num, sumOp<scalar>());
+        reduce(den, sumOp<scalar>());
+
+        return std::sqrt(num)/(std::sqrt(den) + SMALL);
+    }
+
+    scalar peakResidentSetSizeKB()
+    {
+        struct rusage usage;
+        if (getrusage(RUSAGE_SELF, &usage) == 0)
+        {
+            return scalar(usage.ru_maxrss);
+        }
+
+        return -1.0;
     }
 
     scalar thetaFromScheme(const word& scheme)
@@ -489,6 +542,89 @@ namespace
         M.makeCompressed();
     }
 
+    scalar orthogonalDiffusionCoeff
+    (
+        const vector& Sf,
+        const vector& d,
+        const tensor& D
+    )
+    {
+        const scalar area = mag(Sf) + VSMALL;
+        const vector n = Sf/area;
+        const scalar dMag = mag(d) + VSMALL;
+        const vector e = d/dMag;
+
+        return area*(n & (D & e))/dMag;
+    }
+
+
+    void assembleStandardOrthogonalStiffnessMatrix
+    (
+        const fvMesh& mesh,
+        const volTensorField& conductivity,
+        SpMat& K
+    )
+    {
+        const vectorField& C = mesh.C();
+        const scalarField& V = mesh.V();
+        const labelUList& owner = mesh.owner();
+        const labelUList& neighbour = mesh.neighbour();
+
+        std::vector<Triplet> triplets;
+        triplets.reserve(4*mesh.nFaces());
+
+        forAll(neighbour, faceI)
+        {
+            const label own = owner[faceI];
+            const label nei = neighbour[faceI];
+
+            const tensor Df = 0.5*(conductivity[own] + conductivity[nei]);
+            const scalar a = orthogonalDiffusionCoeff(mesh.Sf()[faceI], C[nei] - C[own], Df);
+
+            addTripletIfNeeded(triplets, own, own, -a/max(V[own], SMALL));
+            addTripletIfNeeded(triplets, own, nei,  a/max(V[own], SMALL));
+            addTripletIfNeeded(triplets, nei, own,  a/max(V[nei], SMALL));
+            addTripletIfNeeded(triplets, nei, nei, -a/max(V[nei], SMALL));
+        }
+
+        const surfaceVectorField& Cf = mesh.Cf();
+
+        forAll(mesh.boundary(), patchI)
+        {
+            const fvPatch& patch = mesh.boundary()[patchI];
+            const word bcType =
+                patch.lookupPatchField<volScalarField, scalar>("Vm").type();
+
+            if (bcType == "empty" || bcType == zeroGradientFvPatchScalarField::typeName)
+            {
+                continue;
+            }
+
+            if (bcType == fixedValueFvPatchScalarField::typeName || bcType == "fixedVoltage")
+            {
+                forAll(patch, faceI)
+                {
+                    const label gf = patch.start() + faceI;
+                    const label own = owner[gf];
+
+                    const scalar a =
+                        orthogonalDiffusionCoeff
+                        (
+                            mesh.Sf().boundaryField()[patchI][faceI],
+                            Cf.boundaryField()[patchI][faceI] - C[own],
+                            conductivity[own]
+                        );
+
+                    addTripletIfNeeded(triplets, own, own, -a/max(V[own], SMALL));
+                }
+            }
+        }
+
+        K.resize(mesh.nCells(), mesh.nCells());
+        K.setFromTriplets(triplets.begin(), triplets.end());
+        K.makeCompressed();
+    }
+
     void assembleHighOrderStiffnessMatrix
     (
         const fvMesh& mesh,
@@ -558,7 +694,11 @@ namespace
             const word bcType =
                 patch.lookupPatchField<volScalarField, scalar>("Vm").type();
 
-            if (bcType == "empty")
+            if
+            (
+                bcType == "empty"
+             || bcType == zeroGradientFvPatchScalarField::typeName
+            )
             {
                 continue;
             }
@@ -581,13 +721,8 @@ namespace
                     forAll(curStencil, cI)
                     {
                         const label col = curStencil[cI];
-                        vector gCoeff =
+                        const vector gCoeff =
                             faceGradCoeffs[globalFaceI][qpI][cI];
-
-                        if (bcType == "zeroGradient")
-                        {
-                            gCoeff -= (gCoeff & n)*n;
-                        }
 
                         const scalar fluxCoeff =
                             area*w*(n & (conductivity[own] & gCoeff));
@@ -607,6 +742,53 @@ namespace
         K.resize(mesh.nCells(), mesh.nCells());
         K.setFromTriplets(triplets.begin(), triplets.end());
         K.makeCompressed();
+    }
+
+    EigVec assembleStandardOrthogonalBoundaryVector
+    (
+        const fvMesh& mesh,
+        const volTensorField& conductivity,
+        const scalar t,
+        const label dim
+    )
+    {
+        EigVec b = EigVec::Zero(mesh.nCells());
+
+        const vectorField& C = mesh.C();
+        const scalarField& V = mesh.V();
+        const labelUList& owner = mesh.owner();
+        const surfaceVectorField& Cf = mesh.Cf();
+
+        forAll(mesh.boundary(), patchI)
+        {
+            const fvPatch& patch = mesh.boundary()[patchI];
+            const word bcType =
+                patch.lookupPatchField<volScalarField, scalar>("Vm").type();
+
+            if (bcType != fixedValueFvPatchScalarField::typeName && bcType != "fixedVoltage")
+            {
+                continue;
+            }
+
+            forAll(patch, faceI)
+            {
+                const label gf = patch.start() + faceI;
+                const label own = owner[gf];
+                const point p = Cf.boundaryField()[patchI][faceI];
+
+                const scalar a =
+                    orthogonalDiffusionCoeff
+                    (
+                        mesh.Sf().boundaryField()[patchI][faceI],
+                        p - C[own],
+                        conductivity[own]
+                    );
+
+                b[own] += a/max(V[own], SMALL)*exactVm(p, t, dim);
+            }
+        }
+
+        return b;
     }
 
     EigVec assembleHighOrderBoundaryVector
@@ -1006,6 +1188,17 @@ namespace
                 continue;
             }
 
+            const word bcType = Vm.boundaryField()[patchI].type();
+            if
+            (
+                bcType == zeroGradientFvPatchScalarField::typeName
+             || bcType == "empty"
+            )
+            {
+                patchFlux = 0.0;
+                continue;
+            }
+
             const label start = mesh.boundaryMesh()[patchI].start();
             const scalarField& pMagSf = mesh.magSf().boundaryField()[patchI];
             const vectorField& pNormals = nHat.boundaryField()[patchI];
@@ -1033,7 +1226,7 @@ namespace
         lapVm = fvc::div(fluxVm_HO);
     }
 
-    void computeVolumeAveragedIion
+    void computeCellCentredIion
     (
         const volScalarField& Vm,
         const volScalarField& u1,
@@ -1042,181 +1235,28 @@ namespace
         const scalar beta,
         const scalar chiVal,
         const scalar CmVal,
-        const bool useHighOrderStates,
-        const LRE& LREInterp_Vm,
-        const LRE& LREInterp_states,
         volScalarField& Iion
     )
     {
-        const fvMesh& mesh = Vm.mesh();
-
-        if (!useHighOrderStates || mesh.nGeometricD() == 1)
-        {
-            forAll(Vm.internalField(), cellI)
-            {
-                Iion[cellI] =
-                    ionicCurrentPDE
-                    (
-                        Vm[cellI],
-                        u1[cellI],
-                        u2[cellI],
-                        u3[cellI],
-                        beta,
-                        chiVal,
-                        CmVal
-                    );
-            }
-
-            Iion.correctBoundaryConditions();
-            return;
-        }
-
-        const bool twoD = mesh.nGeometricD() == 2;
-
-        tmp<volVectorField> tGradVm = LREInterp_Vm.grad(Vm);
-        const volVectorField& gradVm = tGradVm();
-
-        tmp<volVectorField> tGradU1 = LREInterp_states.grad(u1);
-        const volVectorField& gradU1 = tGradU1();
-
-        tmp<volVectorField> tGradU2 = LREInterp_states.grad(u2);
-        const volVectorField& gradU2 = tGradU2();
-
-        tmp<volSymmTensorField> tHessVm;
-        const volSymmTensorField* hessVmPtr = nullptr;
-        if (LREInterp_Vm.order() >= 2)
-        {
-            tHessVm = LREInterp_Vm.hessian(Vm);
-            hessVmPtr = &tHessVm();
-        }
-
-        tmp<volSymmTensorField> tHessU1;
-        const volSymmTensorField* hessU1Ptr = nullptr;
-        if (LREInterp_states.order() >= 2)
-        {
-            tHessU1 = LREInterp_states.hessian(u1);
-            hessU1Ptr = &tHessU1();
-        }
-
-        tmp<volSymmTensorField> tHessU2;
-        const volSymmTensorField* hessU2Ptr = nullptr;
-        if (LREInterp_states.order() >= 2)
-        {
-            tHessU2 = LREInterp_states.hessian(u2);
-            hessU2Ptr = &tHessU2();
-        }
-
-        autoPtr<List<LRE::symmTensor3Order>> thirdVmPtr;
-        const List<LRE::symmTensor3Order>* thirdVmList = nullptr;
-        if (LREInterp_Vm.order() >= 3)
-        {
-            thirdVmPtr = LREInterp_Vm.thirdDeriv(Vm);
-            thirdVmList = &thirdVmPtr();
-        }
-
-        autoPtr<List<LRE::symmTensor3Order>> thirdU1Ptr;
-        const List<LRE::symmTensor3Order>* thirdU1List = nullptr;
-        if (LREInterp_states.order() >= 3)
-        {
-            thirdU1Ptr = LREInterp_states.thirdDeriv(u1);
-            thirdU1List = &thirdU1Ptr();
-        }
-
-        autoPtr<List<LRE::symmTensor3Order>> thirdU2Ptr;
-        const List<LRE::symmTensor3Order>* thirdU2List = nullptr;
-        if (LREInterp_states.order() >= 3)
-        {
-            thirdU2Ptr = LREInterp_states.thirdDeriv(u2);
-            thirdU2List = &thirdU2Ptr();
-        }
-
-        const vectorField& C = mesh.C();
-
-        List<point> qPoints;
-        scalarField qWeights;
-
         forAll(Vm.internalField(), cellI)
         {
-            cellQuadraturePointsAndWeights(mesh, cellI, qPoints, qWeights);
-
-            scalar iBar = 0.0;
-            scalar wSum = 0.0;
-
-            forAll(qPoints, qpI)
-            {
-                const vector d = qPoints[qpI] - C[cellI];
-                const scalar w = qWeights[qpI];
-
-                const symmTensor* HVm =
-                    hessVmPtr ? &((*hessVmPtr)[cellI]) : nullptr;
-                const symmTensor* HU1 =
-                    hessU1Ptr ? &((*hessU1Ptr)[cellI]) : nullptr;
-                const symmTensor* HU2 =
-                    hessU2Ptr ? &((*hessU2Ptr)[cellI]) : nullptr;
-
-                const LRE::symmTensor3Order* TVm =
-                    thirdVmList ? &((*thirdVmList)[cellI]) : nullptr;
-                const LRE::symmTensor3Order* TU1 =
-                    thirdU1List ? &((*thirdU1List)[cellI]) : nullptr;
-                const LRE::symmTensor3Order* TU2 =
-                    thirdU2List ? &((*thirdU2List)[cellI]) : nullptr;
-
-                const scalar Vg =
-                    reconstructFromTaylor
-                    (
-                        Vm[cellI],
-                        gradVm[cellI],
-                        HVm,
-                        TVm,
-                        d,
-                        twoD
-                    );
-
-                const scalar u1g =
-                    reconstructFromTaylor
-                    (
-                        u1[cellI],
-                        gradU1[cellI],
-                        HU1,
-                        TU1,
-                        d,
-                        twoD
-                    );
-
-                const scalar u2g =
-                    reconstructFromTaylor
-                    (
-                        u2[cellI],
-                        gradU2[cellI],
-                        HU2,
-                        TU2,
-                        d,
-                        twoD
-                    );
-
-                iBar +=
-                    w
-                   *ionicCurrentPDE
-                    (
-                        Vg,
-                        u1g,
-                        u2g,
-                        0.0,
-                        beta,
-                        chiVal,
-                        CmVal
-                    );
-
-                wSum += w;
-            }
-
-            Iion[cellI] = iBar/max(wSum, SMALL);
+            Iion[cellI] =
+                ionicCurrentPDE
+                (
+                    Vm[cellI],
+                    u1[cellI],
+                    u2[cellI],
+                    u3[cellI],
+                    beta,
+                    chiVal,
+                    CmVal
+                );
         }
 
         Iion.correctBoundaryConditions();
     }
 
-    void computeVolumeAveragedVmSource
+    void computeCellCentredVmSource
     (
         const volScalarField& Vm,
         const volScalarField& u1,
@@ -1225,181 +1265,596 @@ namespace
         const scalar beta,
         const scalar chiVal,
         const scalar CmVal,
-        const bool useHighOrderStates,
-        const LRE& LREInterp_Vm,
-        const LRE& LREInterp_states,
         volScalarField& sourceVm
     )
     {
-        const fvMesh& mesh = Vm.mesh();
-
-        if (!useHighOrderStates || mesh.nGeometricD() == 1)
-        {
-            forAll(Vm.internalField(), cellI)
-            {
-                sourceVm[cellI] =
-                    vmSplitSourcePDE
-                    (
-                        Vm[cellI],
-                        u1[cellI],
-                        u2[cellI],
-                        u3[cellI],
-                        beta,
-                        chiVal,
-                        CmVal
-                    );
-            }
-
-            sourceVm.correctBoundaryConditions();
-            return;
-        }
-
-        const bool twoD = mesh.nGeometricD() == 2;
-
-        tmp<volVectorField> tGradVm = LREInterp_Vm.grad(Vm);
-        const volVectorField& gradVm = tGradVm();
-
-        tmp<volVectorField> tGradU1 = LREInterp_states.grad(u1);
-        const volVectorField& gradU1 = tGradU1();
-
-        tmp<volVectorField> tGradU2 = LREInterp_states.grad(u2);
-        const volVectorField& gradU2 = tGradU2();
-
-        tmp<volSymmTensorField> tHessVm;
-        const volSymmTensorField* hessVmPtr = nullptr;
-        if (LREInterp_Vm.order() >= 2)
-        {
-            tHessVm = LREInterp_Vm.hessian(Vm);
-            hessVmPtr = &tHessVm();
-        }
-
-        tmp<volSymmTensorField> tHessU1;
-        const volSymmTensorField* hessU1Ptr = nullptr;
-        if (LREInterp_states.order() >= 2)
-        {
-            tHessU1 = LREInterp_states.hessian(u1);
-            hessU1Ptr = &tHessU1();
-        }
-
-        tmp<volSymmTensorField> tHessU2;
-        const volSymmTensorField* hessU2Ptr = nullptr;
-        if (LREInterp_states.order() >= 2)
-        {
-            tHessU2 = LREInterp_states.hessian(u2);
-            hessU2Ptr = &tHessU2();
-        }
-
-        autoPtr<List<LRE::symmTensor3Order>> thirdVmPtr;
-        const List<LRE::symmTensor3Order>* thirdVmList = nullptr;
-        if (LREInterp_Vm.order() >= 3)
-        {
-            thirdVmPtr = LREInterp_Vm.thirdDeriv(Vm);
-            thirdVmList = &thirdVmPtr();
-        }
-
-        autoPtr<List<LRE::symmTensor3Order>> thirdU1Ptr;
-        const List<LRE::symmTensor3Order>* thirdU1List = nullptr;
-        if (LREInterp_states.order() >= 3)
-        {
-            thirdU1Ptr = LREInterp_states.thirdDeriv(u1);
-            thirdU1List = &thirdU1Ptr();
-        }
-
-        autoPtr<List<LRE::symmTensor3Order>> thirdU2Ptr;
-        const List<LRE::symmTensor3Order>* thirdU2List = nullptr;
-        if (LREInterp_states.order() >= 3)
-        {
-            thirdU2Ptr = LREInterp_states.thirdDeriv(u2);
-            thirdU2List = &thirdU2Ptr();
-        }
-
-        const vectorField& C = mesh.C();
-
-        List<point> qPoints;
-        scalarField qWeights;
-
         forAll(Vm.internalField(), cellI)
         {
-            cellQuadraturePointsAndWeights(mesh, cellI, qPoints, qWeights);
-
-            scalar sourceBar = 0.0;
-            scalar wSum = 0.0;
-
-            forAll(qPoints, qpI)
-            {
-                const vector d = qPoints[qpI] - C[cellI];
-                const scalar w = qWeights[qpI];
-
-                const symmTensor* HVm =
-                    hessVmPtr ? &((*hessVmPtr)[cellI]) : nullptr;
-                const symmTensor* HU1 =
-                    hessU1Ptr ? &((*hessU1Ptr)[cellI]) : nullptr;
-                const symmTensor* HU2 =
-                    hessU2Ptr ? &((*hessU2Ptr)[cellI]) : nullptr;
-
-                const LRE::symmTensor3Order* TVm =
-                    thirdVmList ? &((*thirdVmList)[cellI]) : nullptr;
-                const LRE::symmTensor3Order* TU1 =
-                    thirdU1List ? &((*thirdU1List)[cellI]) : nullptr;
-                const LRE::symmTensor3Order* TU2 =
-                    thirdU2List ? &((*thirdU2List)[cellI]) : nullptr;
-
-                const scalar Vg =
-                    reconstructFromTaylor
-                    (
-                        Vm[cellI],
-                        gradVm[cellI],
-                        HVm,
-                        TVm,
-                        d,
-                        twoD
-                    );
-
-                const scalar u1g =
-                    reconstructFromTaylor
-                    (
-                        u1[cellI],
-                        gradU1[cellI],
-                        HU1,
-                        TU1,
-                        d,
-                        twoD
-                    );
-
-                const scalar u2g =
-                    reconstructFromTaylor
-                    (
-                        u2[cellI],
-                        gradU2[cellI],
-                        HU2,
-                        TU2,
-                        d,
-                        twoD
-                    );
-
-                sourceBar +=
-                    w
-                   *vmSplitSourcePDE
-                    (
-                        Vg,
-                        u1g,
-                        u2g,
-                        u3[cellI],
-                        beta,
-                        chiVal,
-                        CmVal
-                    );
-
-                wSum += w;
-            }
-
-            sourceVm[cellI] = sourceBar/max(wSum, SMALL);
+            sourceVm[cellI] =
+                vmSourcePDE
+                (
+                    Vm[cellI],
+                    u1[cellI],
+                    u2[cellI],
+                    u3[cellI],
+                    beta,
+                    chiVal,
+                    CmVal
+                );
         }
 
         sourceVm.correctBoundaryConditions();
     }
 
-    void updateStateFieldsTheta
+    void reconstructVmAtIionIntegrationPoints
+    (
+        const volScalarField& Vm,
+        const Switch useHighOrderVm,
+        const LRE& LREInterp_Vm,
+        const LRE& LREInterp_Iion,
+        scalarField& VmIntegrationPoints
+    )
+    {
+        const fvMesh& mesh = Vm.mesh();
+        const vectorField& C = mesh.C();
+        const CompactListList<point>& cellIionQuadP =
+            LREInterp_Iion.cellQuadPoints();
+
+        label integrationPointI = 0;
+
+        if (useHighOrderVm)
+        {
+            const bool twoD = mesh.nGeometricD() == 2;
+
+            tmp<volVectorField> tGradVm = LREInterp_Vm.grad(Vm);
+            const vectorField& gradVm = tGradVm->internalField();
+
+            tmp<volSymmTensorField> tHessVm;
+            const symmTensorField* hessVm = nullptr;
+            if (LREInterp_Vm.order() >= 2)
+            {
+                tHessVm = LREInterp_Vm.hessian(Vm);
+                hessVm = &(tHessVm->internalField());
+            }
+
+            autoPtr<List<LRE::symmTensor3Order>> thirdVmPtr;
+            const List<LRE::symmTensor3Order>* thirdVm = nullptr;
+            if (LREInterp_Vm.order() >= 3)
+            {
+                thirdVmPtr = LREInterp_Vm.thirdDeriv(Vm);
+                thirdVm = &thirdVmPtr();
+            }
+
+            forAll(mesh.cells(), cellI)
+            {
+                const scalar Vc = Vm[cellI];
+                const vector& gradVc = gradVm[cellI];
+                const vector& xc = C[cellI];
+
+                const symmTensor* H = hessVm ? &((*hessVm)[cellI]) : nullptr;
+                const LRE::symmTensor3Order* T3 =
+                    thirdVm ? &((*thirdVm)[cellI]) : nullptr;
+
+                forAll(cellIionQuadP[cellI], qI)
+                {
+                    const vector d = cellIionQuadP[cellI][qI] - xc;
+                    VmIntegrationPoints[integrationPointI] =
+                        reconstructFromTaylor(Vc, gradVc, H, T3, d, twoD);
+                    ++integrationPointI;
+                }
+            }
+        }
+        else
+        {
+            tmp<volVectorField> tGradVm = fvc::grad(Vm);
+            const vectorField& gradVm = tGradVm->internalField();
+
+            forAll(mesh.cells(), cellI)
+            {
+                const scalar Vc = Vm[cellI];
+                const vector& gradVc = gradVm[cellI];
+                const vector& xc = C[cellI];
+
+                forAll(cellIionQuadP[cellI], qI)
+                {
+                    const vector d = cellIionQuadP[cellI][qI] - xc;
+                    VmIntegrationPoints[integrationPointI] = Vc + (gradVc & d);
+                    ++integrationPointI;
+                }
+            }
+        }
+    }
+
+    void averageIntegrationPointFieldToCells
+    (
+        const scalarField& integrationPointValues,
+        const LRE& LREInterp_Iion,
+        volScalarField& field
+    )
+    {
+        const fvMesh& mesh = field.mesh();
+        const CompactListList<scalar>& cellIionQuadW =
+            LREInterp_Iion.cellQuadWeight();
+
+        scalarField& cellValues = field.primitiveFieldRef();
+        label integrationPointI = 0;
+
+        forAll(mesh.cells(), cellI)
+        {
+            scalar valueBar = 0.0;
+            scalar wSum = 0.0;
+
+            forAll(cellIionQuadW[cellI], qI)
+            {
+                const scalar w = cellIionQuadW[cellI][qI];
+                valueBar += w*integrationPointValues[integrationPointI];
+                wSum += w;
+                ++integrationPointI;
+            }
+
+            cellValues[cellI] = valueBar/max(wSum, SMALL);
+        }
+
+        field.correctBoundaryConditions();
+    }
+
+    void initialiseIionIntegrationPointStates
+    (
+        const LRE& LREInterp_Iion,
+        const scalar t,
+        const label dim,
+        scalarField& u1IntegrationPoints,
+        scalarField& u2IntegrationPoints,
+        scalarField& u3IntegrationPoints
+    )
+    {
+        const CompactListList<point>& cellIionQuadP =
+            LREInterp_Iion.cellQuadPoints();
+
+        label integrationPointI = 0;
+        forAll(cellIionQuadP, cellI)
+        {
+            forAll(cellIionQuadP[cellI], qI)
+            {
+                const point& p = cellIionQuadP[cellI][qI];
+                u1IntegrationPoints[integrationPointI] = exactU1(p, t, dim);
+                u2IntegrationPoints[integrationPointI] = exactU2(p, t, dim);
+                u3IntegrationPoints[integrationPointI] = exactU3(p, t, dim);
+                ++integrationPointI;
+            }
+        }
+    }
+
+    void computeIionFromIntegrationPoints
+    (
+        const scalarField& VmIntegrationPoints,
+        const scalarField& u1IntegrationPoints,
+        const scalarField& u2IntegrationPoints,
+        const scalarField& u3IntegrationPoints,
+        const scalar beta,
+        const scalar chiVal,
+        const scalar CmVal,
+        scalarField& IionIntegrationPoints
+    )
+    {
+        forAll(IionIntegrationPoints, integrationPointI)
+        {
+            IionIntegrationPoints[integrationPointI] =
+                ionicCurrentPDE
+                (
+                    VmIntegrationPoints[integrationPointI],
+                    u1IntegrationPoints[integrationPointI],
+                    u2IntegrationPoints[integrationPointI],
+                    u3IntegrationPoints[integrationPointI],
+                    beta,
+                    chiVal,
+                    CmVal
+                );
+        }
+    }
+
+    void computeVmSourceFromIntegrationPoints
+    (
+        const scalarField& VmIntegrationPoints,
+        const scalarField& u1IntegrationPoints,
+        const scalarField& u2IntegrationPoints,
+        const scalarField& u3IntegrationPoints,
+        const scalar beta,
+        const scalar chiVal,
+        const scalar CmVal,
+        scalarField& sourceIntegrationPoints
+    )
+    {
+        forAll(sourceIntegrationPoints, integrationPointI)
+        {
+            sourceIntegrationPoints[integrationPointI] =
+                vmSourcePDE
+                (
+                    VmIntegrationPoints[integrationPointI],
+                    u1IntegrationPoints[integrationPointI],
+                    u2IntegrationPoints[integrationPointI],
+                    u3IntegrationPoints[integrationPointI],
+                    beta,
+                    chiVal,
+                    CmVal
+                );
+        }
+    }
+
+    void reactionRatesCandidateVm
+    (
+        const scalar VmOld,
+        const scalar VmNew,
+        const scalar tau,
+        const scalar dt,
+        const scalar u1,
+        const scalar u2,
+        const scalar u3,
+        scalar& du1dt,
+        scalar& du2dt,
+        scalar& du3dt
+    )
+    {
+        const scalar alpha =
+            dt > SMALL
+          ? min(max(tau/dt, scalar(0.0)), scalar(1.0))
+          : scalar(1.0);
+        const scalar VmTau = (1.0 - alpha)*VmOld + alpha*VmNew;
+
+        reactionRates(VmTau, u1, u2, u3, du1dt, du2dt, du3dt);
+    }
+
+    void rk4StateStep
+    (
+        const scalar VmOld,
+        const scalar VmNew,
+        const scalar tau,
+        const scalar h,
+        const scalar dt,
+        const scalar u1,
+        const scalar u2,
+        const scalar u3,
+        scalar& u1New,
+        scalar& u2New,
+        scalar& u3New
+    )
+    {
+        scalar k11 = 0.0, k12 = 0.0, k13 = 0.0;
+        scalar k21 = 0.0, k22 = 0.0, k23 = 0.0;
+        scalar k31 = 0.0, k32 = 0.0, k33 = 0.0;
+        scalar k41 = 0.0, k42 = 0.0, k43 = 0.0;
+
+        reactionRatesCandidateVm
+        (
+            VmOld, VmNew, tau, dt,
+            u1, u2, u3,
+            k11, k12, k13
+        );
+        reactionRatesCandidateVm
+        (
+            VmOld, VmNew, tau + 0.5*h, dt,
+            u1 + 0.5*h*k11,
+            u2 + 0.5*h*k12,
+            u3 + 0.5*h*k13,
+            k21, k22, k23
+        );
+        reactionRatesCandidateVm
+        (
+            VmOld, VmNew, tau + 0.5*h, dt,
+            u1 + 0.5*h*k21,
+            u2 + 0.5*h*k22,
+            u3 + 0.5*h*k23,
+            k31, k32, k33
+        );
+        reactionRatesCandidateVm
+        (
+            VmOld, VmNew, tau + h, dt,
+            u1 + h*k31,
+            u2 + h*k32,
+            u3 + h*k33,
+            k41, k42, k43
+        );
+
+        u1New = u1 + (h/6.0)*(k11 + 2.0*k21 + 2.0*k31 + k41);
+        u2New = u2 + (h/6.0)*(k12 + 2.0*k22 + 2.0*k32 + k42);
+        u3New = u3 + (h/6.0)*(k13 + 2.0*k23 + 2.0*k33 + k43);
+    }
+
+    void rkf45StateStep
+    (
+        const scalar VmOld,
+        const scalar VmNew,
+        const scalar tau,
+        const scalar h,
+        const scalar dt,
+        const scalar u1,
+        const scalar u2,
+        const scalar u3,
+        scalar& u1Fifth,
+        scalar& u2Fifth,
+        scalar& u3Fifth,
+        const scalar stateODEAbsTol,
+        const scalar stateODERelTol,
+        scalar& err
+    )
+    {
+        scalar k11 = 0.0, k12 = 0.0, k13 = 0.0;
+        scalar k21 = 0.0, k22 = 0.0, k23 = 0.0;
+        scalar k31 = 0.0, k32 = 0.0, k33 = 0.0;
+        scalar k41 = 0.0, k42 = 0.0, k43 = 0.0;
+        scalar k51 = 0.0, k52 = 0.0, k53 = 0.0;
+        scalar k61 = 0.0, k62 = 0.0, k63 = 0.0;
+
+        reactionRatesCandidateVm
+        (
+            VmOld, VmNew, tau, dt,
+            u1, u2, u3,
+            k11, k12, k13
+        );
+        reactionRatesCandidateVm
+        (
+            VmOld, VmNew, tau + h/5.0, dt,
+            u1 + h*(1.0/5.0)*k11,
+            u2 + h*(1.0/5.0)*k12,
+            u3 + h*(1.0/5.0)*k13,
+            k21, k22, k23
+        );
+        reactionRatesCandidateVm
+        (
+            VmOld, VmNew, tau + 3.0*h/10.0, dt,
+            u1 + h*((3.0/40.0)*k11 + (9.0/40.0)*k21),
+            u2 + h*((3.0/40.0)*k12 + (9.0/40.0)*k22),
+            u3 + h*((3.0/40.0)*k13 + (9.0/40.0)*k23),
+            k31, k32, k33
+        );
+        reactionRatesCandidateVm
+        (
+            VmOld, VmNew, tau + 3.0*h/5.0, dt,
+            u1 + h*((3.0/10.0)*k11 - (9.0/10.0)*k21 + (6.0/5.0)*k31),
+            u2 + h*((3.0/10.0)*k12 - (9.0/10.0)*k22 + (6.0/5.0)*k32),
+            u3 + h*((3.0/10.0)*k13 - (9.0/10.0)*k23 + (6.0/5.0)*k33),
+            k41, k42, k43
+        );
+        reactionRatesCandidateVm
+        (
+            VmOld, VmNew, tau + h, dt,
+            u1 + h*((-11.0/54.0)*k11 + (5.0/2.0)*k21 - (70.0/27.0)*k31 + (35.0/27.0)*k41),
+            u2 + h*((-11.0/54.0)*k12 + (5.0/2.0)*k22 - (70.0/27.0)*k32 + (35.0/27.0)*k42),
+            u3 + h*((-11.0/54.0)*k13 + (5.0/2.0)*k23 - (70.0/27.0)*k33 + (35.0/27.0)*k43),
+            k51, k52, k53
+        );
+        reactionRatesCandidateVm
+        (
+            VmOld, VmNew, tau + 7.0*h/8.0, dt,
+            u1 + h*((1631.0/55296.0)*k11 + (175.0/512.0)*k21 + (575.0/13824.0)*k31 + (44275.0/110592.0)*k41 + (253.0/4096.0)*k51),
+            u2 + h*((1631.0/55296.0)*k12 + (175.0/512.0)*k22 + (575.0/13824.0)*k32 + (44275.0/110592.0)*k42 + (253.0/4096.0)*k52),
+            u3 + h*((1631.0/55296.0)*k13 + (175.0/512.0)*k23 + (575.0/13824.0)*k33 + (44275.0/110592.0)*k43 + (253.0/4096.0)*k53),
+            k61, k62, k63
+        );
+
+        u1Fifth =
+            u1
+          + h*((37.0/378.0)*k11 + (250.0/621.0)*k31
+          + (125.0/594.0)*k41 + (512.0/1771.0)*k61);
+        u2Fifth =
+            u2
+          + h*((37.0/378.0)*k12 + (250.0/621.0)*k32
+          + (125.0/594.0)*k42 + (512.0/1771.0)*k62);
+        u3Fifth =
+            u3
+          + h*((37.0/378.0)*k13 + (250.0/621.0)*k33
+          + (125.0/594.0)*k43 + (512.0/1771.0)*k63);
+
+        const scalar u1Fourth =
+            u1
+          + h*((2825.0/27648.0)*k11 + (18575.0/48384.0)*k31
+          + (13525.0/55296.0)*k41 + (277.0/14336.0)*k51
+          + 0.25*k61);
+        const scalar u2Fourth =
+            u2
+          + h*((2825.0/27648.0)*k12 + (18575.0/48384.0)*k32
+          + (13525.0/55296.0)*k42 + (277.0/14336.0)*k52
+          + 0.25*k62);
+        const scalar u3Fourth =
+            u3
+          + h*((2825.0/27648.0)*k13 + (18575.0/48384.0)*k33
+          + (13525.0/55296.0)*k43 + (277.0/14336.0)*k53
+          + 0.25*k63);
+
+        err = max
+        (
+            mag(u1Fifth - u1Fourth)
+           /(stateODEAbsTol + stateODERelTol*max(mag(u1Fifth), mag(u1Fourth))),
+            max
+            (
+                mag(u2Fifth - u2Fourth)
+               /(stateODEAbsTol + stateODERelTol*max(mag(u2Fifth), mag(u2Fourth))),
+                mag(u3Fifth - u3Fourth)
+               /(stateODEAbsTol + stateODERelTol*max(mag(u3Fifth), mag(u3Fourth)))
+            )
+        );
+    }
+
+    void advanceStateODE
+    (
+        const scalar VmOld,
+        const scalar VmNew,
+        const scalar u1Old,
+        const scalar u2Old,
+        const scalar u3Old,
+        const scalar dt,
+        const word& stateODESolver,
+        const scalar stateODEInitialStep,
+        const scalar stateODEAbsTol,
+        const scalar stateODERelTol,
+        const label stateODEMaxSteps,
+        scalar& u1New,
+        scalar& u2New,
+        scalar& u3New
+    )
+    {
+        if (dt <= SMALL)
+        {
+            u1New = u1Old;
+            u2New = u2Old;
+            u3New = u3Old;
+            return;
+        }
+
+        if (stateODESolver == "Euler" || stateODESolver == "forwardEuler")
+        {
+            scalar du1 = 0.0, du2 = 0.0, du3 = 0.0;
+            reactionRatesCandidateVm
+            (
+                VmOld, VmNew, 0.0, dt,
+                u1Old, u2Old, u3Old,
+                du1, du2, du3
+            );
+
+            u1New = u1Old + dt*du1;
+            u2New = u2Old + dt*du2;
+            u3New = u3Old + dt*du3;
+            return;
+        }
+
+        if (stateODESolver == "RK4")
+        {
+            rk4StateStep
+            (
+                VmOld, VmNew, 0.0, dt, dt,
+                u1Old, u2Old, u3Old,
+                u1New, u2New, u3New
+            );
+            return;
+        }
+
+        if
+        (
+            stateODESolver != "RKF45"
+         && stateODESolver != "RKT45"
+         && stateODESolver != "rkf45"
+        )
+        {
+            FatalErrorInFunction
+                << "Unknown state ODE solver: " << stateODESolver << nl
+                << "Valid options are RKF45, RKT45, RK4, Euler"
+                << exit(FatalError);
+        }
+
+        scalar tau = 0.0;
+        scalar h =
+            stateODEInitialStep > SMALL
+          ? min(dt, stateODEInitialStep)
+          : dt;
+        scalar u1Cur = u1Old;
+        scalar u2Cur = u2Old;
+        scalar u3Cur = u3Old;
+        const scalar absTol = max(stateODEAbsTol, scalar(SMALL));
+        const scalar relTol = max(stateODERelTol, scalar(SMALL));
+        const scalar hMin = max(dt*1.0e-12, scalar(SMALL));
+
+        for
+        (
+            label subStep = 0;
+            subStep < max(stateODEMaxSteps, label(1));
+            ++subStep
+        )
+        {
+            if (tau >= dt - SMALL)
+            {
+                break;
+            }
+
+            h = min(h, dt - tau);
+
+            scalar u1Trial = u1Cur;
+            scalar u2Trial = u2Cur;
+            scalar u3Trial = u3Cur;
+            scalar err = GREAT;
+
+            rkf45StateStep
+            (
+                VmOld, VmNew, tau, h, dt,
+                u1Cur, u2Cur, u3Cur,
+                u1Trial, u2Trial, u3Trial,
+                absTol,
+                relTol,
+                err
+            );
+
+            if (err <= 1.0 || h <= hMin)
+            {
+                u1Cur = u1Trial;
+                u2Cur = u2Trial;
+                u3Cur = u3Trial;
+                tau += h;
+            }
+
+            const scalar factor = min
+            (
+                scalar(4.0),
+                max
+                (
+                    scalar(0.1),
+                    scalar(0.84)*std::pow(1.0/(err + SMALL), 0.25)
+                )
+            );
+            h = max(hMin, min(dt - tau, h*factor));
+        }
+
+        if (tau < dt - 10.0*SMALL)
+        {
+            WarningInFunction
+                << "State RKF45 reached maxSteps before completing dt. "
+                << "tau = " << tau << ", dt = " << dt << nl;
+        }
+
+        u1New = u1Cur;
+        u2New = u2Cur;
+        u3New = u3Cur;
+    }
+
+    void updateIntegrationPointStatesODE
+    (
+        const scalarField& VmOldIntegrationPoints,
+        const scalarField& VmNewIntegrationPoints,
+        const scalarField& u1OldIntegrationPoints,
+        const scalarField& u2OldIntegrationPoints,
+        const scalarField& u3OldIntegrationPoints,
+        scalarField& u1NewIntegrationPoints,
+        scalarField& u2NewIntegrationPoints,
+        scalarField& u3NewIntegrationPoints,
+        const scalar dt,
+        const word& stateODESolver,
+        const scalar stateODEInitialStep,
+        const scalar stateODEAbsTol,
+        const scalar stateODERelTol,
+        const label stateODEMaxSteps
+    )
+    {
+        forAll(u1NewIntegrationPoints, integrationPointI)
+        {
+            advanceStateODE
+            (
+                VmOldIntegrationPoints[integrationPointI],
+                VmNewIntegrationPoints[integrationPointI],
+                u1OldIntegrationPoints[integrationPointI],
+                u2OldIntegrationPoints[integrationPointI],
+                u3OldIntegrationPoints[integrationPointI],
+                dt,
+                stateODESolver,
+                stateODEInitialStep,
+                stateODEAbsTol,
+                stateODERelTol,
+                stateODEMaxSteps,
+                u1NewIntegrationPoints[integrationPointI],
+                u2NewIntegrationPoints[integrationPointI],
+                u3NewIntegrationPoints[integrationPointI]
+            );
+        }
+    }
+
+    void updateStateFieldsODE
     (
         const volScalarField& VmOld,
         const volScalarField& VmNew,
@@ -1410,8 +1865,11 @@ namespace
         volScalarField& u2New,
         volScalarField& u3New,
         const scalar dt,
-        const scalar theta,
-        const label nIterations
+        const word& stateODESolver,
+        const scalar stateODEInitialStep,
+        const scalar stateODEAbsTol,
+        const scalar stateODERelTol,
+        const label stateODEMaxSteps
     )
     {
         scalarField& u1NI = u1New.primitiveFieldRef();
@@ -1424,56 +1882,25 @@ namespace
         const scalarField& u2O = u2Old.primitiveField();
         const scalarField& u3O = u3Old.primitiveField();
 
-        u1NI = u1O;
-        u2NI = u2O;
-        u3NI = u3O;
-
-        for (label iter = 0; iter < max(nIterations, label(1)); ++iter)
+        forAll(u1NI, cellI)
         {
-            forAll(u1NI, cellI)
-            {
-                scalar du1Old = 0.0;
-                scalar du2Old = 0.0;
-                scalar du3Old = 0.0;
-
-                reactionRates
-                (
-                    VO[cellI],
-                    u1O[cellI],
-                    u2O[cellI],
-                    u3O[cellI],
-                    du1Old,
-                    du2Old,
-                    du3Old
-                );
-
-                scalar du1New = 0.0;
-                scalar du2New = 0.0;
-                scalar du3New = 0.0;
-
-                reactionRates
-                (
-                    VN[cellI],
-                    u1NI[cellI],
-                    u2NI[cellI],
-                    u3NI[cellI],
-                    du1New,
-                    du2New,
-                    du3New
-                );
-
-                u1NI[cellI] =
-                    u1O[cellI]
-                  + dt*((1.0 - theta)*du1Old + theta*du1New);
-
-                u2NI[cellI] =
-                    u2O[cellI]
-                  + dt*((1.0 - theta)*du2Old + theta*du2New);
-
-                u3NI[cellI] =
-                    u3O[cellI]
-                  + dt*((1.0 - theta)*du3Old + theta*du3New);
-            }
+            advanceStateODE
+            (
+                VO[cellI],
+                VN[cellI],
+                u1O[cellI],
+                u2O[cellI],
+                u3O[cellI],
+                dt,
+                stateODESolver,
+                stateODEInitialStep,
+                stateODEAbsTol,
+                stateODERelTol,
+                stateODEMaxSteps,
+                u1NI[cellI],
+                u2NI[cellI],
+                u3NI[cellI]
+            );
         }
     }
 
@@ -1587,6 +2014,87 @@ namespace
         return s;
     }
 
+    ReconstructionErrorSummary cellAsReconstructionError
+    (
+        const FieldErrorSummary& cellErr,
+        const volScalarField& exact
+    )
+    {
+        ReconstructionErrorSummary s;
+        s.L1 = cellErr.L1;
+        s.L2 = cellErr.L2;
+        s.Linf = cellErr.Linf;
+        s.normL2 = volumeWeightedL2(exact);
+        s.relL2 = 100.0*s.L2/max(s.normL2, SMALL);
+        return s;
+    }
+
+    ReconstructionErrorSummary computeIntegrationPointStateError
+    (
+        const scalarField& stateIntegrationPoints,
+        const scalar t,
+        const ManufacturedFieldID fieldID,
+        const label dim,
+        const LRE& LREInterp_Iion,
+        const fvMesh& mesh
+    )
+    {
+        const CompactListList<point>& cellIionQuadP =
+            LREInterp_Iion.cellQuadPoints();
+        const CompactListList<scalar>& cellIionQuadW =
+            LREInterp_Iion.cellQuadWeight();
+        const scalarField& V = mesh.V();
+
+        scalar e1 = 0.0;
+        scalar e2 = 0.0;
+        scalar eInf = 0.0;
+        scalar n2 = 0.0;
+        scalar volTot = 0.0;
+
+        label integrationPointI = 0;
+        forAll(mesh.cells(), cellI)
+        {
+            const scalar cellV = V[cellI];
+            scalar wSum = 0.0;
+
+            forAll(cellIionQuadW[cellI], qI)
+            {
+                wSum += cellIionQuadW[cellI][qI];
+            }
+
+            forAll(cellIionQuadP[cellI], qI)
+            {
+                const point& gp = cellIionQuadP[cellI][qI];
+                const scalar meas =
+                    cellV*cellIionQuadW[cellI][qI]/max(wSum, SMALL);
+                const scalar ex = exactFieldValue(fieldID, gp, t, dim);
+                const scalar err = stateIntegrationPoints[integrationPointI] - ex;
+
+                e1 += meas*mag(err);
+                e2 += meas*sqr(err);
+                eInf = max(eInf, mag(err));
+                n2 += meas*sqr(ex);
+                volTot += meas;
+                ++integrationPointI;
+            }
+        }
+
+        e1 = returnReduce(e1, sumOp<scalar>());
+        e2 = returnReduce(e2, sumOp<scalar>());
+        eInf = returnReduce(eInf, maxOp<scalar>());
+        n2 = returnReduce(n2, sumOp<scalar>());
+        volTot = returnReduce(volTot, sumOp<scalar>());
+
+        ReconstructionErrorSummary s;
+        s.L1 = e1/max(volTot, SMALL);
+        s.L2 = std::sqrt(e2/max(volTot, SMALL));
+        s.Linf = eInf;
+        s.normL2 = std::sqrt(n2/max(volTot, SMALL));
+        s.relL2 = 100.0*s.L2/max(s.normL2, SMALL);
+
+        return s;
+    }
+
     void writeSummary
     (
         const Time& runTime,
@@ -1609,8 +2117,11 @@ namespace
         const label lreNn,
         const scalar lreK,
         const label lreMaxStencilSize,
-        const label nonlinearIterations,
-        const label stateIterations,
+        const label maxNonlinearIterations,
+        const scalar nonlinearVmTolerance,
+        const scalar nonlinearStatesTolerance,
+        const std::vector<PicardConvergenceRecord>& picardHistory,
+        const scalar peakMemoryKB,
         const scalar setupWallTime,
         const scalar timeLoopWallTime,
         const scalar postProcessWallTime,
@@ -1620,6 +2131,31 @@ namespace
         const label N = estimatedN(mesh);
         const scalar dx = characteristicDx(mesh);
         const word dimName = name(mesh.nGeometricD()) + "D";
+        const PicardConvergenceRecord* finalPicard =
+            picardHistory.empty() ? nullptr : &picardHistory.back();
+
+        label maxPicardIterationsUsed = 0;
+        label nonConvergedPicardSteps = 0;
+        scalar maxVmResidual = 0.0;
+        scalar maxU1Residual = 0.0;
+        scalar maxU2Residual = 0.0;
+        scalar maxU3Residual = 0.0;
+        scalar maxStateResidual = 0.0;
+
+        for (const PicardConvergenceRecord& rec : picardHistory)
+        {
+            maxPicardIterationsUsed =
+                max(maxPicardIterationsUsed, rec.iterations);
+            if (!rec.converged)
+            {
+                ++nonConvergedPicardSteps;
+            }
+            maxVmResidual = max(maxVmResidual, rec.VmResidual);
+            maxU1Residual = max(maxU1Residual, rec.u1Residual);
+            maxU2Residual = max(maxU2Residual, rec.u2Residual);
+            maxU3Residual = max(maxU3Residual, rec.u3Residual);
+            maxStateResidual = max(maxStateResidual, rec.maxStateResidual);
+        }
 
         const fileName outFile =
             runTime.path()
@@ -1674,9 +2210,57 @@ namespace
             << "LRE Nn                = " << lreNn << nl
             << "LRE k                 = " << lreK << nl
             << "LRE maxStencilSize    = " << lreMaxStencilSize << nl
-            << "Nonlinear iterations  = " << nonlinearIterations << nl
-            << "State iterations      = " << stateIterations << nl
+            << "Nonlinear method      = Picard" << nl
+            << "Max Picard iterations = " << maxNonlinearIterations << nl
+            << "Vm Picard tolerance   = " << nonlinearVmTolerance << nl
+            << "State Picard tolerance= " << nonlinearStatesTolerance << nl
             << "beta                  = " << beta << nl
+            << "-------------------" << nl << nl
+            << "Picard nonlinear convergence summary:" << nl
+            << "final it/max          = "
+            << (finalPicard ? finalPicard->iterations : 0)
+            << "/" << maxNonlinearIterations << nl
+            << "final converged       = "
+            << (finalPicard && finalPicard->converged ? "true" : "false") << nl
+            << "final Vm_relL2        = "
+            << (finalPicard ? finalPicard->VmResidual : GREAT) << nl
+            << "final u1_relL2        = "
+            << (finalPicard ? finalPicard->u1Residual : GREAT) << nl
+            << "final u2_relL2        = "
+            << (finalPicard ? finalPicard->u2Residual : GREAT) << nl
+            << "final u3_relL2        = "
+            << (finalPicard ? finalPicard->u3Residual : GREAT) << nl
+            << "final maxState_relL2  = "
+            << (finalPicard ? finalPicard->maxStateResidual : GREAT) << nl
+            << "max it used           = " << maxPicardIterationsUsed << nl
+            << "non-converged steps   = " << nonConvergedPicardSteps << nl
+            << "max Vm_relL2          = " << maxVmResidual << nl
+            << "max u1_relL2          = " << maxU1Residual << nl
+            << "max u2_relL2          = " << maxU2Residual << nl
+            << "max u3_relL2          = " << maxU3Residual << nl
+            << "maxState_relL2        = " << maxStateResidual << nl
+            << "-------------------------------------------------" << nl
+            << "Picard convergence by time step:" << nl
+            << "# step time it maxIt converged Vm_relL2 u1_relL2 u2_relL2 u3_relL2 maxState_relL2" << nl;
+
+        for (const PicardConvergenceRecord& rec : picardHistory)
+        {
+            os  << rec.step << ' '
+                << rec.time << ' '
+                << rec.iterations << ' '
+                << rec.maxIterations << ' '
+                << (rec.converged ? "true" : "false") << ' '
+                << rec.VmResidual << ' '
+                << rec.u1Residual << ' '
+                << rec.u2Residual << ' '
+                << rec.u3Residual << ' '
+                << rec.maxStateResidual << nl;
+        }
+
+        os  << "-------------------" << nl << nl
+            << "Computational resources:" << nl
+            << "peakRSS_kB            = " << peakMemoryKB << nl
+            << "peakRSS_MB            = " << peakMemoryKB/1024.0 << nl
             << "-------------------" << nl << nl
             << "Wall-clock times [s]:" << nl
             << "setup                 = " << setupWallTime << nl
@@ -1718,25 +2302,28 @@ int main(int argc, char* argv[])
     const scalar CmVal = Cm.value();
     const scalar chiCmVal = chiVal*CmVal;
     const scalar lapScale = 1.0/max(chiCmVal, SMALL);
-    const scalar betaScale = beta*lapScale;
     const scalar theta = thetaFromScheme(implicitScheme);
     const word massMatrixMode = normalizedMassMatrixType(massMatrixType);
+
+    scalarField VmOldIntegrationPoints(totalIionIntegrationPoints, 0.0);
+    scalarField VmGuessIntegrationPoints(totalIionIntegrationPoints, 0.0);
+    scalarField sourceIntegrationPoints(totalIionIntegrationPoints, 0.0);
+    scalarField IionIntegrationPoints(totalIionIntegrationPoints, 0.0);
+    scalarField u1IntegrationPoints(totalIionIntegrationPoints, 0.0);
+    scalarField u2IntegrationPoints(totalIionIntegrationPoints, 0.0);
+    scalarField u3IntegrationPoints(totalIionIntegrationPoints, 0.0);
 
     Info<< "Running high-order manufactured FDA implicit solver" << nl
         << "Dimension = " << dim << nl
         << "beta = " << beta << nl
         << "dt = " << dt << nl
         << "implicitScheme = " << implicitScheme << nl
-        << "massMatrix = " << massMatrixMode << endl;
-
-    if (!useHighOrder_Vm)
-    {
-        FatalErrorInFunction
-            << "The implicit high-order FDA solver requires useHighOrder_Vm = true."
-            << nl
-            << "Set useHighOrder_Vm true in constant/spatialIntegrationProperties."
-            << exit(FatalError);
-    }
+        << "massMatrix = " << massMatrixMode << nl
+        << "useHighOrder_Vm = " << useHighOrder_Vm << nl
+        << "useHighOrder_Iion = " << useHighOrder_Iion << nl
+        << "stateODESolver = " << stateODESolver << nl
+        << "Iion integration points = " << totalIionIntegrationPoints
+        << endl;
 
     fillExactFields(VmExact, u1Exact, u2Exact, runTime.value(), dim);
 
@@ -1751,13 +2338,26 @@ int main(int argc, char* argv[])
     u2.correctBoundaryConditions();
     u3.correctBoundaryConditions();
 
+    if (useHighOrder_Iion && dim > 1)
+    {
+        initialiseIionIntegrationPointStates
+        (
+            LREInterp_Iion,
+            runTime.value(),
+            dim,
+            u1IntegrationPoints,
+            u2IntegrationPoints,
+            u3IntegrationPoints
+        );
+    }
+
     SpMat M;
     SpMat K;
     SpMat L;
     SpMat AImplicit;
     SpMat BImplicit;
 
-    if (massMatrixMode == "lumped")
+    if (!useHighOrder_Vm || massMatrixMode == "lumped")
     {
         assembleDiagonalMassMatrix(mesh, 1.0, M);
     }
@@ -1766,13 +2366,17 @@ int main(int argc, char* argv[])
         assembleConsistentMassMatrixHO(mesh, LREInterp_Vm, 1.0, M);
     }
 
-    assembleHighOrderStiffnessMatrix(mesh, conductivity, LREInterp_Vm, K);
+    if (useHighOrder_Vm)
+    {
+        assembleHighOrderStiffnessMatrix(mesh, conductivity, LREInterp_Vm, K);
+    }
+    else
+    {
+        assembleStandardOrthogonalStiffnessMatrix(mesh, conductivity, K);
+    }
 
     L = K;
     L *= lapScale;
-    SpMat betaReaction = M;
-    betaReaction *= betaScale;
-    L -= betaReaction;
 
     AImplicit = M;
     AImplicit *= (1.0/dt);
@@ -1790,6 +2394,7 @@ int main(int argc, char* argv[])
     const auto tStartLoop = tEndSetup;
 
     label nSteps = 0;
+    std::vector<PicardConvergenceRecord> picardHistory;
 
     while (runTime.value() < runTime.endTime().value() - SMALL)
     {
@@ -1847,43 +2452,71 @@ int main(int argc, char* argv[])
             u3
         );
 
-        computeVolumeAveragedVmSource
-        (
-            VmOld,
-            u1Old,
-            u2Old,
-            u3Old,
-            beta,
-            chiVal,
-            CmVal,
-            useHighOrder_states,
-            LREInterp_Vm,
-            LREInterp_states,
-            sourceVm
-        );
+        scalarField u1OldIntegrationPoints(u1IntegrationPoints);
+        scalarField u2OldIntegrationPoints(u2IntegrationPoints);
+        scalarField u3OldIntegrationPoints(u3IntegrationPoints);
+        scalarField u1GuessIntegrationPoints(u1OldIntegrationPoints);
+        scalarField u2GuessIntegrationPoints(u2OldIntegrationPoints);
+        scalarField u3GuessIntegrationPoints(u3OldIntegrationPoints);
+
+        if (useHighOrder_Iion && dim > 1)
+        {
+            reconstructVmAtIionIntegrationPoints
+            (
+                VmOld,
+                useHighOrder_Vm,
+                LREInterp_Vm,
+                LREInterp_Iion,
+                VmOldIntegrationPoints
+            );
+
+            computeVmSourceFromIntegrationPoints
+            (
+                VmOldIntegrationPoints,
+                u1OldIntegrationPoints,
+                u2OldIntegrationPoints,
+                u3OldIntegrationPoints,
+                beta,
+                chiVal,
+                CmVal,
+                sourceIntegrationPoints
+            );
+
+            averageIntegrationPointFieldToCells
+            (
+                sourceIntegrationPoints,
+                LREInterp_Iion,
+                sourceVm
+            );
+        }
+        else
+        {
+            computeCellCentredVmSource
+            (
+                VmOld,
+                u1Old,
+                u2Old,
+                u3Old,
+                beta,
+                chiVal,
+                CmVal,
+                sourceVm
+            );
+        }
 
         const EigVec Vn = fieldToEigVec(VmOld);
         const EigVec sourceN = sourceToEigVec(sourceVm);
 
         EigVec bcN =
-            assembleHighOrderBoundaryVector
-            (
-                mesh,
-                conductivity,
-                LREInterp_Vm,
-                t,
-                dim
-            );
+                useHighOrder_Vm
+            ? assembleHighOrderBoundaryVector(mesh, conductivity, LREInterp_Vm, t, dim)
+            : assembleStandardOrthogonalBoundaryVector(mesh, conductivity, t, dim);
 
-        EigVec bcNp1 =
-            assembleHighOrderBoundaryVector
-            (
-                mesh,
-                conductivity,
-                LREInterp_Vm,
-                t + dt,
-                dim
-            );
+            EigVec bcNp1 =
+                useHighOrder_Vm
+            ? assembleHighOrderBoundaryVector(mesh, conductivity, LREInterp_Vm, t + dt, dim)
+            : assembleStandardOrthogonalBoundaryVector(mesh, conductivity, t + dt, dim);
+
 
         bcN *= lapScale;
         bcNp1 *= lapScale;
@@ -1940,27 +2573,134 @@ int main(int argc, char* argv[])
             u3Old
         );
 
+        const label maxPicardIterations = max(implicitNonlinearIterations, label(1));
+        label picardIterations = 0;
+        bool picardConverged = false;
+        scalar picardVmResidual = GREAT;
+        scalar picardU1Residual = GREAT;
+        scalar picardU2Residual = GREAT;
+        scalar picardU3Residual = GREAT;
+        scalar picardMaxStateResidual = GREAT;
+
         for
         (
             label corr = 0;
-            corr < max(implicitNonlinearIterations, label(1));
+            corr < maxPicardIterations;
             ++corr
         )
         {
-            computeVolumeAveragedVmSource
-            (
-                VmGuess,
-                u1Guess,
-                u2Guess,
-                u3Guess,
-                beta,
-                chiVal,
-                CmVal,
-                useHighOrder_states,
-                LREInterp_Vm,
-                LREInterp_states,
-                sourceVm
-            );
+            const scalarField VmPrevious(VmGuess.primitiveField());
+            const scalarField u1Previous(u1Guess.primitiveField());
+            const scalarField u2Previous(u2Guess.primitiveField());
+            const scalarField u3Previous(u3Guess.primitiveField());
+            const scalarField u1IPPrevious(u1GuessIntegrationPoints);
+            const scalarField u2IPPrevious(u2GuessIntegrationPoints);
+            const scalarField u3IPPrevious(u3GuessIntegrationPoints);
+
+            if (useHighOrder_Iion && dim > 1)
+            {
+                reconstructVmAtIionIntegrationPoints
+                (
+                    VmGuess,
+                    useHighOrder_Vm,
+                    LREInterp_Vm,
+                    LREInterp_Iion,
+                    VmGuessIntegrationPoints
+                );
+
+                updateIntegrationPointStatesODE
+                (
+                    VmOldIntegrationPoints,
+                    VmGuessIntegrationPoints,
+                    u1OldIntegrationPoints,
+                    u2OldIntegrationPoints,
+                    u3OldIntegrationPoints,
+                    u1GuessIntegrationPoints,
+                    u2GuessIntegrationPoints,
+                    u3GuessIntegrationPoints,
+                    dt,
+                    stateODESolver,
+                    stateODEInitialStep,
+                    stateODEAbsTol,
+                    stateODERelTol,
+                    stateODEMaxSteps
+                );
+
+                averageIntegrationPointFieldToCells
+                (
+                    u1GuessIntegrationPoints,
+                    LREInterp_Iion,
+                    u1Guess
+                );
+                averageIntegrationPointFieldToCells
+                (
+                    u2GuessIntegrationPoints,
+                    LREInterp_Iion,
+                    u2Guess
+                );
+                averageIntegrationPointFieldToCells
+                (
+                    u3GuessIntegrationPoints,
+                    LREInterp_Iion,
+                    u3Guess
+                );
+
+                computeVmSourceFromIntegrationPoints
+                (
+                    VmGuessIntegrationPoints,
+                    u1GuessIntegrationPoints,
+                    u2GuessIntegrationPoints,
+                    u3GuessIntegrationPoints,
+                    beta,
+                    chiVal,
+                    CmVal,
+                    sourceIntegrationPoints
+                );
+
+                averageIntegrationPointFieldToCells
+                (
+                    sourceIntegrationPoints,
+                    LREInterp_Iion,
+                    sourceVm
+                );
+            }
+            else
+            {
+                updateStateFieldsODE
+                (
+                    VmOld,
+                    VmGuess,
+                    u1Old,
+                    u2Old,
+                    u3Old,
+                    u1Guess,
+                    u2Guess,
+                    u3Guess,
+                    dt,
+                    stateODESolver,
+                    stateODEInitialStep,
+                    stateODEAbsTol,
+                    stateODERelTol,
+                    stateODEMaxSteps
+                );
+
+                updateStateBoundaryValues(u1Guess, u2Guess, u3Guess, t + dt, dim);
+                u1Guess.correctBoundaryConditions();
+                u2Guess.correctBoundaryConditions();
+                u3Guess.correctBoundaryConditions();
+
+                computeCellCentredVmSource
+                (
+                    VmGuess,
+                    u1Guess,
+                    u2Guess,
+                    u3Guess,
+                    beta,
+                    chiVal,
+                    CmVal,
+                    sourceVm
+                );
+            }
 
             const EigVec sourceNp1 = sourceToEigVec(sourceVm);
 
@@ -1982,31 +2722,73 @@ int main(int argc, char* argv[])
             eigVecToField(Vnp1, VmGuess);
             applyExactVmBoundaryValues(VmGuess, t + dt, dim);
 
-            updateStateFieldsTheta
-            (
-                VmOld,
-                VmGuess,
-                u1Old,
-                u2Old,
-                u3Old,
-                u1Guess,
-                u2Guess,
-                u3Guess,
-                dt,
-                theta,
-                stateImplicitIterations
-            );
-
             updateStateBoundaryValues(u1Guess, u2Guess, u3Guess, t + dt, dim);
             u1Guess.correctBoundaryConditions();
             u2Guess.correctBoundaryConditions();
             u3Guess.correctBoundaryConditions();
+
+            picardIterations = corr + 1;
+            picardVmResidual =
+                relativeL2Difference(VmGuess.primitiveField(), VmPrevious);
+
+            if (useHighOrder_Iion && dim > 1)
+            {
+                picardU1Residual =
+                    relativeL2Difference(u1GuessIntegrationPoints, u1IPPrevious);
+                picardU2Residual =
+                    relativeL2Difference(u2GuessIntegrationPoints, u2IPPrevious);
+                picardU3Residual =
+                    relativeL2Difference(u3GuessIntegrationPoints, u3IPPrevious);
+            }
+            else
+            {
+                picardU1Residual =
+                    relativeL2Difference(u1Guess.primitiveField(), u1Previous);
+                picardU2Residual =
+                    relativeL2Difference(u2Guess.primitiveField(), u2Previous);
+                picardU3Residual =
+                    relativeL2Difference(u3Guess.primitiveField(), u3Previous);
+            }
+
+            picardMaxStateResidual =
+                max(picardU1Residual, max(picardU2Residual, picardU3Residual));
+
+            picardConverged =
+                picardVmResidual <= nonlinearVmTolerance
+             && picardU1Residual <= nonlinearStatesTolerance
+             && picardU2Residual <= nonlinearStatesTolerance
+             && picardU3Residual <= nonlinearStatesTolerance;
+
+            if (picardConverged)
+            {
+                break;
+            }
         }
+
+        PicardConvergenceRecord picardRecord;
+        picardRecord.time = t + dt;
+        picardRecord.step = nSteps + 1;
+        picardRecord.iterations = picardIterations;
+        picardRecord.maxIterations = maxPicardIterations;
+        picardRecord.converged = picardConverged;
+        picardRecord.VmResidual = picardVmResidual;
+        picardRecord.u1Residual = picardU1Residual;
+        picardRecord.u2Residual = picardU2Residual;
+        picardRecord.u3Residual = picardU3Residual;
+        picardRecord.maxStateResidual = picardMaxStateResidual;
+        picardHistory.push_back(picardRecord);
 
         Vm.primitiveFieldRef() = VmGuess.primitiveField();
         u1.primitiveFieldRef() = u1Guess.primitiveField();
         u2.primitiveFieldRef() = u2Guess.primitiveField();
         u3.primitiveFieldRef() = u3Guess.primitiveField();
+
+        if (useHighOrder_Iion && dim > 1)
+        {
+            u1IntegrationPoints = u1GuessIntegrationPoints;
+            u2IntegrationPoints = u2GuessIntegrationPoints;
+            u3IntegrationPoints = u3GuessIntegrationPoints;
+        }
 
         applyExactVmBoundaryValues(Vm, t + dt, dim);
         updateStateBoundaryValues(u1, u2, u3, t + dt, dim);
@@ -2014,29 +2796,59 @@ int main(int argc, char* argv[])
         u2.correctBoundaryConditions();
         u3.correctBoundaryConditions();
 
-        computeVolumeAveragedIion
-        (
-            Vm,
-            u1,
-            u2,
-            u3,
-            beta,
-            chiVal,
-            CmVal,
-            useHighOrder_states,
-            LREInterp_Vm,
-            LREInterp_states,
-            Iion
-        );
+        if (useHighOrder_Iion && dim > 1)
+        {
+            reconstructVmAtIionIntegrationPoints
+            (
+                Vm,
+                useHighOrder_Vm,
+                LREInterp_Vm,
+                LREInterp_Iion,
+                VmGuessIntegrationPoints
+            );
 
-        computeHighOrderLaplacian
-        (
-            Vm,
-            conductivity,
-            LREInterp_Vm,
-            fluxVm_HO,
-            lapVm
-        );
+            computeIionFromIntegrationPoints
+            (
+                VmGuessIntegrationPoints,
+                u1IntegrationPoints,
+                u2IntegrationPoints,
+                u3IntegrationPoints,
+                beta,
+                chiVal,
+                CmVal,
+                IionIntegrationPoints
+            );
+
+            averageIntegrationPointFieldToCells
+            (
+                IionIntegrationPoints,
+                LREInterp_Iion,
+                Iion
+            );
+        }
+        else
+        {
+            computeCellCentredIion
+            (
+                Vm,
+                u1,
+                u2,
+                u3,
+                beta,
+                chiVal,
+                CmVal,
+                Iion
+            );
+        }
+
+        if (useHighOrder_Vm)
+        {
+            computeHighOrderLaplacian(Vm, conductivity, LREInterp_Vm, fluxVm_HO, lapVm);
+        }
+        else
+        {
+            lapVm = fvc::laplacian(conductivity, Vm);
+        }
 
         rhsVm = lapVm/(chi*Cm) - Iion;
 
@@ -2066,29 +2878,59 @@ int main(int argc, char* argv[])
 
     fillExactFields(VmExact, u1Exact, u2Exact, runTime.value(), dim);
 
-    computeVolumeAveragedIion
-    (
-        Vm,
-        u1,
-        u2,
-        u3,
-        beta,
-        chiVal,
-        CmVal,
-        useHighOrder_states,
-        LREInterp_Vm,
-        LREInterp_states,
-        Iion
-    );
+    if (useHighOrder_Iion && dim > 1)
+    {
+        reconstructVmAtIionIntegrationPoints
+        (
+            Vm,
+            useHighOrder_Vm,
+            LREInterp_Vm,
+            LREInterp_Iion,
+            VmGuessIntegrationPoints
+        );
 
-    computeHighOrderLaplacian
-    (
-        Vm,
-        conductivity,
-        LREInterp_Vm,
-        fluxVm_HO,
-        lapVm
-    );
+        computeIionFromIntegrationPoints
+        (
+            VmGuessIntegrationPoints,
+            u1IntegrationPoints,
+            u2IntegrationPoints,
+            u3IntegrationPoints,
+            beta,
+            chiVal,
+            CmVal,
+            IionIntegrationPoints
+        );
+
+        averageIntegrationPointFieldToCells
+        (
+            IionIntegrationPoints,
+            LREInterp_Iion,
+            Iion
+        );
+    }
+    else
+    {
+        computeCellCentredIion
+        (
+            Vm,
+            u1,
+            u2,
+            u3,
+            beta,
+            chiVal,
+            CmVal,
+            Iion
+        );
+    }
+
+    if (useHighOrder_Vm)
+    {
+        computeHighOrderLaplacian(Vm, conductivity, LREInterp_Vm, fluxVm_HO, lapVm);
+    }
+    else
+    {
+        lapVm = fvc::laplacian(conductivity, Vm);
+    }
 
     rhsVm = lapVm/(chi*Cm) - Iion;
 
@@ -2101,13 +2943,35 @@ int main(int argc, char* argv[])
     const FieldErrorSummary u2Cell = computeFieldErrorSummary(u2Error);
 
     const ReconstructionErrorSummary VmHO =
-        computeGaussReconstructedError(Vm, runTime.value(), mfVm, dim, LREInterp_Vm);
+            useHighOrder_Vm && dim > 1
+        ? computeGaussReconstructedError(Vm, runTime.value(), mfVm, dim, LREInterp_Vm)
+        : cellAsReconstructionError(VmCell, VmExact);
 
     const ReconstructionErrorSummary u1HO =
-        computeGaussReconstructedError(u1, runTime.value(), mfU1, dim, LREInterp_states);
+            useHighOrder_Iion && dim > 1
+        ? computeIntegrationPointStateError
+          (
+              u1IntegrationPoints,
+              runTime.value(),
+              mfU1,
+              dim,
+              LREInterp_Iion,
+              mesh
+          )
+        : cellAsReconstructionError(u1Cell, u1Exact);
 
     const ReconstructionErrorSummary u2HO =
-        computeGaussReconstructedError(u2, runTime.value(), mfU2, dim, LREInterp_states);
+            useHighOrder_Iion && dim > 1
+        ? computeIntegrationPointStateError
+          (
+              u2IntegrationPoints,
+              runTime.value(),
+              mfU2,
+              dim,
+              LREInterp_Iion,
+              mesh
+          )
+        : cellAsReconstructionError(u2Cell, u2Exact);
 
     const auto tEndPost = std::chrono::steady_clock::now();
 
@@ -2160,7 +3024,10 @@ int main(int argc, char* argv[])
         lreK,
         lreMaxStencil,
         implicitNonlinearIterations,
-        stateImplicitIterations,
+        nonlinearVmTolerance,
+        nonlinearStatesTolerance,
+        picardHistory,
+        peakResidentSetSizeKB(),
         setupWallTime,
         timeLoopWallTime,
         postProcessWallTime,

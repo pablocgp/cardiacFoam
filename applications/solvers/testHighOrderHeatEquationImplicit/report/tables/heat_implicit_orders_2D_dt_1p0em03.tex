@@ -1,0 +1,26 @@
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Spatial convergence orders for the implicit heat solver, 2D example5, $\Delta t=10^{-3}$. Fits use $N=10$--$100$ and $N=70$--$100$. Schemes: bE = backward Euler, cN = Crank--Nicolson. Mass: cons. = consistent, lump. = lumped.}
+\label{tab:heat-implicit-orders-2D-1p0em03}
+\begin{tabular}{ccccccc}
+\toprule
+HO $T$ & Scheme & Mass & Exp. & $p_{L_2}^{10-100}$ & $p_{G_2}^{10-100}$ & $p_{L_2}^{70-100}$ / $p_{G_2}^{70-100}$ \\
+\midrule
+\texttt{NO} & bE & lump. & 2 & 2.037 & 2.037 & 2.134 / 2.134 \\
+\texttt{NO} & cN & lump. & 2 & 1.997 & 1.997 & 2.000 / 2.000 \\\hline
+\texttt{p1} & bE & cons. & 2 & 2.410 & 2.342 & 2.474 / 2.336 \\
+\texttt{p1} & bE & lump. & 2 & 2.410 & 2.342 & 2.474 / 2.336 \\
+\texttt{p1} & cN & cons. & 2 & 2.406 & 2.338 & 2.444 / 2.311 \\
+\texttt{p1} & cN & lump. & 2 & 2.406 & 2.338 & 2.444 / 2.311 \\\hline
+\texttt{p2} & bE & cons. & 3 & 2.131 & 2.208 & 2.065 / 2.079 \\
+\texttt{p2} & bE & lump. & 3 & 2.127 & 2.207 & 2.066 / 2.081 \\
+\texttt{p2} & cN & cons. & 3 & 2.120 & 2.196 & 2.025 / 2.039 \\
+\texttt{p2} & cN & lump. & 3 & 2.115 & 2.195 & 2.025 / 2.039 \\\hline
+\texttt{p3} & bE & cons. & 4 & 3.212 & 3.511 & 0.098 / 0.174 \\
+\texttt{p3} & bE & lump. & 4 & 2.661 & 2.973 & 1.056 / 1.005 \\
+\texttt{p3} & cN & cons. & 4 & 4.084 & 4.118 & 4.476 / 4.369 \\
+\texttt{p3} & cN & lump. & 4 & 3.062 & 3.381 & 2.015 / 2.018 \\
+\bottomrule
+\end{tabular}
+\end{table}

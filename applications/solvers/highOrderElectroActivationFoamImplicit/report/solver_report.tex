@@ -1,0 +1,771 @@
+\documentclass[11pt,a4paper]{article}
+
+% ------------------------------------------------------------------ %
+% Packages
+% ------------------------------------------------------------------ %
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{siunitx}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage[hidelinks]{hyperref}
+
+% ------------------------------------------------------------------ %
+% Listing style for parameter snippets
+% ------------------------------------------------------------------ %
+\lstdefinestyle{cfg}{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  rulecolor=\color{black!30},
+  showstringspaces=false,
+}
+\lstset{style=cfg}
+
+\algrenewcommand\algorithmicrequire{\textbf{Input:}}
+\algrenewcommand\algorithmicensure{\textbf{Output:}}
+\newcommand{\pyconst}[1]{\textcolor{black!60!blue}{\texttt{\footnotesize #1}}}
+\newcommand{\dictkey}[1]{\textcolor{black!60!green}{\texttt{\footnotesize #1}}}
+
+% ------------------------------------------------------------------ %
+% Convenience macros
+% ------------------------------------------------------------------ %
+\newcommand{\Vm}{V_{m}}
+\newcommand{\Vmsub}[1]{V_{m,#1}}
+\newcommand{\Iion}{I_{\text{ion}}}
+\newcommand{\Iionsub}[1]{I_{\text{ion},#1}}
+\newcommand{\Iext}{I_{\text{ext}}}
+\newcommand{\Dten}{\mathbf{D}}
+\newcommand{\grad}{\nabla}
+\newcommand{\divg}{\nabla\!\cdot}
+\newcommand{\Aimp}{\mathsf{A}}
+\newcommand{\Bimp}{\mathsf{B}}
+\newcommand{\Mmass}{\mathsf{M}}
+\newcommand{\Kstif}{\mathsf{K}}
+\newcommand{\Lop}{\mathsf{L}}
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+\title{Solver Specification:\\
+       \texorpdfstring{\texttt{highOrderElectroActivationFoamImplicit}}{highOrderElectroActivationFoamImplicit}\\
+       \large A high-order, implicit Picard / diagonal-Iion linearised
+       monodomain solver in OpenFOAM with an Eigen linear-algebra back-end}
+\author{Pablo}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report specifies the algorithms implemented in the OpenFOAM solver
+\code{highOrderElectroActivationFoamImplicit}. The solver advances the
+monodomain equations of cardiac electrophysiology coupled to the
+ten Tusscher--Noble--Noble--Panfilov (TNNP, 2004) ionic cell model. The
+diffusion operator is discretised with the cell-centred finite-volume
+framework of OpenFOAM, optionally upgraded to a Local Radial-Extrapolation
+(LRE) high-order reconstruction; the ionic source is evaluated either at
+cell centres or at LRE cell quadrature points; time integration follows a
+$\theta$-scheme (backward Euler or Crank--Nicolson); the resulting
+\emph{nonlinear} coupled system is solved with a fixed-point Picard
+iteration that optionally augments the diagonal of the implicit
+operator with a finite-difference approximation of
+$\partial \Iion/\partial \Vm$ (the \emph{diagonal-Iion} variant). The
+sparse linear system is factored or iteratively solved with Eigen
+(\code{SparseLU} or \code{BiCGSTAB+ILUT}); the per-cell ionic ODE uses
+OpenFOAM's adaptive RKF45 integrator with configurable tolerances; the
+TNNP cell model is wrapped in a phase-aware \code{protectState} guard
+that enforces physical bounds before every algebraic evaluation;
+activation times are recorded by linear interpolation across the first
+threshold crossing and benchmark points are sampled by inverse-distance
+weighting. All algorithmic parameters are exposed through the
+\code{constant/spatialIntegrationProperties} and
+\code{constant/timeIntegrationProperties} dictionaries, and the
+companion Python driver \code{run\_convergence.py} generates these
+dictionaries from a single configuration file. Section~\ref{sec:results}
+collects measured P8 activation times, wall-clock cost and peak memory
+from four independent result trees of the Niederer 2012 benchmark.
+\end{abstract}
+
+\tableofcontents
+\bigskip
+
+% ================================================================== %
+\section{Notation}
+% ================================================================== %
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Symbol & Meaning & Units \\
+\midrule
+$\Omega \subset \mathbb{R}^{d}$ & Spatial domain ($d \in \{2,3\}$) & \si{\meter} \\
+$\partial\Omega$ & Insulated boundary (zero-flux Neumann) & --- \\
+$t \in (0, T]$ & Time & \si{\second} \\
+$\Vm(\mathbf{x}, t)$ & Transmembrane voltage & \si{\volt} \\
+$\mathbf{s}(\mathbf{x}, t) \in \mathbb{R}^{17}$ & TNNP ionic states & mixed \\
+$\Iion(\Vm, \mathbf{s})$ & Total ionic current density & \si{\volt\per\second} \\
+$\Iext(\mathbf{x}, t)$ & External stimulus current density & \si{\ampere\per\meter\cubed} \\
+$\chi$ & Membrane surface-to-volume ratio & \si{\per\meter} \\
+$C_{m}$ & Membrane capacitance per unit area & \si{\farad\per\meter\squared} \\
+$\Dten(\mathbf{x})$ & Bulk conductivity tensor & \si{\siemens\per\meter} \\
+$\theta \in \{0.5, 1\}$ & Time-stepping parameter (CN or BE) & --- \\
+$\Delta t$ & Outer time-step length & \si{\second} \\
+$N_{c}$ & Number of mesh cells & --- \\
+$\mathsf{V}^{n} \in \mathbb{R}^{N_{c}}$ & Vector of cell-averaged $\Vm$ at time $t^{n}$ & \si{\volt} \\
+$\Mmass, \Kstif, \Lop$ & Mass, stiffness, scaled diffusion matrix & --- \\
+$\Aimp, \Bimp$ & Implicit LHS / RHS operators of the $\theta$-scheme & --- \\
+$\omega$ & Picard / Newton damping factor & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ================================================================== %
+\section{Governing equations}
+% ================================================================== %
+
+\subsection{Monodomain PDE}
+
+The bulk voltage is propagated by the standard monodomain
+reaction--diffusion equation~\cite{ttp2004,niederer2012}:
+\begin{equation}
+  \chi \, C_{m} \, \frac{\partial \Vm}{\partial t}
+   \;=\;
+   \divg\!\bigl( \Dten \grad \Vm \bigr)
+   - \Iion(\Vm, \mathbf{s})
+   + \Iext
+   \quad \text{in } \Omega \times (0, T],
+   \label{eq:monodomain}
+\end{equation}
+subject to insulated boundaries
+$\mathbf{n} \cdot ( \Dten \grad \Vm ) = 0$ on
+$\partial \Omega \times (0, T]$, and initial condition
+$\Vm(\mathbf{x}, 0) = -\SI{84}{\milli\volt}$. The conductivity tensor
+$\Dten$ is symmetric positive-definite and either uniform or read as a
+\code{volTensorField} from disk.
+
+Dividing~\eqref{eq:monodomain} by $\chi C_{m}$ gives the form actually
+used inside the solver:
+\begin{equation}
+  \frac{\partial \Vm}{\partial t}
+   \;=\;
+   \mathcal{L} \Vm
+   \;+\;
+   s(\Vm, \mathbf{s}),
+   \qquad
+   \mathcal{L} \;=\; \frac{1}{\chi C_{m}}\,\divg(\Dten \grad \cdot),
+   \quad
+   s \;=\; -\frac{\Iion}{\chi C_{m}} + \frac{\Iext}{\chi C_{m}}.
+   \label{eq:semi-discrete}
+\end{equation}
+
+\subsection{Ionic ODE}
+
+At every spatial sampling point the TNNP state vector
+$\mathbf{s} \in \mathbb{R}^{17}$ evolves according to
+\begin{equation}
+  \frac{\mathrm{d}\mathbf{s}}{\mathrm{d}t}
+   \;=\;
+   \mathbf{f}_{\text{TNNP}}\!\bigl(\Vm, \mathbf{s}; \texttt{tissue}\bigr),
+   \qquad \mathbf{s}(0) = \mathbf{s}_{0},
+   \label{eq:tnnp}
+\end{equation}
+where \code{tissue} selects \code{epicardialCells}, \code{mCells} or
+\code{endocardialCells}. The 17 tracked states are
+\[
+  \mathbf{s} = (V,\ K_{i},\ Na_{i},\ Ca_{i},\ Xr_{1},\ Xr_{2},\ Xs,\ m,\ h,\ j,\ d,\ f,\ fCa,\ s,\ r,\ g,\ Ca_{SR}).
+\]
+The total ionic current returned to the PDE is \code{Iion\_cm} of
+TNNP~\cite{ttp2004}.
+
+\subsection{External stimulus}
+
+\begin{equation}
+  \Iext(\mathbf{x}, t) \;=\;
+  \begin{cases}
+    I_{0} & \mathbf{x} \in \Omega_{\text{stim}}^{(b)},
+            \;\; t \in [t_{0}^{(b)},\, t_{0}^{(b)} + \tau], \\
+    0     & \text{otherwise},
+  \end{cases}
+\end{equation}
+with Niederer-benchmark defaults
+$I_{0} = \SI{50000}{\ampere\per\meter\cubed}$ and
+$\tau = \SI{2}{\milli\second}$.
+
+% ================================================================== %
+\section{Time discretisation: the $\theta$-scheme}
+% ================================================================== %
+
+Time is advanced from $t^{n}$ to $t^{n+1} = t^{n} + \Delta t$ by
+\begin{equation}
+  \frac{\mathsf{V}^{n+1} - \mathsf{V}^{n}}{\Delta t}
+   \;=\;
+   \theta\, \Lop\, \mathsf{V}^{n+1}
+   + (1-\theta)\, \Lop\, \mathsf{V}^{n}
+   + \theta\, \mathbf{s}^{n+1}
+   + (1-\theta)\, \mathbf{s}^{n}.
+\end{equation}
+
+\begin{center}
+\begin{tabular}{@{}lcl@{}}
+\toprule
+\code{implicitScheme} & $\theta$ & Scheme \\
+\midrule
+\code{backwardEuler} & $1$   & First-order, L-stable \\
+\code{crankNicolson} & $1/2$ & Second-order, A-stable \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+After dividing by $\Delta t$ the implementation forms
+\begin{equation}
+  \bigl[\Mmass/\Delta t \,-\, \theta\, \Lop\bigr]\, \mathsf{V}^{n+1}
+   \;=\;
+   \bigl[\Mmass/\Delta t \,+\, (1-\theta)\, \Lop\bigr]\, \mathsf{V}^{n}
+   \;+\; \theta\, \mathbf{s}^{n+1}
+   \;+\; (1-\theta)\, \mathbf{s}^{n},
+\end{equation}
+with the two Eigen \code{SparseMatrix<scalar,RowMajor>} operators
+\begin{equation}
+  \Aimp \;=\; \Mmass/\Delta t \,-\, \theta\, \Lop,
+   \qquad
+  \Bimp \;=\; \Mmass/\Delta t \,+\, (1-\theta)\, \Lop,
+   \qquad
+   \Lop \;=\; \Kstif/(\chi C_{m}).
+\end{equation}
+$\Aimp$ and $\Bimp$ are rebuilt at every time step. When $\theta = 1$
+(BE) the explicit half of the diffusion vanishes and
+$\Bimp = \Mmass/\Delta t$.
+
+% ================================================================== %
+\section{Spatial discretisation}
+% ================================================================== %
+
+\subsection{Standard orthogonal FV Laplacian}
+
+\code{assembleStandardOrthogonalStiffnessMatrix} produces the classical
+5/7-point Laplacian. Per internal face $f$,
+\begin{equation}
+  a_{f} \;=\;
+   \frac{ \lvert \mathbf{S}_{f} \rvert\,
+          \bigl( \mathbf{n}_{f} \cdot \Dten_{f} \cdot \hat{\mathbf{d}}_{f} \bigr) }
+        { \lvert \mathbf{d}_{f} \rvert },
+   \quad
+   \Dten_{f} = \tfrac{1}{2}\,(\Dten_{\text{own}} + \Dten_{\text{nei}}),
+\end{equation}
+yielding the four standard contributions to $\Kstif$. \code{zeroGradient}
+and \code{empty} patches contribute nothing; \code{fixedValue} patches
+contribute only to the owner diagonal.
+
+\subsection{High-order LRE diffusion}
+
+When \code{useHighOrder\_Vm = true} and $d > 1$,
+\code{assembleHighOrderStiffnessMatrix} integrates the flux on a face
+quadrature with reconstructed gradients:
+\begin{equation}
+  \Phi_{f} \;=\;
+   \sum_{q \in \mathcal{Q}_{f}}
+       w_{q}\, \lvert \mathbf{S}_{f} \rvert\,
+       \mathbf{n}_{f} \cdot \Dten_{f} \cdot
+       \Bigl(
+         \sum_{j \in \mathcal{S}_{f}}
+            \mathbf{g}_{f,q,j}\, \mathsf{V}_{j}
+       \Bigr),
+\end{equation}
+with $\mathcal{S}_{f}$ the LRE face stencil and
+$\mathbf{g}_{f,q,j} = $~\code{QRGradFaceGPCoeffs}.
+
+\subsection{Mass matrices}
+
+Two options selectable via \code{massMatrix}:
+\paragraph{Lumped.} \code{assembleDiagonalMassMatrix} writes
+$\Mmass = I$.
+
+\paragraph{Consistent high-order.}
+\code{assembleConsistentMassMatrixHO} fills
+\begin{equation}
+  \Mmass[i, j] \;=\;
+   \sum_{q \in \mathcal{Q}_{i}}
+       \frac{w_{q}}{\sum_{q'} w_{q'}}\,
+       \phi_{j}(\mathbf{x}_{q}),
+\end{equation}
+where $\phi_{j}$ is the LRE Taylor-basis function of stencil cell $j$
+(value $\delta_{ij}$ + grad + Hessian + 3rd-order derivative).
+
+\subsection{High-order reconstruction at ionic quadrature points}
+
+If \code{useHighOrder\_Iion = true} the ionic ODE is integrated at cell
+quadrature points; $\Vm$ is reconstructed there by the same Taylor
+expansion (\code{reconstructVmAtIionIntegrationPoints}). The ionic
+contribution to the cell average is then
+\begin{equation}
+  \Iionsub{i} \;=\;
+   \frac{\sum_{q \in \mathcal{Q}_{i}} w_{q}\, \Iionsub{q}}
+        {\sum_{q \in \mathcal{Q}_{i}} w_{q}}
+   \qquad
+   \bigl(\text{\code{averageIionIntegrationPointsToCells}}\bigr).
+\end{equation}
+
+% ================================================================== %
+\section{Nonlinear solver}
+% ================================================================== %
+
+The fully discrete equation is nonlinear in $\mathsf{V}^{n+1}$ through
+$\Iion(\mathsf{V}^{n+1}, \mathbf{s}^{n+1})$. Three closing strategies
+are implemented; \code{nonlinearMethod} selects between them.
+
+\subsection{Picard (default)}
+
+Given an iterate $\mathsf{x}_{k}$, the next iterate is the unique
+solution of the linear system
+\begin{equation}
+  \Aimp\, \mathsf{x}_{k+1}^{\ast}
+   \;=\;
+   \Bimp\, \mathsf{V}^{n}
+   \;+\;
+   \theta\, \mathbf{s}\!\bigl(\Iion(\mathsf{x}_{k})\bigr)
+   \;+\;
+   (1-\theta)\, \mathbf{s}^{n},
+\end{equation}
+followed by a damped update
+$\mathsf{x}_{k+1} = (1-\omega)\,\mathsf{x}_{k} + \omega\,\mathsf{x}_{k+1}^{\ast}$
+with $\omega = $~\code{nonlinearRelaxation}. The ionic ODE is
+re-integrated from $t^{n}$ to $t^{n+1}$ at every $k$ using
+$\mathsf{x}_{k}$ as the (frozen) input voltage.
+
+\subsection{Diagonal-Iion linearised Picard}
+
+When \code{nonlinearMethod} is \code{diagonalIion}, \code{diagonal} or
+\code{localDiagonal}, the implicit operator is augmented by the diagonal
+of $\partial \Iion / \partial \Vm$ \emph{at the current iterate}, fed
+back to the implicit side:
+\begin{equation}
+  \bigl[\Aimp \,-\, \theta\, \mathrm{diag}(\partial \Iion/\partial\Vm)_{k}\bigr]
+   \, \mathsf{x}_{k+1}^{\ast}
+   \;=\;
+   \mathsf{r}\bigl(\Iion(\mathsf{x}_{k})\bigr)
+   \;-\;
+   \theta\, \mathrm{diag}(\partial \Iion/\partial\Vm)_{k}\, \mathsf{x}_{k},
+\end{equation}
+where the diagonal Jacobian entry is approximated by a one-sided
+finite difference,
+\begin{equation}
+  \frac{\partial \Iion}{\partial \Vm}\Bigg|_{i}
+   \;\approx\;
+   \frac{\Iion(\Vmsub{i} + \varepsilon) - \Iion(\Vmsub{i})}{\varepsilon},
+   \qquad
+   \varepsilon = \texttt{diagonalIionEpsilon}.
+\end{equation}
+This branch is strictly more accurate than plain Picard on stiff
+sources and at the same time strictly cheaper than a true Newton solve,
+because the off-diagonal coupling between cells is left to the implicit
+diffusion operator only.
+
+\subsection{Convergence criteria}
+
+The outer loop is allowed up to \code{nonlinearIterations} sweeps and
+declared converged when all of the following hold simultaneously:
+\begin{equation*}
+\begin{aligned}
+  \lVert \mathsf{F}(\mathsf{x}_{k}) \rVert_{2} / \lVert \mathsf{x}_{k} \rVert_{2}
+     &\;\le\; \texttt{nonlinearTolerance}, \\
+  \lVert \mathsf{V}_{k} - \mathsf{V}_{k-1} \rVert_{2} /
+     \lVert \mathsf{V}_{k} \rVert_{2}
+     &\;\le\; \texttt{nonlinearVmTolerance}, \\
+  \lVert \Iionsub{k} - \Iionsub{k-1} \rVert_{2} /
+     \lVert \Iionsub{k} \rVert_{2}
+     &\;\le\; \texttt{nonlinearIionTolerance}, \\
+  \text{(opt.)}\quad
+  \max_{i}\;
+  \lVert \mathbf{s}_{k}^{(i)} - \mathbf{s}_{k-1}^{(i)} \rVert_{2} /
+     \lVert \mathbf{s}_{k}^{(i)} \rVert_{2}
+     &\;\le\; \texttt{nonlinearStatesTolerance},
+\end{aligned}
+\end{equation*}
+plus $k+1 \ge $~\code{minNonlinearIterations}; the last criterion is
+gated by \code{nonlinearRequireStatesConvergence}.
+
+\subsection{Rollback on non-convergence}
+
+If the outer loop exhausts its budget without satisfying the
+convergence criteria, the user-controlled switch
+\code{nonlinearAcceptUnconverged} decides:
+\begin{itemize}[topsep=0pt]
+  \item \code{false} (default): restore $\Vm, \Iion, \mathbf{s}$ to
+        the values at $t^{n}$ and emit a warning;
+  \item \code{true}: accept the last iterate and continue.
+\end{itemize}
+
+% ================================================================== %
+\section{Linear solver: Eigen back-end}
+% ================================================================== %
+
+The wrapper \code{solveSparseSystem} drives either of two Eigen sparse
+solvers on the (optionally diagonal-augmented) operator:
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\code{linearSolver} key & Eigen type & Kind \\
+\midrule
+\code{SparseLU}  & \code{Eigen::SparseLU} & Direct LU factorisation \\
+\code{BiCGSTAB}  & \code{Eigen::BiCGSTAB} + \code{IncompleteLUT} & Iterative \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Both share the \code{tolerance} and \code{maxIterations} dictionary
+keys (the former is ignored by \code{SparseLU}). The Picard branch
+typically uses \code{SparseLU} so the same factorisation is reused at
+every outer iteration of the same time step.
+
+% ================================================================== %
+\section{Ionic ODE integration}
+% ================================================================== %
+
+For each cell or cell QP, the TNNP ODE~\eqref{eq:tnnp} is advanced by
+the OpenFOAM adaptive integrator selected via the \code{solver} key in
+\code{timeIntegrationProperties}. Default \code{RKF45}~\cite{hairer2}.
+The keys read from that file are:
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Key & Meaning & Default \\
+\midrule
+\code{solver} & ODE integrator & \code{RKF45} \\
+\code{absTol} & Absolute tolerance per state & $10^{-9}$ \\
+\code{relTol} & Relative tolerance per state & $10^{-6}$ \\
+\code{maxSteps} & Cap on sub-steps per outer call & $10^{4}$ \\
+\code{initialODEStep} & Initial sub-step (ms) & $10^{-5}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ================================================================== %
+\section{TNNP numerical protection}
+% ================================================================== %
+
+The master switch \code{TNNPNumericalProtection} (default \code{false})
+enables a guard \code{protectState(state, t, qp, phase)} invoked at
+every external entry into the TNNP kernel
+(\code{calculateCurrent}, \code{solveODE\_start}, \code{solveODE\_end},
+\code{derivatives}). Knobs:
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Key & Type & Default \\
+\midrule
+\code{TNNPNumericalProtection} & Switch & \code{false} \\
+\code{TNNPClampGates} & Switch & \code{true} \\
+\code{TNNPClampVmForRates} & Switch & \code{true} \\
+\code{TNNPLogNumericalProtection} & Switch & \code{true} \\
+\code{TNNPConcentrationFloor} & scalar (mM) & $10^{-12}$ \\
+\code{TNNPVMinForRates} & scalar (mV) & $-200$ \\
+\code{TNNPVMaxForRates} & scalar (mV) & $+100$ \\
+\code{TNNPVoltageZeroEps} & scalar (mV) & $10^{-8}$ \\
+\code{TNNPMaxProtectionLogEntries} & label & $10^{6}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+When enabled, the guards are: (1) reset non-finite $V$ to $-86.2$ mV;
+(2) clamp $V$ to $[\,$\code{TNNPVMinForRates},
+\code{TNNPVMaxForRates}$\,]$; (3) push $V$ off zero by
+\code{TNNPVoltageZeroEps} (avoids the $i_{CaL}$ removable singularity);
+(4) floor $K_{i}, Na_{i}, Ca_{i}, Ca_{SR}$ at
+\code{TNNPConcentrationFloor}; (5) clamp gating variables to $[0, 1]$.
+Corrections are accumulated by \code{(phase, variable, reason)} and
+emitted on exit to \code{TNNP\_numericalProtection\_summary.dat}.
+
+% ================================================================== %
+\section{Activation tracking and benchmarks}
+% ================================================================== %
+
+\paragraph{Activation time per cell.} First-crossing of $V_{\text{thr}}$
+in a step is recorded by linear interpolation:
+\begin{equation}
+  w \;=\; \mathrm{clip}\!\Bigl(
+      \frac{V_{\text{thr}} - V^{n}}{V^{n+1} - V^{n}},
+      \; 0, 1
+    \Bigr),
+   \qquad
+   t_{\text{act}} \;=\; t^{n} + w\, \Delta t.
+\end{equation}
+The per-cell flag is cleared so re-crossings are ignored.
+
+\paragraph{Early termination on P8.} When
+\code{stopAfterPointActivation = true}, the cell nearest
+\code{stopActivationPoint} (P8 in the Niederer benchmark) is monitored,
+and the effective end time is set to
+$t_{\text{act}} + $~\code{stopDelayAfterActivation}.
+
+\paragraph{Diagonal sampling.} \code{sampleIDW} performs
+inverse-distance-weighted interpolation at \code{nDiagonalSamples}
+points between \code{diagonalStart} and \code{diagonalEnd} with
+$k = $~\code{sampleNeighbours}, $p = $~\code{samplePower}.
+
+% ================================================================== %
+\section{Solver flow chart}
+% ================================================================== %
+
+The pseudo-code below summarises the per-time-step flow and shows the
+\pyconst{run\_convergence.py constants} / \dictkey{dict keys} that
+control each branch.
+
+\begin{algorithm}[H]
+\caption{High-level time-step loop of
+         \texttt{highOrderElectroActivationFoamImplicit}.}
+\begin{algorithmic}[1]
+\State Read dictionaries.
+\State Assemble Eigen \code{SparseMatrix}s: $\Mmass$
+       (\dictkey{massMatrix}), $\Kstif$ (\dictkey{useHighOrder\_Vm}),
+       $\Lop = \Kstif/(\chi C_{m})$.
+\State $\mathsf{V}^{0} \gets -84$~mV (initial condition).
+\While{ $t^{n} < $~\pyconst{END\_TIME} }
+   \State $\Delta t \gets $~\pyconst{DT\_VALUES} (current sweep value).
+   \State Build $\Aimp = \Mmass/\Delta t - \theta\,\Lop$,
+          $\Bimp = \Mmass/\Delta t + (1-\theta)\,\Lop$
+          (\dictkey{implicitScheme} $\to \theta$).
+   \State Apply stimulus to $\Iext$ (\dictkey{stimulusProtocol}).
+   \State $\mathsf{x}_{0} \gets \mathsf{V}^{n}$.
+   \For{ $k = 0, 1, \dots, $~\pyconst{IMPLICIT\_NONLINEAR\_ITERATIONS}$-1$ }
+      \State Reconstruct $\Vm$ at quadrature points if
+             \dictkey{useHighOrder\_Iion}.
+      \State Integrate TNNP ODE with $\mathsf{x}_{k}$
+             (\dictkey{ODE\_REL\_TOL}, \dictkey{ODE\_ABS\_TOL},
+              \dictkey{solver=RKF45}).
+      \State Build RHS:
+             $\mathsf{r}_{k} = \Bimp\,\mathsf{V}^{n}
+                 + \theta\,\mathbf{s}(\Iion(\mathsf{x}_{k}))
+                 + (1-\theta)\,\mathbf{s}^{n}$.
+      \If{ \dictkey{nonlinearMethod} = diagonalIion }
+         \State $\Aimp_{k} \gets \Aimp -
+                \theta\,\mathrm{diag}(\partial \Iion/\partial \Vm)_{k}$
+                (one-sided FD, \dictkey{diagonalIionEpsilon}).
+         \State $\mathsf{r}_{k} \gets \mathsf{r}_{k}
+                - \theta\,\mathrm{diag}(\partial \Iion/\partial \Vm)_{k}\,
+                  \mathsf{x}_{k}$.
+      \Else
+         \State $\Aimp_{k} \gets \Aimp$.
+      \EndIf
+      \State Solve $\Aimp_{k}\,\mathsf{V}_{*} = \mathsf{r}_{k}$ with Eigen
+             (\dictkey{linearSolver}, \dictkey{tolerance},
+              \dictkey{maxIterations}).
+      \State $\mathsf{x}_{k+1} \gets (1-\omega)\,\mathsf{x}_{k}
+             + \omega\,\mathsf{V}_{*}$,
+             $\omega = $~\dictkey{nonlinearRelaxation}.
+      \If{ convergence tests pass (\dictkey{nonlinearTolerance}, $\dots$) }
+         \State \textbf{break}
+      \EndIf
+   \EndFor
+   \State $\mathsf{V}^{n+1} \gets \mathsf{x}_{k+1}$.
+   \If{ \textbf{not} converged \textbf{and not}
+        \dictkey{nonlinearAcceptUnconverged} }
+      \State Warn; roll back: $\mathsf{V}^{n+1} \gets \mathsf{V}^{n}$,
+             $\Iion^{n+1} \gets \Iion^{n}$, $\mathbf{s}^{n+1} \gets \mathbf{s}^{n}$.
+   \EndIf
+   \State Record activation times (\dictkey{activationThreshold});
+          P8 stop check (\dictkey{stopAfterPointActivation},
+          \dictkey{stopDelayAfterActivation}).
+   \State Write nonlinear-residual log if \dictkey{writeNonlinearResiduals}.
+   \State $t^{n+1} \gets t^{n} + \Delta t$.
+\EndWhile
+\State Post-process: IDW sampling at P8 and diagonal
+       (\dictkey{nDiagonalSamples}, \dictkey{sampleNeighbours},
+        \dictkey{samplePower}).
+\end{algorithmic}
+\end{algorithm}
+
+\noindent\textbf{Legend.} \pyconst{Blue} = Python constant set in
+\code{run\_convergence.py}; \dictkey{green} = OpenFOAM dictionary key
+read by the solver.
+
+% ================================================================== %
+\section{Driver script: \texttt{run\_convergence.py}}
+\label{sec:driver}
+% ================================================================== %
+
+\subsection{Geometry and parameter sweep}
+\begin{longtable}{@{}p{0.30\linewidth}p{0.28\linewidth}p{0.36\linewidth}@{}}
+\toprule
+Python constant & OpenFOAM key & Meaning \\
+\midrule \endhead
+\code{DIMENSIONS} & --- &
+   List of dimensions to sweep (\code{2D}, \code{3D}). \\
+\code{DX\_VALUES\_MM} & \code{blockMeshDict} cell counts &
+   Uniform cell size in millimetres. \\
+\code{DT\_VALUES} & \code{controlDict.deltaT} &
+   Outer time-step sizes (seconds). \\
+\code{END\_TIME} & \code{controlDict.endTime} & End time (s). \\
+\code{CFL} & \code{timeIntegrationProperties.CFL} &
+   Informational reference; not enforced (the solver is implicit). \\
+\code{ACTIVE\_TIME\_SCHEMES} &
+   \code{spatialIntegrationProperties.implicitScheme} &
+   \{\code{backwardEuler}, \code{crankNicolson}\}. \\
+\code{ACTIVE\_MASS\_MATRICES} &
+   \code{spatialIntegrationProperties.massMatrix} &
+   \{\code{lumped}, \code{consistent}\}. \\
+\code{ACTIVE\_HO\_PAIRS\_Vm\_States} &
+   \code{useHighOrder\_Vm} / \code{useHighOrder\_Iion}
+   + \code{LRECoeffs\_*} &
+   Tuples \texttt{(Vm-level, Iion-level)}; level $\in$
+   \{\code{NO}, \code{p1}, \code{p2}, \code{p3}\}. \\
+\code{ACTIVE\_NONLINEAR\_METHODS} &
+   \code{nonlinearMethod} &
+   \{\code{picard}, \code{diagonalIion}\}. \\
+\code{ACTIVE\_STATE\_ODE\_SOLVERS} &
+   \code{timeIntegrationProperties.solver} &
+   ODE integrator names (\code{RKF45}, $\dots$). \\
+\code{SIGMA\_X, SIGMA\_Y, SIGMA\_Z} & \code{cardiacProperties} &
+   Diagonal of $\Dten$. \\
+\code{CHI} & \code{cardiacProperties.chi} & Surface-to-volume ratio. \\
+\code{CM} & \code{cardiacProperties.Cm} & Membrane capacitance. \\
+\bottomrule
+\end{longtable}
+
+\subsection{Nonlinear and linear solver}
+\begin{longtable}{@{}p{0.35\linewidth}p{0.30\linewidth}p{0.30\linewidth}@{}}
+\toprule
+Python constant & OpenFOAM key & Meaning \\
+\midrule \endhead
+\code{IMPLICIT\_NONLINEAR\_ITERATIONS} & \code{nonlinearIterations} &
+   Picard iteration cap per step. \\
+\code{IMPLICIT\_MIN\_NONLINEAR\_ITERATIONS} &
+   \code{minNonlinearIterations} & Minimum sweeps. \\
+\code{NONLINEAR\_TOLERANCE} & \code{nonlinearTolerance} &
+   Coupled-residual tolerance. \\
+\code{NONLINEAR\_VM\_TOLERANCE} & \code{nonlinearVmTolerance} &
+   Relative L$^{2}$ change in $\Vm$. \\
+\code{NONLINEAR\_IION\_TOLERANCE} & \code{nonlinearIionTolerance} &
+   Same on $\Iion$. \\
+\code{NONLINEAR\_STATES\_TOLERANCE} &
+   \code{nonlinearStatesTolerance} & Max over states. \\
+\code{NONLINEAR\_REQUIRE\_STATES\_CONVERGENCE} &
+   \code{nonlinearRequireStatesConvergence} & Gate state test. \\
+\code{NONLINEAR\_RELAXATION} & \code{nonlinearRelaxation} &
+   Picard mix factor $\omega$. \\
+\code{DIAGONAL\_IION\_EPSILON} & \code{diagonalIionEpsilon} &
+   FD step for diagonal $\partial \Iion/\partial \Vm$ when
+   \code{nonlinearMethod = diagonalIion}. \\
+\code{IMPLICIT\_LINEAR\_SOLVER} & \code{linearSolver} &
+   \{\code{SparseLU}, \code{BiCGSTAB}\}. \\
+\code{IMPLICIT\_TOLERANCE} & \code{tolerance} &
+   BiCGSTAB relative tolerance. \\
+\code{IMPLICIT\_MAX\_ITERATIONS} & \code{maxIterations} &
+   BiCGSTAB iteration cap. \\
+\bottomrule
+\end{longtable}
+
+\subsection{Inner ODE integrator (RKF45)}
+\begin{longtable}{@{}p{0.30\linewidth}p{0.30\linewidth}p{0.35\linewidth}@{}}
+\toprule
+Python constant & OpenFOAM key & Meaning \\
+\midrule \endhead
+\code{ODE\_ABS\_TOL} & \code{timeIntegrationProperties.absTol} &
+   Absolute tolerance per state. \\
+\code{ODE\_REL\_TOL} & \code{timeIntegrationProperties.relTol} &
+   Relative tolerance per state. \\
+\code{ODE\_INITIAL\_STEP} & \code{initialODEStep} &
+   Initial sub-step (ms). \\
+\code{ODE\_MAX\_STEPS} & \code{maxSteps} & RKF45 sub-step cap. \\
+\bottomrule
+\end{longtable}
+
+\subsection{Post-processing and run-control}
+\begin{longtable}{@{}p{0.35\linewidth}p{0.30\linewidth}p{0.30\linewidth}@{}}
+\toprule
+Python constant & OpenFOAM key & Meaning \\
+\midrule \endhead
+\code{ACTIVATION\_THRESHOLD} & \code{activationThreshold} &
+   $V_{\text{thr}}$ (V). \\
+\code{N\_DIAGONAL\_SAMPLES} & \code{nDiagonalSamples} & IDW samples. \\
+\code{SAMPLE\_NEIGHBOURS} & \code{sampleNeighbours} & $k$-NN for IDW. \\
+\code{SAMPLE\_POWER} & \code{samplePower} & Inverse-distance power. \\
+\code{STOP\_AFTER\_POINT\_ACTIVATION} &
+   \code{stopAfterPointActivation} & Early-stop on P8. \\
+\code{STOP\_DELAY\_AFTER\_ACTIVATION} &
+   \code{stopDelayAfterActivation} & Delay (s). \\
+\code{WRITE\_NONLINEAR\_RESIDUALS} &
+   \code{writeNonlinearResiduals} & Residual log. \\
+\code{SAVE\_LOGS\_ON\_SUCCESS} & --- &
+   Python-only; keep logs after successful run. \\
+\bottomrule
+\end{longtable}
+
+% ================================================================== %
+\section{Niederer benchmark results}
+\label{sec:results}
+% ================================================================== %
+
+This section collects measured P8 activation times, wall-clock cost
+and peak memory from four independent result trees of this solver:
+\begin{enumerate}[topsep=0pt,itemsep=2pt]
+  \item
+    \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderNiedererEtAl2012Implicit/}
+  \item
+    \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderNiedererEtAl2012Implicit_1/}
+  \item
+    \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderNiedererEtAl2012Implicit_3/}
+  \item
+    \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderNiedererEtAl2012Implicit_4/}
+\end{enumerate}
+Rows of the tables below are LRE p-levels for $\Vm$ $\times$ $\Iion$
+(\texttt{NO} = high-order disabled); columns are mesh sizes
+$\Delta x$ in millimetres. Computational cost is the elapsed wall-clock
+time of the solver process reported by \texttt{/usr/bin/time -v}; peak
+memory is the maximum resident set size of the same process. The
+nonlinear method, time-integration scheme and mass matrix are noted
+above each block when relevant. \textsc{NC} = no run data found for
+that combination.
+
+\input{results_tables.tex}
+
+% ================================================================== %
+\appendix
+\section{Dimension table}
+% ================================================================== %
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Field & OpenFOAM \code{dimensionSet} & SI \\
+\midrule
+\code{Vm} & $[1, 2, -3, 0, 0, -1, 0]$ & volt \\
+\code{Iion} & \code{dimVoltage/dimTime} & \si{\volt\per\second} \\
+\code{externalStimulusCurrent} & \code{dimCurrent/dimVolume} &
+    \si{\ampere\per\meter\cubed} \\
+\code{conductivity} &
+    \code{dimCurrent\^{}2 dimTime\^{}3 / (dimMass dimVolume)} &
+    \si{\siemens\per\meter} \\
+\code{chi} & \code{dimless/dimLength} & \si{\per\meter} \\
+\code{Cm} & \code{dimCurrent dimTime / (dimVoltage dimArea)} &
+    \si{\farad\per\meter\squared} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ================================================================== %
+\begin{thebibliography}{9}
+% ================================================================== %
+
+\bibitem{ttp2004} K.~H.~W.~J. ten Tusscher, D. Noble, P.~J. Noble, A.~V.
+    Panfilov, \emph{A model for human ventricular tissue},
+    AJP -- Heart and Circulatory Physiology
+    \textbf{286} (2004) H1573--H1589.
+
+\bibitem{niederer2012} S.~A. Niederer et al.,
+    \emph{Verification of cardiac tissue electrophysiology simulators
+    using an N-version benchmark}, Prog.\ Biophys.\ Mol.\ Biol.
+    \textbf{104} (2012) 22--48.
+
+\bibitem{hairer2} E. Hairer, G. Wanner,
+    \emph{Solving Ordinary Differential Equations II}, Springer, 1996.
+
+\end{thebibliography}
+
+\end{document}

@@ -16,12 +16,109 @@ namespace
 
     struct MMSConfig
     {
-        word type;      // example_0 | example_1 | example_2 | example_3 | example_4
+        word type;      // example_0 | example_1 | example_2 | example_3 | example_4 | example_5
         scalar A;
         scalar beta;    // used by example_0 | example_1 | example_2 | example_3
         scalar gamma;   // used by example_4
         scalar omega;   // used by example_4
+        label dim;
     };
+
+    label activeDim(const MMSConfig& mms)
+    {
+        return max(mms.dim, label(1));
+    }
+
+    scalar zFactor
+    (
+        const point& p,
+        const scalar k,
+        const bool useCos,
+        const MMSConfig& mms
+    )
+    {
+        if (activeDim(mms) < 3)
+        {
+            return 1.0;
+        }
+
+        return useCos ? std::cos(k*p.z()) : std::sin(k*p.z());
+    }
+
+    scalar electroF(const point& p, const MMSConfig& mms)
+    {
+        const scalar pi = constant::mathematical::pi;
+
+        scalar f = std::cos(pi*p.x());
+
+        if (activeDim(mms) >= 2)
+        {
+            f *= std::cos(2.0*pi*p.y());
+        }
+        if (activeDim(mms) >= 3)
+        {
+            f *= std::cos(3.0*pi*p.z());
+        }
+
+        return f;
+    }
+
+    scalar electroG(const point& p, const MMSConfig& mms)
+    {
+        if (activeDim(mms) == 1)
+        {
+            return 1.0 + p.x();
+        }
+        else if (activeDim(mms) == 2)
+        {
+            return 1.0 + p.x()*sqr(p.y());
+        }
+
+        return 1.0 + p.x()*sqr(p.y())*pow3(p.z());
+    }
+
+    scalar electroBeta
+    (
+        const scalar alphaX,
+        const scalar alphaY,
+        const scalar alphaZ,
+        const MMSConfig& mms
+    )
+    {
+        const scalar pi2 = sqr(constant::mathematical::pi);
+
+        if (activeDim(mms) == 1)
+        {
+            return -pi2*alphaX;
+        }
+        else if (activeDim(mms) == 2)
+        {
+            return -pi2*(alphaX + 4.0*alphaY);
+        }
+
+        return -pi2*(alphaX + 4.0*alphaY + 9.0*alphaZ);
+    }
+
+    scalar exactElectroIion
+    (
+        const point& p,
+        const scalar t,
+        const scalar alphaX,
+        const scalar alphaY,
+        const scalar alphaZ,
+        const MMSConfig& mms
+    )
+    {
+        const scalar T = std::sqrt(1.0 + t)*electroF(p, mms);
+        const scalar G = electroG(p, mms);
+        const scalar u1 = (1.0 + t)*G + T;
+        const scalar u2 = 1.0/((1.0 + t)*std::sqrt(G));
+        const scalar u3 = 0.0;
+
+        return
+            -0.5*(u1 + u3 - T)*sqr(u2)*(T - u3)
+          + electroBeta(alphaX, alphaY, alphaZ, mms)*(T - u3);
+    }
 
     scalar exactTemperature
     (
@@ -32,7 +129,6 @@ namespace
     {
         const scalar x = p.x();
         const scalar y = p.y();
-        const scalar z = p.z();
         const scalar pi = constant::mathematical::pi;
 
         if (mms.type == "example_0")
@@ -41,7 +137,7 @@ namespace
                 mms.A
                 *std::sin(mms.beta*pi*x)
                 *std::sin(mms.beta*pi*y)
-                *std::sin(mms.beta*pi*z)
+                *zFactor(p, mms.beta*pi, false, mms)
                 *std::sin(mms.beta*pi*t);
         }
         else if (mms.type == "example_1")
@@ -50,7 +146,7 @@ namespace
                 mms.A
                 *std::cos(mms.beta*pi*x)
                 *std::sin(mms.beta*pi*y)
-                *std::sin(mms.beta*pi*z)
+                *zFactor(p, mms.beta*pi, false, mms)
                 *std::sin(mms.beta*pi*t);
         }
         else if (mms.type == "example_2")
@@ -59,7 +155,7 @@ namespace
                 mms.A
                 *std::cos(mms.beta*pi*x)
                 *std::cos(mms.beta*pi*y)
-                *std::sin(mms.beta*pi*z)
+                *zFactor(p, mms.beta*pi, false, mms)
                 *std::sin(mms.beta*pi*t);
         }
         else if (mms.type == "example_3")
@@ -68,7 +164,7 @@ namespace
                 mms.A
                 *std::cos(mms.beta*pi*x)
                 *std::cos(mms.beta*pi*y)
-                *std::cos(mms.beta*pi*z)
+                *zFactor(p, mms.beta*pi, true, mms)
                 *std::sin(mms.beta*pi*t);
         }
         else if (mms.type == "example_4")
@@ -79,13 +175,17 @@ namespace
                 mms.A
                 *std::sin(k*x)
                 *std::sin(k*y)
-                *std::sin(k*z)
+                *zFactor(p, k, false, mms)
                 *std::sin(mms.omega*pi*t);
+        }
+        else if (mms.type == "example_5")
+        {
+            return mms.A*std::sqrt(1.0 + t)*electroF(p, mms);
         }
 
         FatalErrorInFunction
             << "Unknown mmsType: " << mms.type << nl
-            << "Valid options: example_0 | example_1 | example_2 | example_3 | example_4"
+            << "Valid options: example_0 | example_1 | example_2 | example_3 | example_4 | example_5"
             << exit(FatalError);
 
         return 0.0;
@@ -104,14 +204,13 @@ namespace
     {
         const scalar x = p.x();
         const scalar y = p.y();
-        const scalar z = p.z();
         const scalar pi = constant::mathematical::pi;
 
         if (mms.type == "example_0")
         {
             const scalar a = rhoCp*mms.beta*pi*std::cos(mms.beta*pi*t);
             const scalar b =
-                (alphaX + alphaY + alphaZ)
+                (alphaX + alphaY + (activeDim(mms) >= 3 ? alphaZ : 0.0))
                *pow(mms.beta*pi,2)
                *std::sin(mms.beta*pi*t);
 
@@ -119,14 +218,14 @@ namespace
                 mms.A
                 *std::sin(mms.beta*pi*x)
                 *std::sin(mms.beta*pi*y)
-                *std::sin(mms.beta*pi*z)
+                *zFactor(p, mms.beta*pi, false, mms)
                 *(a + b);
         }
         else if (mms.type == "example_1")
         {
             const scalar a = rhoCp*mms.beta*pi*std::cos(mms.beta*pi*t);
             const scalar b =
-                (alphaX + alphaY + alphaZ)
+                (alphaX + alphaY + (activeDim(mms) >= 3 ? alphaZ : 0.0))
                *pow(mms.beta*pi,2)
                *std::sin(mms.beta*pi*t);
 
@@ -134,14 +233,14 @@ namespace
                 mms.A
                 *std::cos(mms.beta*pi*x)
                 *std::sin(mms.beta*pi*y)
-                *std::sin(mms.beta*pi*z)
+                *zFactor(p, mms.beta*pi, false, mms)
                 *(a + b);
         }
         else if (mms.type == "example_2")
         {
             const scalar a = rhoCp*mms.beta*pi*std::cos(mms.beta*pi*t);
             const scalar b =
-                (alphaX + alphaY + alphaZ)
+                (alphaX + alphaY + (activeDim(mms) >= 3 ? alphaZ : 0.0))
                *pow(mms.beta*pi,2)
                *std::sin(mms.beta*pi*t);
 
@@ -149,14 +248,14 @@ namespace
                 mms.A
                 *std::cos(mms.beta*pi*x)
                 *std::cos(mms.beta*pi*y)
-                *std::sin(mms.beta*pi*z)
+                *zFactor(p, mms.beta*pi, false, mms)
                 *(a + b);
         }
         else if (mms.type == "example_3")
         {
             const scalar a = rhoCp*mms.beta*pi*std::cos(mms.beta*pi*t);
             const scalar b =
-                (alphaX + alphaY + alphaZ)
+                (alphaX + alphaY + (activeDim(mms) >= 3 ? alphaZ : 0.0))
                *pow(mms.beta*pi,2)
                *std::sin(mms.beta*pi*t);
 
@@ -164,28 +263,42 @@ namespace
                 mms.A
                 *std::cos(mms.beta*pi*x)
                 *std::cos(mms.beta*pi*y)
-                *std::cos(mms.beta*pi*z)
+                *zFactor(p, mms.beta*pi, true, mms)
                 *(a + b);
         }
         else if (mms.type == "example_4")
         {
             const scalar k = 0.5*mms.gamma*pi;
             const scalar spatial =
-                std::sin(k*x)*std::sin(k*y)*std::sin(k*z);
+                std::sin(k*x)*std::sin(k*y)*zFactor(p, k, false, mms);
 
             const scalar T = mms.A*spatial*std::sin(mms.omega*pi*t);
             const scalar dTdt = mms.A*spatial*mms.omega*pi*std::cos(mms.omega*pi*t);
 
             const scalar divKGradT =
-                - (alphaX + alphaY + alphaZ)
+                - (alphaX + alphaY + (activeDim(mms) >= 3 ? alphaZ : 0.0))
                 *pow(k,2)*T;
 
             return rhoCp*dTdt - divKGradT;
         }
+        else if (mms.type == "example_5")
+        {
+            return
+                mms.A
+               *exactElectroIion
+                (
+                    p,
+                    t,
+                    alphaX,
+                    alphaY,
+                    alphaZ,
+                    mms
+                );
+        }
 
         FatalErrorInFunction
             << "Unknown mmsType: " << mms.type << nl
-            << "Valid options: example_0 | example_1 | example_2 | example_3 | example_4"
+            << "Valid options: example_0 | example_1 | example_2 | example_3 | example_4 | example_5"
             << exit(FatalError);
 
         return 0.0;
@@ -196,7 +309,37 @@ namespace
         const label nCellsGlobal =
             returnReduce(mesh.nCells(), sumOp<label>());
 
-        return label(std::round(std::cbrt(static_cast<double>(nCellsGlobal))));
+        const scalar dim = max(scalar(mesh.nGeometricD()), 1.0);
+        return label(std::round(std::pow(scalar(nCellsGlobal), 1.0/dim)));
+    }
+
+    scalar characteristicDx(const fvMesh& mesh)
+    {
+        const boundBox bb(mesh.points());
+        const vector span = bb.max() - bb.min();
+
+        scalar activeMeasure = 1.0;
+        if (mesh.nGeometricD() >= 1)
+        {
+            activeMeasure *= max(span.x(), SMALL);
+        }
+        if (mesh.nGeometricD() >= 2)
+        {
+            activeMeasure *= max(span.y(), SMALL);
+        }
+        if (mesh.nGeometricD() >= 3)
+        {
+            activeMeasure *= max(span.z(), SMALL);
+        }
+
+        const scalar nCellsGlobal =
+            scalar(returnReduce(mesh.nCells(), sumOp<label>()));
+
+        return std::pow
+        (
+            activeMeasure/max(nCellsGlobal, SMALL),
+            1.0/max(scalar(mesh.nGeometricD()), 1.0)
+        );
     }
 
     scalar volumeWeightedL1(const volScalarField& fld)
@@ -495,6 +638,15 @@ namespace
             const fvPatch& patch = mesh.boundary()[patchI];
             const word bcType = patch.lookupPatchField<volScalarField, scalar>("T").type();
 
+            if
+            (
+                bcType == "empty"
+             || bcType == zeroGradientFvPatchScalarField::typeName
+            )
+            {
+                continue;
+            }
+
             forAll(patch, faceI)
             {
                 const label globalFaceI = patch.start() + faceI;
@@ -513,12 +665,8 @@ namespace
                     forAll(curStencil, cI)
                     {
                         const label col = curStencil[cI];
-                        vector gCoeff = faceGradCoeffs[globalFaceI][qpI][cI];
-
-                        if (bcType == "zeroGradient")
-                        {
-                            gCoeff -= (gCoeff & n)*n;
-                        }
+                        const vector gCoeff =
+                            faceGradCoeffs[globalFaceI][qpI][cI];
 
                         const scalar fluxCoeff =
                             area*w*(n & (conductivity[own] & gCoeff));
@@ -827,6 +975,23 @@ namespace
         forAll(fluxT_HO.boundaryField(), patchI)
         {
             scalarField& patchFlux = fluxT_HO.boundaryFieldRef()[patchI];
+
+            if (patchFlux.size() == 0)
+            {
+                continue;
+            }
+
+            const word bcType = T.boundaryField()[patchI].type();
+            if
+            (
+                bcType == zeroGradientFvPatchScalarField::typeName
+             || bcType == "empty"
+            )
+            {
+                patchFlux = 0.0;
+                continue;
+            }
+
             const label start = mesh.boundaryMesh()[patchI].start();
             const scalarField& pMagSf = mesh.magSf().boundaryField()[patchI];
             const vectorField& pNormals = nHat.boundaryField()[patchI];
@@ -975,7 +1140,7 @@ namespace
         const scalar Linf_RHS = linfNorm(rhsField);
 
         const label N = estimatedN(mesh);
-        const scalar dx = std::cbrt(mesh.V().average().value());
+        const scalar dx = characteristicDx(mesh);
         const word dimName = name(mesh.nGeometricD()) + "D";
 
         const fileName outFile =
@@ -1062,6 +1227,7 @@ int main(int argc, char *argv[])
     mms.beta  = exactSolutionProperties.lookupOrDefault<scalar>("beta", 1.0);
     mms.gamma = exactSolutionProperties.lookupOrDefault<scalar>("gamma", 3.0);
     mms.omega = exactSolutionProperties.lookupOrDefault<scalar>("omega", 4.0);
+    mms.dim   = mesh.nGeometricD();
 
     const scalar alphaXValue = alphaX.value();
     const scalar alphaYValue = alphaY.value();
@@ -1070,44 +1236,39 @@ int main(int argc, char *argv[])
     const scalar rhoCp = rho.value()*Cp.value();
     const scalar dt = runTime.deltaTValue();
 
-    if (!useHighOrder_T)
-    {
-        FatalErrorInFunction
-            << "The implicit solver currently requires useHighOrder_T = true."
-            << nl
-            << "Set useHighOrder_T true in constant/spatialIntegrationProperties."
-            << exit(FatalError);
-    }
-
     const scalar theta = thetaFromScheme(implicitScheme);
     const word massMatrixMode = normalizedMassMatrixType(massMatrixType);
+    const scalar sourceSign = (mms.type == "example_5") ? -1.0 : 1.0;
 
     SpMat M;
     SpMat K;
     SpMat AImplicit;
     SpMat BImplicit;
 
-    if (massMatrixMode == "lumped")
+    if (useHighOrder_T)
     {
-        assembleDiagonalMassMatrix(mesh, rhoCp, M);
-    }
-    else
-    {
-        assembleConsistentMassMatrixHO(mesh, LREInterp_T, rhoCp, M);
-    }
+        if (massMatrixMode == "lumped")
+        {
+            assembleDiagonalMassMatrix(mesh, rhoCp, M);
+        }
+        else
+        {
+            assembleConsistentMassMatrixHO(mesh, LREInterp_T, rhoCp, M);
+        }
 
-    assembleHighOrderStiffnessMatrix(mesh, conductivity, LREInterp_T, K);
+        assembleHighOrderStiffnessMatrix(mesh, conductivity, LREInterp_T, K);
 
-    AImplicit = M;
-    AImplicit *= (1.0/dt);
-    AImplicit -= theta*K;
+        AImplicit = M;
+        AImplicit *= (1.0/dt);
+        AImplicit -= theta*K;
 
-    BImplicit = M;
-    BImplicit *= (1.0/dt);
+        BImplicit = M;
+        BImplicit *= (1.0/dt);
 
-    if (theta < 1.0 - SMALL)
-    {
-        BImplicit += (1.0 - theta)*K;
+        if (theta < 1.0 - SMALL)
+        {
+            BImplicit += (1.0 - theta)*K;
+        }
     }
 
     fillExactFields
@@ -1124,7 +1285,7 @@ int main(int argc, char *argv[])
     );
 
     T = TExact;
-    T.correctBoundaryConditions();
+    applyExactBoundaryValues(T, runTime.value(), mms);
 
     label nTimeSteps = 0;
 
@@ -1148,18 +1309,8 @@ int main(int argc, char *argv[])
             LREInterp_T
         );
 
-        const EigVec Tn = fieldToEigVec(T);
-        const EigVec qn = sourceToEigVec(sourceQ);
-
-        const EigVec bcn =
-            assembleHighOrderBoundaryVector
-            (
-                mesh,
-                conductivity,
-                LREInterp_T,
-                t,
-                mms
-            );
+        volScalarField sourceQn("sourceQn", sourceQ);
+        sourceQn *= sourceSign;
 
         fillExactFields
         (
@@ -1174,47 +1325,111 @@ int main(int argc, char *argv[])
             LREInterp_T
         );
 
-        const EigVec qnp1 = sourceToEigVec(sourceQ);
+        volScalarField sourceQnp1("sourceQnp1", sourceQ);
+        sourceQnp1 *= sourceSign;
 
-        const EigVec bcnp1 =
-            assembleHighOrderBoundaryVector
+        if (useHighOrder_T)
+        {
+            const EigVec Tn = fieldToEigVec(T);
+            const EigVec qn = sourceToEigVec(sourceQn);
+
+            const EigVec bcn =
+                assembleHighOrderBoundaryVector
+                (
+                    mesh,
+                    conductivity,
+                    LREInterp_T,
+                    t,
+                    mms
+                );
+
+            const EigVec qnp1 = sourceToEigVec(sourceQnp1);
+
+            const EigVec bcnp1 =
+                assembleHighOrderBoundaryVector
+                (
+                    mesh,
+                    conductivity,
+                    LREInterp_T,
+                    t + dt,
+                    mms
+                );
+
+            const EigVec rhs =
+                BImplicit*Tn
+              + theta*(qnp1 + bcnp1)
+              + (1.0 - theta)*(qn + bcn);
+
+            const EigVec Tnp1 =
+                solveSparseSystem
+                (
+                    AImplicit,
+                    rhs,
+                    implicitLinearSolver,
+                    implicitTolerance,
+                    implicitMaxIterations
+                );
+
+            eigVecToField(Tnp1, T);
+
+            applyExactBoundaryValues(T, t + dt, mms);
+        }
+        else
+        {
+            applyExactBoundaryValues(T, t, mms);
+
+            const volScalarField Tn("Tn", T);
+            const volScalarField lapTn(fvc::laplacian(conductivity, T));
+
+            applyExactBoundaryValues(T, t + dt, mms);
+
+            const dimensionedScalar rhoCpOverDt
             (
-                mesh,
+                "rhoCpOverDt",
+                dimless/sqr(dimLength),
+                rhoCp/dt
+            );
+
+            fvScalarMatrix TEqn
+            (
+                fvm::Sp(rhoCpOverDt, T)
+              - theta*fvm::laplacian(conductivity, T)
+             ==
+                rhoCpOverDt*Tn
+              + (1.0 - theta)*lapTn
+              + theta*sourceQnp1
+              + (1.0 - theta)*sourceQn
+            );
+
+            TEqn.solve();
+
+            applyExactBoundaryValues(T, t + dt, mms);
+        }
+
+        if (useHighOrder_T)
+        {
+            computeHighOrderLaplacian
+            (
+                T,
                 conductivity,
                 LREInterp_T,
-                t + dt,
-                mms
+                fluxT_HO,
+                lapTHO
             );
+        }
+        else
+        {
+            lapTHO = fvc::laplacian(conductivity, T);
+        }
 
-        const EigVec rhs =
-            BImplicit*Tn
-          + theta*(qnp1 + bcnp1)
-          + (1.0 - theta)*(qn + bcn);
-
-        const EigVec Tnp1 =
-            solveSparseSystem
-            (
-                AImplicit,
-                rhs,
-                implicitLinearSolver,
-                implicitTolerance,
-                implicitMaxIterations
-            );
-
-        eigVecToField(Tnp1, T);
-
-        applyExactBoundaryValues(T, t + dt, mms);
-
-        computeHighOrderLaplacian
-        (
-            T,
-            conductivity,
-            LREInterp_T,
-            fluxT_HO,
-            lapTHO
-        );
-
-        residualField = lapTHO + sourceQ;
+        if (mms.type == "example_5")
+        {
+            residualField = lapTHO - sourceQ;
+        }
+        else
+        {
+            residualField = lapTHO + sourceQ;
+        }
 
         ++nTimeSteps;
         ++runTime;
@@ -1264,23 +1479,49 @@ int main(int argc, char *argv[])
         LREInterp_T
     );
 
-    computeHighOrderLaplacian
-    (
-        T,
-        conductivity,
-        LREInterp_T,
-        fluxT_HO,
-        lapTHO
-    );
+    if (useHighOrder_T)
+    {
+        computeHighOrderLaplacian
+        (
+            T,
+            conductivity,
+            LREInterp_T,
+            fluxT_HO,
+            lapTHO
+        );
+    }
+    else
+    {
+        lapTHO = fvc::laplacian(conductivity, T);
+    }
 
-    residualField = lapTHO + sourceQ;
+    if (mms.type == "example_5")
+    {
+        residualField = lapTHO - sourceQ;
+    }
+    else
+    {
+        residualField = lapTHO + sourceQ;
+    }
     TError = T - TExact;
     operatorError = residualField;
 
-    const GaussErrorSummary gaussErr =
-        computeGaussReconstructedError(T, runTime.value(), mms, LREInterp_T);
-
     const scalar errorT = errorTCellCentred(TError);
+
+    GaussErrorSummary gaussErr;
+    if (useHighOrder_T)
+    {
+        gaussErr =
+            computeGaussReconstructedError(T, runTime.value(), mms, LREInterp_T);
+    }
+    else
+    {
+        gaussErr.L1 = volumeWeightedL1(TError);
+        gaussErr.L2 = volumeWeightedL2(TError);
+        gaussErr.Linf = linfNorm(TError);
+        gaussErr.normL2 = volumeWeightedL2(TExact);
+        gaussErr.relL2 = 100.0*gaussErr.L2/max(gaussErr.normL2, SMALL);
+    }
 
     const auto tEndPost = std::chrono::steady_clock::now();
 

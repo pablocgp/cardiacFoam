@@ -1,0 +1,530 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{placeins}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\maybeincludegraphics}[2][]{%
+\IfFileExists{#2}{\includegraphics[#1]{#2}}{\fbox{\parbox[c][0.28\textheight][c]{0.92\linewidth}{\centering Missing figure: \texttt{\detokenize{#2}}\\Run \code{plot\_convergence.m} in this report directory.}}}%
+}
+
+\title{High-Order Explicit Manufactured FDA Solver\\Verification Report}
+\author{Generated report for \code{highOrderManufacturedFDAExplicit}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report documents the current \code{highOrderManufacturedFDAExplicit} solver. The solver advances a monodomain-like manufactured activation equation coupled to local state variables. The transmembrane potential can be diffused with either the standard finite-volume operator or an LRE high-order flux operator. The nonlinear ionic current can be evaluated at cell centres or volume-integrated from dedicated cell quadrature points, where the local ODE states are also evolved. The convergence tables and plotting script read the current two- and three-dimensional data in \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderManufacturedFDAExplicit/results/example0/2D} and \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderManufacturedFDAExplicit/results/example0/3D}.
+\end{abstract}
+
+\section{Manufactured FDA problem}
+The unknowns are the transmembrane potential $V_m$ and state variables $u_1$, $u_2$, and $u_3$. The manufactured problem is
+\begin{align}
+\frac{\partial V_m}{\partial t}
+&= \frac{1}{\chi C_m}\nabla\cdot(D\nabla V_m)
+- I_{\mathrm{ion}}(V_m,u_1,u_2,u_3),\\
+\frac{\partial u_1}{\partial t}
+&= (u_1+u_3-V_m)^2u_2^2
++ \frac{1}{2}(u_1+u_3-V_m)u_2^2(V_m-u_3),\\
+\frac{\partial u_2}{\partial t}
+&= -(u_1+u_3-V_m)u_2^3,\\
+\frac{\partial u_3}{\partial t}
+&= 0.
+\end{align}
+The ionic current is
+\begin{equation}
+I_{\mathrm{ion}}
+= -\frac{1}{2}(u_1+u_3-V_m)u_2^2(V_m-u_3)
++ \frac{\beta}{\chi C_m}(V_m-u_3),
+\end{equation}
+where $\beta$ is the exact Laplacian eigenvalue associated with the selected manufactured mode and conductivity tensor.
+
+For the two-dimensional runs used in this report,
+\begin{align}
+F(x,y) &= \cos(\pi x)\cos(2\pi y),\\
+G(x,y) &= 1 + x y^2,\\
+V_m^\star(x,y,t) &= \sqrt{1+t}\,F(x,y),\\
+u_1^\star(x,y,t) &= (1+t)G(x,y) + V_m^\star(x,y,t),\\
+u_2^\star(x,y,t) &= \frac{1}{(1+t)\sqrt{G(x,y)}},\\
+u_3^\star &= 0.
+\end{align}
+The code also contains one- and three-dimensional manufactured definitions.
+
+\section{Spatial discretization}
+\subsection{Diffusion of \texorpdfstring{$V_m$}{Vm}}
+The potential equation can use the standard OpenFOAM finite-volume Laplacian or a high-order flux computed by LRE. In the high-order case, local Taylor reconstructions are built from cell stencils. The options \code{p1}, \code{p2}, and \code{p3} use derivatives through first, second, and third order respectively. The diffusive flux through a face $f$ is approximated by
+\begin{equation}
+\Phi_f
+\approx |S_f|\sum_{q=1}^{N_f} \omega_{fq}\,
+\mathbf{n}_f\cdot D_{o(f)}\nabla_h V_m(\mathbf{x}_{fq}),
+\end{equation}
+where $o(f)$ is the owner cell and $\mathbf{x}_{fq}$ are face quadrature points. The cell Laplacian is then recovered from the divergence of these numerical fluxes.
+
+\subsection{Volume integration of \texorpdfstring{$I_{\mathrm{ion}}$}{Iion}}
+The current solver uses \code{useHighOrder\_Iion} for the nonlinear source. The older input name \code{useHighOrder\_states}, and the result-folder token \code{hoStates}, are still accepted for backward compatibility, but they should now be read as the quadrature level used for $I_{\mathrm{ion}}$ and for the local state values stored at those quadrature points.
+
+If \code{useHighOrder\_Iion} is off, the source and state ODEs are evaluated at cell centres:
+\begin{equation}
+I_{\mathrm{ion},K}^n
+= I_{\mathrm{ion}}\!\left(V_{m,K}^n,u_{1,K}^n,u_{2,K}^n,u_{3,K}^n\right).
+\end{equation}
+If \code{useHighOrder\_Iion} is on, the ODE states are stored and advanced at the cell quadrature points $\mathbf{x}_{Kq}$, and the cell source is the quadrature average
+\begin{equation}
+I_{\mathrm{ion},K}^n
+\approx \frac{1}{|K|}
+\sum_{q=1}^{N_K}\omega_{Kq}\,
+I_{\mathrm{ion}}\!\left(
+V_m^n(\mathbf{x}_{Kq}),
+u_1^n(\mathbf{x}_{Kq}),
+u_2^n(\mathbf{x}_{Kq}),
+u_3^n(\mathbf{x}_{Kq})
+\right).
+\end{equation}
+The value $V_m(\mathbf{x}_{Kq})$ is obtained with the LRE reconstruction when \code{useHighOrder\_Vm} is on; otherwise it is evaluated from a linear cell-centred reconstruction. The state fields written at cell centres are volume averages of the quadrature-point states,
+\begin{equation}
+u_{i,K}^n \approx \frac{1}{|K|}
+\sum_{q=1}^{N_K}\omega_{Kq}u_i^n(\mathbf{x}_{Kq}),
+\qquad i=1,2,3.
+\end{equation}
+
+\section{Boundary conditions}
+For the standard finite-volume operator, the OpenFOAM patch fields are used directly. For the high-order diffusive flux, the solver now treats \code{zeroGradient} and \code{empty} patches as no-flux patches by setting the high-order boundary flux to zero:
+\begin{equation}
+\int_{\Gamma_N\cap\partial K}\mathbf{n}\cdot D\nabla V_m\,dS = 0.
+\end{equation}
+This is the discrete high-order counterpart of the physical/electrophysiological no-flux condition. Fixed-value patches keep their boundary contribution in the LRE flux reconstruction. Thus the zero normal flux is imposed at the high-order flux level rather than only by the cell-centred OpenFOAM boundary-field type.
+
+\section{Explicit time integration}
+At each time step, all right-hand-side terms are evaluated from the known state at $t^n$, and the solver applies forward Euler:
+\begin{align}
+V_{m,K}^{n+1}
+&= V_{m,K}^{n}
++ \Delta t\left[
+\frac{1}{\chi C_m}L_h(V_m^n)_K
+- I_{\mathrm{ion},K}^n
+\right],\\
+u_i^{n+1}(\mathbf{x}_{Kq})
+&= u_i^n(\mathbf{x}_{Kq})
++ \Delta t\,R_i\!\left(V_m^n(\mathbf{x}_{Kq}),u^n(\mathbf{x}_{Kq})\right),
+\qquad i=1,2,3,
+\end{align}
+when high-order ionic-current quadrature is active. In the cell-centred source mode, the same explicit update is applied to the cell-centred states.
+
+\section{Error measures and convergence rates}
+The solver writes cell-centred volume-weighted $L_1$, $L_2$, and $L_\infty$ errors for $V_m$, $u_1$, and $u_2$. It also writes reconstructed quadrature errors, denoted by the superscript $G$. Pairwise rates use consecutive meshes,
+\begin{equation}
+p_{N_1,N_2}
+=\frac{\log(E_{N_1}/E_{N_2})}{\log(h_{N_1}/h_{N_2})},
+\qquad h_N = 1/N.
+\end{equation}
+The summary table reports the all-mesh log--log fit contained in each \path{spatial_convergence_rate_dt_*_total.dat} file.
+
+\section{Two-Dimensional Results}
+Table~\ref{tab:explicit-orders-2D} reports the all-mesh fitted convergence orders obtained from the current two-dimensional manufactured runs in \path{results/example0/2D}. These are the 2D results only; the three-dimensional data are reported separately in the next section.
+\input{tables/explicit_orders_2D.tex}
+
+
+\subsection{2D Figures}
+
+\begin{figure}[p]
+	\centering
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_Vm_L2_dt_1p0em03.pdf}
+		\caption{$\|V_m\|_{L_2}$}
+		\label{fig:explicit-2d-1p0em03-a}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_Vm_G2_dt_1p0em03.pdf}
+		\caption{$\|V_m\|_{G_2}$}
+		\label{fig:explicit-2d-1p0em03-b}
+	\end{subfigure}
+	\par\vspace{0.8em}
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_u1_L2_dt_1p0em03.pdf}
+		\caption{$\|u_1\|_{L_2}$}
+		\label{fig:explicit-2d-1p0em03-c}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_u1_G2_dt_1p0em03.pdf}
+		\caption{$\|u_1\|_{G_2}$}
+		\label{fig:explicit-2d-1p0em03-d}
+	\end{subfigure}
+	\par\vspace{0.8em}
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_u2_L2_dt_1p0em03.pdf}
+		\caption{$\|u_2\|_{L_2}$}
+		\label{fig:explicit-2d-1p0em03-e}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_u2_G2_dt_1p0em03.pdf}
+		\caption{$\|u_2\|_{G_2}$}
+		\label{fig:explicit-2d-1p0em03-f}
+	\end{subfigure}
+	\caption{Explicit manufactured FDA solver, 2D results for $\Delta t=10^{-3}$. Each row corresponds to one variable: $V_m$, $u_1$, and $u_2$ from top to bottom. The left column shows the cell-centred $L_2$ error and the right column shows the reconstructed quadrature $G_2$ error.}
+	\label{fig:explicit-2d-dt-1p0em03}
+\end{figure}
+
+\begin{figure}[p]
+	\centering
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_Vm_L2_dt_1p0em04.pdf}
+		\caption{$\|V_m\|_{L_2}$}
+		\label{fig:explicit-2d-1p0em04-a}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_Vm_G2_dt_1p0em04.pdf}
+		\caption{$\|V_m\|_{G_2}$}
+		\label{fig:explicit-2d-1p0em04-b}
+	\end{subfigure}
+	\par\vspace{0.8em}
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_u1_L2_dt_1p0em04.pdf}
+		\caption{$\|u_1\|_{L_2}$}
+		\label{fig:explicit-2d-1p0em04-c}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_u1_G2_dt_1p0em04.pdf}
+		\caption{$\|u_1\|_{G_2}$}
+		\label{fig:explicit-2d-1p0em04-d}
+	\end{subfigure}
+	\par\vspace{0.8em}
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_u2_L2_dt_1p0em04.pdf}
+		\caption{$\|u_2\|_{L_2}$}
+		\label{fig:explicit-2d-1p0em04-e}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_u2_G2_dt_1p0em04.pdf}
+		\caption{$\|u_2\|_{G_2}$}
+		\label{fig:explicit-2d-1p0em04-f}
+	\end{subfigure}
+	\caption{Explicit manufactured FDA solver, 2D results for $\Delta t=10^{-4}$. Each row corresponds to one variable: $V_m$, $u_1$, and $u_2$ from top to bottom. The left column shows the cell-centred $L_2$ error and the right column shows the reconstructed quadrature $G_2$ error.}
+	\label{fig:explicit-2d-dt-1p0em04}
+\end{figure}
+
+\begin{figure}[p]
+	\centering
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_Vm_L2_dt_1p0em05.pdf}
+		\caption{$\|V_m\|_{L_2}$}
+		\label{fig:explicit-2d-1p0em05-a}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_Vm_G2_dt_1p0em05.pdf}
+		\caption{$\|V_m\|_{G_2}$}
+		\label{fig:explicit-2d-1p0em05-b}
+	\end{subfigure}
+	\par\vspace{0.8em}
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_u1_L2_dt_1p0em05.pdf}
+		\caption{$\|u_1\|_{L_2}$}
+		\label{fig:explicit-2d-1p0em05-c}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_u1_G2_dt_1p0em05.pdf}
+		\caption{$\|u_1\|_{G_2}$}
+		\label{fig:explicit-2d-1p0em05-d}
+	\end{subfigure}
+	\par\vspace{0.8em}
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_u2_L2_dt_1p0em05.pdf}
+		\caption{$\|u_2\|_{L_2}$}
+		\label{fig:explicit-2d-1p0em05-e}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_u2_G2_dt_1p0em05.pdf}
+		\caption{$\|u_2\|_{G_2}$}
+		\label{fig:explicit-2d-1p0em05-f}
+	\end{subfigure}
+	\caption{Explicit manufactured FDA solver, 2D results for $\Delta t=10^{-5}$. Each row corresponds to one variable: $V_m$, $u_1$, and $u_2$ from top to bottom. The left column shows the cell-centred $L_2$ error and the right column shows the reconstructed quadrature $G_2$ error.}
+	\label{fig:explicit-2d-dt-1p0em05}
+\end{figure}
+
+\begin{figure}[p]
+	\centering
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_Vm_L2_dt_1p0em06.pdf}
+		\caption{$\|V_m\|_{L_2}$}
+		\label{fig:explicit-2d-1p0em06-a}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_Vm_G2_dt_1p0em06.pdf}
+		\caption{$\|V_m\|_{G_2}$}
+		\label{fig:explicit-2d-1p0em06-b}
+	\end{subfigure}
+	\par\vspace{0.8em}
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_u1_L2_dt_1p0em06.pdf}
+		\caption{$\|u_1\|_{L_2}$}
+		\label{fig:explicit-2d-1p0em06-c}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_u1_G2_dt_1p0em06.pdf}
+		\caption{$\|u_1\|_{G_2}$}
+		\label{fig:explicit-2d-1p0em06-d}
+	\end{subfigure}
+	\par\vspace{0.8em}
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_u2_L2_dt_1p0em06.pdf}
+		\caption{$\|u_2\|_{L_2}$}
+		\label{fig:explicit-2d-1p0em06-e}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_2D_u2_G2_dt_1p0em06.pdf}
+		\caption{$\|u_2\|_{G_2}$}
+		\label{fig:explicit-2d-1p0em06-f}
+	\end{subfigure}
+	\caption{Explicit manufactured FDA solver, 2D results for $\Delta t=10^{-6}$. Each row corresponds to one variable: $V_m$, $u_1$, and $u_2$ from top to bottom. The left column shows the cell-centred $L_2$ error and the right column shows the reconstructed quadrature $G_2$ error.}
+	\label{fig:explicit-2d-dt-1p0em06}
+\end{figure}
+
+\section{Three-Dimensional Results}
+Table~\ref{tab:explicit-orders-3D} reports the analogous all-mesh fitted convergence orders obtained from the current three-dimensional manufactured runs in \path{results/example0/3D}.
+\input{tables/explicit_orders_3D.tex}
+
+\subsection{3D Figures}
+
+\begin{figure}[p]
+	\centering
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_Vm_L2_dt_1p0em03.pdf}
+		\caption{$\|V_m\|_{L_2}$}
+		\label{fig:explicit-3d-1p0em03-a}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_Vm_G2_dt_1p0em03.pdf}
+		\caption{$\|V_m\|_{G_2}$}
+		\label{fig:explicit-3d-1p0em03-b}
+	\end{subfigure}
+	\par\vspace{0.8em}
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_u1_L2_dt_1p0em03.pdf}
+		\caption{$\|u_1\|_{L_2}$}
+		\label{fig:explicit-3d-1p0em03-c}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_u1_G2_dt_1p0em03.pdf}
+		\caption{$\|u_1\|_{G_2}$}
+		\label{fig:explicit-3d-1p0em03-d}
+	\end{subfigure}
+	\par\vspace{0.8em}
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_u2_L2_dt_1p0em03.pdf}
+		\caption{$\|u_2\|_{L_2}$}
+		\label{fig:explicit-3d-1p0em03-e}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_u2_G2_dt_1p0em03.pdf}
+		\caption{$\|u_2\|_{G_2}$}
+		\label{fig:explicit-3d-1p0em03-f}
+	\end{subfigure}
+	\caption{Explicit manufactured FDA solver, 3D results for $\Delta t=10^{-3}$. Each row corresponds to one variable: $V_m$, $u_1$, and $u_2$ from top to bottom. The left column shows the cell-centred $L_2$ error and the right column shows the reconstructed quadrature $G_2$ error.}
+	\label{fig:explicit-3d-dt-1p0em03}
+\end{figure}
+
+\begin{figure}[p]
+	\centering
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_Vm_L2_dt_1p0em04.pdf}
+		\caption{$\|V_m\|_{L_2}$}
+		\label{fig:explicit-3d-1p0em04-a}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_Vm_G2_dt_1p0em04.pdf}
+		\caption{$\|V_m\|_{G_2}$}
+		\label{fig:explicit-3d-1p0em04-b}
+	\end{subfigure}
+	\par\vspace{0.8em}
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_u1_L2_dt_1p0em04.pdf}
+		\caption{$\|u_1\|_{L_2}$}
+		\label{fig:explicit-3d-1p0em04-c}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_u1_G2_dt_1p0em04.pdf}
+		\caption{$\|u_1\|_{G_2}$}
+		\label{fig:explicit-3d-1p0em04-d}
+	\end{subfigure}
+	\par\vspace{0.8em}
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_u2_L2_dt_1p0em04.pdf}
+		\caption{$\|u_2\|_{L_2}$}
+		\label{fig:explicit-3d-1p0em04-e}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_u2_G2_dt_1p0em04.pdf}
+		\caption{$\|u_2\|_{G_2}$}
+		\label{fig:explicit-3d-1p0em04-f}
+	\end{subfigure}
+	\caption{Explicit manufactured FDA solver, 3D results for $\Delta t=10^{-4}$. Each row corresponds to one variable: $V_m$, $u_1$, and $u_2$ from top to bottom. The left column shows the cell-centred $L_2$ error and the right column shows the reconstructed quadrature $G_2$ error.}
+	\label{fig:explicit-3d-dt-1p0em04}
+\end{figure}
+
+\begin{figure}[p]
+	\centering
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_Vm_L2_dt_1p0em05.pdf}
+		\caption{$\|V_m\|_{L_2}$}
+		\label{fig:explicit-3d-1p0em05-a}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_Vm_G2_dt_1p0em05.pdf}
+		\caption{$\|V_m\|_{G_2}$}
+		\label{fig:explicit-3d-1p0em05-b}
+	\end{subfigure}
+	\par\vspace{0.8em}
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_u1_L2_dt_1p0em05.pdf}
+		\caption{$\|u_1\|_{L_2}$}
+		\label{fig:explicit-3d-1p0em05-c}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_u1_G2_dt_1p0em05.pdf}
+		\caption{$\|u_1\|_{G_2}$}
+		\label{fig:explicit-3d-1p0em05-d}
+	\end{subfigure}
+	\par\vspace{0.8em}
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_u2_L2_dt_1p0em05.pdf}
+		\caption{$\|u_2\|_{L_2}$}
+		\label{fig:explicit-3d-1p0em05-e}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_u2_G2_dt_1p0em05.pdf}
+		\caption{$\|u_2\|_{G_2}$}
+		\label{fig:explicit-3d-1p0em05-f}
+	\end{subfigure}
+	\caption{Explicit manufactured FDA solver, 3D results for $\Delta t=10^{-5}$. Each row corresponds to one variable: $V_m$, $u_1$, and $u_2$ from top to bottom. The left column shows the cell-centred $L_2$ error and the right column shows the reconstructed quadrature $G_2$ error.}
+	\label{fig:explicit-3d-dt-1p0em05}
+\end{figure}
+
+\begin{figure}[p]
+	\centering
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_Vm_L2_dt_1p0em06.pdf}
+		\caption{$\|V_m\|_{L_2}$}
+		\label{fig:explicit-3d-1p0em06-a}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_Vm_G2_dt_1p0em06.pdf}
+		\caption{$\|V_m\|_{G_2}$}
+		\label{fig:explicit-3d-1p0em06-b}
+	\end{subfigure}
+	\par\vspace{0.8em}
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_u1_L2_dt_1p0em06.pdf}
+		\caption{$\|u_1\|_{L_2}$}
+		\label{fig:explicit-3d-1p0em06-c}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_u1_G2_dt_1p0em06.pdf}
+		\caption{$\|u_1\|_{G_2}$}
+		\label{fig:explicit-3d-1p0em06-d}
+	\end{subfigure}
+	\par\vspace{0.8em}
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_u2_L2_dt_1p0em06.pdf}
+		\caption{$\|u_2\|_{L_2}$}
+		\label{fig:explicit-3d-1p0em06-e}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}{0.485\linewidth}
+		\centering
+		\maybeincludegraphics[width=\linewidth]{figures/explicit_3D_u2_G2_dt_1p0em06.pdf}
+		\caption{$\|u_2\|_{G_2}$}
+		\label{fig:explicit-3d-1p0em06-f}
+	\end{subfigure}
+	\caption{Explicit manufactured FDA solver, 3D results for $\Delta t=10^{-6}$. Each row corresponds to one variable: $V_m$, $u_1$, and $u_2$ from top to bottom. The left column shows the cell-centred $L_2$ error and the right column shows the reconstructed quadrature $G_2$ error.}
+	\label{fig:explicit-3d-dt-1p0em06}
+\end{figure}
+
+\section{Convergence Figures}
+Run \code{plot\_convergence.m} from this report directory to regenerate the PDF and PNG figures. The script scans both \path{results/example0/2D} and \path{results/example0/3D} for $\Delta t=10^{-3}$, $10^{-4}$, $10^{-5}$, and $10^{-6}$. It generates individual plot files, and the report assembles them into one six-panel figure for each dimension and time step. In each figure, rows correspond to $V_m$, $u_1$, and $u_2$, while the two columns compare cell-centred $L_2$ and reconstructed quadrature $G_2$ errors. The legend is placed outside each plot so that it does not cover the convergence curves. For a fixed dimension, variable, and error metric, the same axis limits and the same reference-line placement are used for all four time steps, so the $\Delta t$ dependence can be compared directly. The horizontal axis is reversed so refinement proceeds from left to right, and the plotted $h=1/N$ range is taken from the actual meshes available in each dimension. Dotted guide lines show $O(h^2)$, $O(h^3)$, and $O(h^4)$.
+
+
+
+
+\section{Notes}
+The all-mesh fitted order is sensitive to temporal error and pre-asymptotic meshes. This is visible in the state variables, especially for larger $\Delta t$. Comparing the rows across $\Delta t$ separates spatial behaviour from forward-Euler time error. The reconstructed quantities $V_m^G$, $u_1^G$, and $u_2^G$ should be interpreted as quadrature-point/reconstructed diagnostics, while $V_m$, $u_1$, and $u_2$ are the cell-centred values used by the convergence scripts.
+
+\end{document}

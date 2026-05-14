@@ -1,0 +1,28 @@
+\begin{table}[htbp]
+\centering
+\small
+\caption{All-mesh fitted spatial convergence orders for the explicit heat solver, 2D example5 results. Expected orders are $2$ for \texttt{NO}/\texttt{p1}, $3$ for \texttt{p2}, and $4$ for \texttt{p3}.}
+\label{tab:heat-explicit-orders-2D}
+\begin{tabular}{ccccc}
+\toprule
+HO $T$ & $\Delta t$ & Expected & $p_{L_2}$ & $p_{G_2}$ \\
+\midrule
+\texttt{NO} & $10^{-3}$ & 2 & -96.359 & -96.359 \\
+\texttt{NO} & $10^{-4}$ & 2 & -97.205 & -97.205 \\
+\texttt{NO} & $10^{-5}$ & 2 & 2.002 & 2.002 \\
+\texttt{NO} & $10^{-6}$ & 2 & 2.002 & 2.002 \\
+\texttt{p1} & $10^{-3}$ & 2 & -94.180 & -94.146 \\
+\texttt{p1} & $10^{-4}$ & 2 & -82.529 & -82.504 \\
+\texttt{p1} & $10^{-5}$ & 2 & 2.224 & 2.200 \\
+\texttt{p1} & $10^{-6}$ & 2 & 2.224 & 2.200 \\
+\texttt{p2} & $10^{-3}$ & 3 & -81.411 & -81.521 \\
+\texttt{p2} & $10^{-4}$ & 3 & -10.256 & -10.281 \\
+\texttt{p2} & $10^{-5}$ & 3 & 2.080 & 2.088 \\
+\texttt{p2} & $10^{-6}$ & 3 & 2.080 & 2.088 \\
+\texttt{p3} & $10^{-3}$ & 4 & -89.839 & -89.690 \\
+\texttt{p3} & $10^{-4}$ & 4 & -77.590 & -77.464 \\
+\texttt{p3} & $10^{-5}$ & 4 & 4.059 & 4.173 \\
+\texttt{p3} & $10^{-6}$ & 4 & 4.054 & 4.169 \\
+\bottomrule
+\end{tabular}
+\end{table}

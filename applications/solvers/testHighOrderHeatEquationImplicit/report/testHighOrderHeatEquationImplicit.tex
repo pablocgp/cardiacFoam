@@ -1,0 +1,244 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{placeins}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
+\providecommand{\reportdir}{}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\ReportInput}[1]{\input{\reportdir#1}}
+\newcommand{\maybeincludegraphics}[2][]{%
+\IfFileExists{#2}{\includegraphics[#1]{#2}}{\fbox{\parbox[c][0.26\textheight][c]{0.92\linewidth}{\centering Missing figure: \texttt{\detokenize{#2}}\\Run \code{plot\_convergence.m} in the report directory.}}}%
+}
+\newcommand{\ReportFigure}[1]{\maybeincludegraphics[width=\linewidth]{\reportdir#1}}
+\title{High-Order Implicit Heat Equation Solver\\Verification Report for \code{example5}}
+\author{Generated report for \code{testHighOrderHeatEquationImplicit}}
+\date{\today}
+\begin{document}
+\maketitle
+\begin{abstract}
+This report updates the verification documentation for \code{testHighOrderHeatEquationImplicit} using the current \code{example5} results in \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/testHighOrderHeatEquationImplicit/results/example5}. Its structure follows the report used for \code{highOrderManufacturedFDAImplicit}, but the model is simpler: only the scalar heat variable $T$ is advanced, and there are no ionic ODE states. The report compares the standard finite-volume operator with LRE high-order reconstructions, backward Euler and Crank--Nicolson time integration, and lumped or consistent high-order mass matrices.
+\end{abstract}
+\section{Governing Equation}
+The solver advances the transient scalar diffusion problem
+\begin{equation}
+\rho C_p\frac{\partial T}{\partial t} = \nabla\cdot(\alpha\nabla T)+Q.
+\end{equation}
+For \code{example5}, the residual uses the same FDA-like manufactured source as the explicit heat solver,
+\begin{equation}
+R_K = L_h(T)_K - Q_K,
+\end{equation}
+where $Q$ is evaluated from an exact manufactured ionic-current expression but no ODE variables are solved.
+\section{Manufactured Example5}
+The exact field is
+\begin{equation}
+T^\star(\mathbf{x},t)=A\sqrt{1+t}F(\mathbf{x}).
+\end{equation}
+In 2D,
+\begin{align}
+F(x,y)&=\cos(\pi x)\cos(2\pi y), & G(x,y)&=1+xy^2.
+\end{align}
+The source uses
+\begin{align}
+Q^\star &= A I_{\mathrm{ion}}^\star,\\
+I_{\mathrm{ion}}^\star &= -\frac12\left(u_1^\star+u_3^\star-T^\star\right)(u_2^\star)^2\left(T^\star-u_3^\star\right)+\beta_T\left(T^\star-u_3^\star\right),\\
+u_1^\star&=(1+t)G+T^\star, & u_2^\star&=\frac{1}{(1+t)\sqrt{G}}, & u_3^\star&=0.
+\end{align}
+The auxiliary $u_i^\star$ enter only through the manufactured source.
+\section{Spatial Discretization}
+For \code{useHighOrder\_T=false}, the solver uses the standard OpenFOAM cell-centred finite-volume Laplacian. For \code{useHighOrder\_T=true}, the diffusion operator is assembled from LRE reconstructions into a high-order stiffness matrix $K$ and mass matrix $M$. In semi-discrete notation,
+\begin{equation}
+M\frac{dT}{dt} = K T + M Q,
+\end{equation}
+with the sign of $Q$ adjusted for \code{example5} in the code. The options \code{p1}, \code{p2}, and \code{p3} select first-, second-, and third-order reconstruction terms, while \code{NO} uses the standard second-order finite-volume operator.
+\section{Mass Matrices}
+The high-order solve can use a lumped or consistent mass matrix. The lumped option reduces the mass to diagonal cell-volume weights. The consistent option integrates the reconstruction basis over cell quadrature points, which couples stencil coefficients through the mass matrix. For standard \code{NO} runs, only the lumped finite-volume mass is used in the current results.
+\section{Boundary Conditions}
+For the high-order flux/operator, \code{zeroGradient} and \code{empty} patches are treated as no-flux boundaries,
+\begin{equation}
+\int_{\partial K\cap\Gamma_N} \mathbf{n}\cdot\alpha\nabla T\,dS=0.
+\end{equation}
+Fixed-value patches keep their boundary contribution in the high-order matrix/source assembly.
+\section{Implicit Time Integration}
+The solver uses a theta method,
+\begin{equation}
+\theta=1\quad\text{for backward Euler},\qquad \theta=\frac12\quad\text{for Crank--Nicolson}.
+\end{equation}
+A compact form of the linear heat solve is
+\begin{equation}
+\left(\frac{M}{\Delta t}-\theta K\right)T^{n+1}
+=\left(\frac{M}{\Delta t}+(1-\theta)K\right)T^n
++\theta M Q^{n+1}+(1-\theta)M Q^n,
+\end{equation}
+with the appropriate source sign for \code{example5}.
+\section{Error Measures and Rates}
+The solver writes cell-centred errors $L_1$, $L_2$, $L_\infty$ and reconstructed quadrature errors $G_1$, $G_2$, $G_\infty$. The tables below recompute the $L_2$ and $G_2$ log--log rates directly from the \path{errors_vs_N} files. The expected spatial orders are approximately $2$ for \code{NO} and \code{p1}, $3$ for \code{p2}, and $4$ for \code{p3}.
+\section{2D Results}
+The available 2D data are read from \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/testHighOrderHeatEquationImplicit/results/example5/2D}. Tables report fitted orders over $N=10$--$100$ and $N=70$--$100$.
+\ReportInput{tables/heat_implicit_orders_2D_dt_1p0em03.tex}
+\ReportInput{tables/heat_implicit_orders_2D_dt_1p0em04.tex}
+\subsection{2D Convergence Figures}
+\subsubsection*{$\Delta t=10^{-3}$}
+
+\begin{figure}[p]
+    \centering
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_implicit_2D_backwardEuler_consistent_T_L2_dt_1p0em03.pdf}
+        \caption{$\|T-T^\star\|_{L_2}$}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_implicit_2D_backwardEuler_consistent_T_G2_dt_1p0em03.pdf}
+        \caption{$\|T_h-T^\star\|_{G_2}$}
+    \end{subfigure}
+    \caption{Implicit high-order heat-equation solver, 2D, bE with cons. mass, $\Delta t=10^{-3}$. The left panel shows the cell-centred $L_2$ error and the right panel shows the reconstructed quadrature $G_2$ error.}
+    \label{fig:heat-implicit-2d-backwardeuler-consistent-dt-1p0em03}
+\end{figure}
+
+
+\begin{figure}[p]
+    \centering
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_implicit_2D_backwardEuler_lumped_T_L2_dt_1p0em03.pdf}
+        \caption{$\|T-T^\star\|_{L_2}$}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_implicit_2D_backwardEuler_lumped_T_G2_dt_1p0em03.pdf}
+        \caption{$\|T_h-T^\star\|_{G_2}$}
+    \end{subfigure}
+    \caption{Implicit high-order heat-equation solver, 2D, bE with lump. mass, $\Delta t=10^{-3}$. The left panel shows the cell-centred $L_2$ error and the right panel shows the reconstructed quadrature $G_2$ error.}
+    \label{fig:heat-implicit-2d-backwardeuler-lumped-dt-1p0em03}
+\end{figure}
+
+
+\begin{figure}[p]
+    \centering
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_implicit_2D_crankNicolson_consistent_T_L2_dt_1p0em03.pdf}
+        \caption{$\|T-T^\star\|_{L_2}$}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_implicit_2D_crankNicolson_consistent_T_G2_dt_1p0em03.pdf}
+        \caption{$\|T_h-T^\star\|_{G_2}$}
+    \end{subfigure}
+    \caption{Implicit high-order heat-equation solver, 2D, cN with cons. mass, $\Delta t=10^{-3}$. The left panel shows the cell-centred $L_2$ error and the right panel shows the reconstructed quadrature $G_2$ error.}
+    \label{fig:heat-implicit-2d-cranknicolson-consistent-dt-1p0em03}
+\end{figure}
+
+
+\begin{figure}[p]
+    \centering
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_implicit_2D_crankNicolson_lumped_T_L2_dt_1p0em03.pdf}
+        \caption{$\|T-T^\star\|_{L_2}$}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_implicit_2D_crankNicolson_lumped_T_G2_dt_1p0em03.pdf}
+        \caption{$\|T_h-T^\star\|_{G_2}$}
+    \end{subfigure}
+    \caption{Implicit high-order heat-equation solver, 2D, cN with lump. mass, $\Delta t=10^{-3}$. The left panel shows the cell-centred $L_2$ error and the right panel shows the reconstructed quadrature $G_2$ error.}
+    \label{fig:heat-implicit-2d-cranknicolson-lumped-dt-1p0em03}
+\end{figure}
+
+\subsubsection*{$\Delta t=10^{-4}$}
+
+\begin{figure}[p]
+    \centering
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_implicit_2D_backwardEuler_consistent_T_L2_dt_1p0em04.pdf}
+        \caption{$\|T-T^\star\|_{L_2}$}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_implicit_2D_backwardEuler_consistent_T_G2_dt_1p0em04.pdf}
+        \caption{$\|T_h-T^\star\|_{G_2}$}
+    \end{subfigure}
+    \caption{Implicit high-order heat-equation solver, 2D, bE with cons. mass, $\Delta t=10^{-4}$. The left panel shows the cell-centred $L_2$ error and the right panel shows the reconstructed quadrature $G_2$ error.}
+    \label{fig:heat-implicit-2d-backwardeuler-consistent-dt-1p0em04}
+\end{figure}
+
+
+\begin{figure}[p]
+    \centering
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_implicit_2D_backwardEuler_lumped_T_L2_dt_1p0em04.pdf}
+        \caption{$\|T-T^\star\|_{L_2}$}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_implicit_2D_backwardEuler_lumped_T_G2_dt_1p0em04.pdf}
+        \caption{$\|T_h-T^\star\|_{G_2}$}
+    \end{subfigure}
+    \caption{Implicit high-order heat-equation solver, 2D, bE with lump. mass, $\Delta t=10^{-4}$. The left panel shows the cell-centred $L_2$ error and the right panel shows the reconstructed quadrature $G_2$ error.}
+    \label{fig:heat-implicit-2d-backwardeuler-lumped-dt-1p0em04}
+\end{figure}
+
+
+\begin{figure}[p]
+    \centering
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_implicit_2D_crankNicolson_consistent_T_L2_dt_1p0em04.pdf}
+        \caption{$\|T-T^\star\|_{L_2}$}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_implicit_2D_crankNicolson_consistent_T_G2_dt_1p0em04.pdf}
+        \caption{$\|T_h-T^\star\|_{G_2}$}
+    \end{subfigure}
+    \caption{Implicit high-order heat-equation solver, 2D, cN with cons. mass, $\Delta t=10^{-4}$. The left panel shows the cell-centred $L_2$ error and the right panel shows the reconstructed quadrature $G_2$ error.}
+    \label{fig:heat-implicit-2d-cranknicolson-consistent-dt-1p0em04}
+\end{figure}
+
+
+\begin{figure}[p]
+    \centering
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_implicit_2D_crankNicolson_lumped_T_L2_dt_1p0em04.pdf}
+        \caption{$\|T-T^\star\|_{L_2}$}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_implicit_2D_crankNicolson_lumped_T_G2_dt_1p0em04.pdf}
+        \caption{$\|T_h-T^\star\|_{G_2}$}
+    \end{subfigure}
+    \caption{Implicit high-order heat-equation solver, 2D, cN with lump. mass, $\Delta t=10^{-4}$. The left panel shows the cell-centred $L_2$ error and the right panel shows the reconstructed quadrature $G_2$ error.}
+    \label{fig:heat-implicit-2d-cranknicolson-lumped-dt-1p0em04}
+\end{figure}
+
+\FloatBarrier
+\section{Three-Dimensional Results}
+No \path{example5/3D} result directory was present when this report was generated. The report and plotting script will pick up three-dimensional data if they are added later with the same folder layout.
+\section{Discussion}
+The current \code{example5} result set contains two-dimensional runs. The report keeps the implicit FDA report structure but collapses the variables to the single heat unknown $T$. The tables make it possible to separate spatial behaviour from temporal/mass-matrix effects by comparing backward Euler versus Crank--Nicolson and lumped versus consistent mass at fixed $\Delta t$.
+\section{Files}
+\begin{itemize}[nosep]
+\item Solver source: \path{/home/pablo/cardiacFoam-pc/applications/solvers/testHighOrderHeatEquationImplicit/testHighOrderHeatEquationImplicit.C}
+\item Tutorial results: \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/testHighOrderHeatEquationImplicit/results/example5}
+\item Plot script: \path{/home/pablo/cardiacFoam-pc/applications/solvers/testHighOrderHeatEquationImplicit/report/plot_convergence.m}
+\end{itemize}
+\end{document}

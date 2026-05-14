@@ -316,9 +316,11 @@ const Switch useHighOrder_Vm
     spatialIntegrationProperties.lookupOrDefault<Switch>("useHighOrder_Vm", true)
 );
 
-const Switch useHighOrder_states
+const Switch useHighOrder_Iion
 (
-    spatialIntegrationProperties.lookupOrDefault<Switch>("useHighOrder_states", true)
+    spatialIntegrationProperties.found("useHighOrder_Iion")
+  ? spatialIntegrationProperties.lookupOrDefault<Switch>("useHighOrder_Iion", true)
+  : spatialIntegrationProperties.lookupOrDefault<Switch>("useHighOrder_states", true)
 );
 
 const word implicitScheme
@@ -380,12 +382,75 @@ const label implicitNonlinearIterations
     )
 );
 
-const label stateImplicitIterations
+const scalar nonlinearTolerance
+(
+    implicitHOCoeffs.lookupOrDefault<scalar>
+    (
+        "nonlinearTolerance",
+        1.0e-8
+    )
+);
+
+const scalar nonlinearVmTolerance
+(
+    implicitHOCoeffs.lookupOrDefault<scalar>
+    (
+        "nonlinearVmTolerance",
+        nonlinearTolerance
+    )
+);
+
+const scalar nonlinearStatesTolerance
+(
+    implicitHOCoeffs.lookupOrDefault<scalar>
+    (
+        "nonlinearStatesTolerance",
+        nonlinearTolerance
+    )
+);
+
+const word stateODESolver
+(
+    implicitHOCoeffs.lookupOrDefault<word>
+    (
+        "stateODESolver",
+        "RKF45"
+    )
+);
+
+const scalar stateODEInitialStep
+(
+    implicitHOCoeffs.lookupOrDefault<scalar>
+    (
+        "stateODEInitialStep",
+        1.0e-5
+    )
+);
+
+const scalar stateODEAbsTol
+(
+    implicitHOCoeffs.lookupOrDefault<scalar>
+    (
+        "stateODEAbsTol",
+        SMALL
+    )
+);
+
+const scalar stateODERelTol
+(
+    implicitHOCoeffs.lookupOrDefault<scalar>
+    (
+        "stateODERelTol",
+        implicitHOCoeffs.lookupOrDefault<scalar>("stateODETolerance", 1.0e-4)
+    )
+);
+
+const label stateODEMaxSteps
 (
     implicitHOCoeffs.lookupOrDefault<label>
     (
-        "stateIterations",
-        5
+        "stateODEMaxSteps",
+        implicitHOCoeffs.lookupOrDefault<label>("stateODEMaxSubSteps", 1000000000)
     )
 );
 
@@ -405,8 +470,8 @@ forAll(includePatchInVmStencils, patchI)
     }
 }
 
-boolList includePatchInStateStencils(mesh.boundaryMesh().size(), false);
-forAll(includePatchInStateStencils, patchI)
+boolList includePatchInIionStencils(mesh.boundaryMesh().size(), false);
+forAll(includePatchInIionStencils, patchI)
 {
     const word bcType = u1.boundaryField()[patchI].type();
 
@@ -416,14 +481,33 @@ forAll(includePatchInStateStencils, patchI)
      || bcType == zeroGradientFvPatchScalarField::typeName
     )
     {
-        includePatchInStateStencils[patchI] = true;
+        includePatchInIionStencils[patchI] = true;
     }
 }
 
-const dictionary lreCoeffsVm
-(
-    spatialIntegrationProperties.subDict("highOrderCoeffs").subDict("LRECoeffs_Vm")
-);
+const dictionary& highOrderCoeffs =
+    spatialIntegrationProperties.subDict("highOrderCoeffs");
+
+const dictionary lreCoeffsVm(highOrderCoeffs.subDict("LRECoeffs_Vm"));
+
+word IionCoeffsName("LRECoeffs_Iion");
+if (!highOrderCoeffs.found(IionCoeffsName))
+{
+    if (highOrderCoeffs.found("LRECoeffs_states"))
+    {
+        IionCoeffsName = "LRECoeffs_states";
+        WarningInFunction
+            << "Using legacy highOrderCoeffs/LRECoeffs_states for "
+            << "Iion quadrature. Prefer LRECoeffs_Iion." << nl;
+    }
+    else
+    {
+        FatalErrorInFunction
+            << "highOrderCoeffs contains neither LRECoeffs_Iion nor "
+            << "legacy LRECoeffs_states." << nl
+            << abort(FatalError);
+    }
+}
 
 const label lreN = lreCoeffsVm.lookupOrDefault<label>("N", -1);
 const label lreNn = lreCoeffsVm.lookupOrDefault<label>("Nn", -1);
@@ -437,9 +521,24 @@ LRE LREInterp_Vm
     lreCoeffsVm
 );
 
-LRE LREInterp_states
+LRE LREInterp_Iion
 (
     mesh,
-    includePatchInStateStencils,
-    spatialIntegrationProperties.subDict("highOrderCoeffs").subDict("LRECoeffs_states")
+    includePatchInIionStencils,
+    highOrderCoeffs.subDict(IionCoeffsName)
 );
+
+label totalIionIntegrationPoints = mesh.nCells();
+if (useHighOrder_Iion)
+{
+    totalIionIntegrationPoints = 0;
+    const CompactListList<point>& cellIionQuadP =
+        LREInterp_Iion.cellQuadPoints();
+
+    forAll(mesh.cells(), cellI)
+    {
+        totalIionIntegrationPoints += cellIionQuadP[cellI].size();
+    }
+}
+
+Info<< "Iion integration points: " << totalIionIntegrationPoints << nl << endl;

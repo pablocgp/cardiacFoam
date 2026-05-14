@@ -1,0 +1,550 @@
+
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{placeins}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\maybeincludegraphics}[2][]{%
+\IfFileExists{#2}{\includegraphics[#1]{#2}}{\fbox{\parbox[c][0.28\textheight][c]{0.92\linewidth}{\centering Missing figure: \texttt{\detokenize{#2}}\\Run \code{plot\_convergence.m} in this report directory.}}}%
+}
+
+\title{High-Order Implicit Manufactured FDA Solver\\Verification Report}
+\author{Generated report for \code{highOrderManufacturedFDAImplicit}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report documents the current \code{highOrderManufacturedFDAImplicit} solver. The solver advances the manufactured FDA activation equation coupled to local state variables. The transmembrane potential can be solved with standard cell-centred finite volumes or with an LRE high-order matrix discretization. The nonlinear ionic current can be evaluated at cell centres or volume-integrated from dedicated cell quadrature points, where the local ODE states are also evolved. In contrast with the explicit solver, the potential equation is advanced by an implicit theta method with either backward Euler or Crank--Nicolson time integration, and the high-order potential solve can use either lumped or consistent mass matrices. The tables and plotting script read the current data in \path{results/example0/2D}.
+\end{abstract}
+
+\section{Manufactured FDA Problem}
+The unknowns are the transmembrane potential $V_m$ and state variables $u_1$, $u_2$, and $u_3$. The manufactured problem is
+\begin{align}
+\frac{\partial V_m}{\partial t}
+&= \frac{1}{\chi C_m}\nabla\cdot(D\nabla V_m)
+- I_{\mathrm{ion}}(V_m,u_1,u_2,u_3),\\
+\frac{\partial u_1}{\partial t}
+&= (u_1+u_3-V_m)^2u_2^2
++ \frac{1}{2}(u_1+u_3-V_m)u_2^2(V_m-u_3),\\
+\frac{\partial u_2}{\partial t}
+&= -(u_1+u_3-V_m)u_2^3,\\
+\frac{\partial u_3}{\partial t}
+&= 0.
+\end{align}
+The ionic current is
+\begin{equation}
+I_{\mathrm{ion}}
+= -\frac{1}{2}(u_1+u_3-V_m)u_2^2(V_m-u_3)
++ \frac{\beta}{\chi C_m}(V_m-u_3),
+\end{equation}
+where $\beta$ is the exact Laplacian eigenvalue associated with the selected manufactured mode and conductivity tensor. For the two-dimensional runs currently present,
+\begin{align}
+F(x,y) &= \cos(\pi x)\cos(2\pi y), & G(x,y) &= 1 + x y^2,\\
+V_m^\star(x,y,t) &= \sqrt{1+t}\,F(x,y), &
+u_1^\star(x,y,t) &= (1+t)G(x,y) + V_m^\star(x,y,t),\\
+u_2^\star(x,y,t) &= \frac{1}{(1+t)\sqrt{G(x,y)}}, &
+u_3^\star &= 0.
+\end{align}
+
+\section{Spatial Discretization}
+\subsection{Potential Equation}
+For \code{useHighOrder\_Vm=false}, the solver uses the standard OpenFOAM cell-centred finite-volume Laplacian. For \code{useHighOrder\_Vm=true}, the semi-discrete potential equation is assembled in matrix form using LRE reconstructions,
+\begin{equation}
+M\frac{dV}{dt} = K V - M I_{\mathrm{ion}} + f,
+\end{equation}
+where $M$ is the selected mass matrix, $K$ is the high-order stiffness/diffusion matrix, and $f$ contains manufactured and boundary contributions. The mass matrix can be \code{lumped}, giving a diagonal cell-volume-like mass, or \code{consistent}, obtained by integrating the reconstruction basis over cell quadrature points. On purely standard runs, the consistent/lumped distinction collapses to the usual diagonal finite-volume mass.
+
+\subsection{Volume Integration of $I_{\mathrm{ion}}$}
+The current solver uses \code{useHighOrder\_Iion} for the nonlinear source. The older input name \code{useHighOrder\_states}, and the result-folder token \code{hoStates}, are still accepted for compatibility, but should be interpreted as the quadrature level used for $I_{\mathrm{ion}}$ and for the local state values stored at those quadrature points.
+If high-order ionic-current quadrature is inactive,
+\begin{equation}
+I_{\mathrm{ion},K}^n = I_{\mathrm{ion}}(V_{m,K}^n,u_{1,K}^n,u_{2,K}^n,u_{3,K}^n).
+\end{equation}
+If it is active, the source is volume-integrated as
+\begin{equation}
+I_{\mathrm{ion},K}^n
+\approx \frac{1}{|K|}\sum_{q=1}^{N_K}\omega_{Kq}
+I_{\mathrm{ion}}(V_m^n(\mathbf{x}_{Kq}),u_1^n(\mathbf{x}_{Kq}),u_2^n(\mathbf{x}_{Kq}),u_3^n(\mathbf{x}_{Kq})).
+\end{equation}
+The value $V_m(\mathbf{x}_{Kq})$ is reconstructed with the $V_m$ LRE operator when high-order $V_m$ is active, and otherwise by a linear cell-centred reconstruction.
+
+\section{Boundary Conditions}
+For the standard finite-volume operator, the OpenFOAM patch fields are used directly. For the high-order diffusive flux, \code{zeroGradient} and \code{empty} patches are treated as no-flux patches in the assembled high-order operator:
+\begin{equation}
+\int_{\Gamma_N\cap\partial K} \mathbf{n}\cdot D\nabla V_m\,dS = 0.
+\end{equation}
+Fixed-value patches keep their boundary contribution in the high-order matrix/source assembly.
+
+\section{Implicit Time Integration and Nonlinear Treatment}
+The solver advances the potential equation with a theta method,
+\begin{equation}
+\theta = 1 \quad \text{for backward Euler (bE)}, \qquad
+\theta = \frac{1}{2} \quad \text{for Crank--Nicolson (cN)}.
+\end{equation}
+After spatial discretization, the potential equation can be written as
+\begin{equation}
+M\frac{V^{n+1}-V^n}{\Delta t}
+= L\left(\theta V^{n+1}+(1-\theta)V^n\right)
++ \theta S^{n+1} + (1-\theta)S^n,
+\end{equation}
+where $V$ contains the cell-centred unknowns, $M$ is the selected mass matrix,
+$L$ is the scaled diffusion/reaction matrix assembled from the high-order or
+standard spatial operator, and
+\begin{equation}
+S(V,u_1,u_2,u_3) = -I_{\mathrm{ion}}(V,u_1,u_2,u_3) + f_{\mathrm{MMS}}.
+\end{equation}
+The linear system solved in each nonlinear correction is therefore
+\begin{equation}
+\left(\frac{M}{\Delta t} - \theta L\right)V^{k+1}
+= \left(\frac{M}{\Delta t} + (1-\theta)L\right)V^n
++ \theta S(V^k,u_1^k,u_2^k,u_3^k)
++ (1-\theta)S(V^n,u_1^n,u_2^n,u_3^n),
+\label{eq:picard-potential-solve}
+\end{equation}
+where $k$ denotes the outer nonlinear correction index inside one time step.
+
+\subsection{Backward Euler and Crank--Nicolson}
+Backward Euler is first-order accurate in time. Its main advantage is strong
+numerical damping and robust behaviour for stiff problems. The price is larger
+time-discretization error and stronger damping of fast transients, so activation
+or reaction-diffusion fronts may be smeared if $\Delta t$ is too large.
+Crank--Nicolson is second-order accurate for smooth solutions and is less
+dissipative. This is advantageous for manufactured-solution convergence studies,
+but the weaker damping can make nonlinear or front-like problems more sensitive
+to oscillations, splitting error, and insufficient nonlinear convergence. In this
+solver cN uses the same nonlinear correction machinery as bE, so its formal
+second-order behaviour is best expected when the source and state updates are
+also converged sufficiently.
+
+\subsection{Lumped and Consistent Mass Matrices}
+For the lumped option, the mass matrix is diagonal,
+\begin{equation}
+M^{\mathrm{lump}}_{ii} \approx |K_i|,
+\end{equation}
+with one degree of freedom per control volume. This is cheap, positive, and
+well-conditioned, and it coincides with the usual cell-centred finite-volume
+mass. It is also the fallback used when a standard, non-high-order potential
+solve is requested.
+
+For the consistent option, the mass matrix is assembled using the same LRE
+reconstruction/quadrature framework as the high-order spatial operator. In
+abstract form,
+\begin{equation}
+M^{\mathrm{cons}}_{ij}
+\approx \sum_{K}\sum_{q\in K} \omega_{Kq}\,
+\phi_i(\mathbf{x}_{Kq})\phi_j(\mathbf{x}_{Kq}),
+\end{equation}
+where $\phi_i$ are the reconstructed basis functions induced by the LRE stencil
+and $\omega_{Kq}$ are the cell quadrature weights. This is a more faithful mass
+operator for high-order reconstructions, but it is sparse rather than diagonal,
+more expensive to assemble and solve with, and can be more sensitive to stencil
+quality and conditioning. In the current implementation, requesting a consistent
+mass without a high-order $V_m$ reconstruction reduces to the diagonal/lumped
+finite-volume mass because there is no high-order basis to integrate.
+
+\subsection{Treatment of the Nonlinear Ionic Current}
+The nonlinear current depends on both the potential and the local states,
+\begin{equation}
+I_{\mathrm{ion}}=I_{\mathrm{ion}}(V_m,u_1,u_2,u_3).
+\end{equation}
+The current implementation does not assemble a Newton Jacobian for this term.
+Instead, it uses two nested fixed-point mechanisms that are actually active in
+\code{highOrderManufacturedFDAImplicit}. The outer correction is controlled by
+\code{implicitNonlinearIterations}, which is read from
+\code{implicitHOCoeffs/nonlinearIterations}. In the tutorial inputs used for the
+manufactured implicit runs this value is currently
+\begin{center}
+\code{implicitNonlinearIterations = 3}
+\end{center}
+Therefore, each time step performs three Picard-type corrections of the coupled
+potential/source system.
+
+At the beginning of a time step the solver stores $V^n$ and the old states. It
+then computes $S^n$ from the old fields. For each outer correction $k$, it
+evaluates the source using the current guess $(V^k,u_1^k,u_2^k,u_3^k)$, solves
+Eq.~\eqref{eq:picard-potential-solve} for a new potential, and then updates the
+local state variables with the same theta choice. This outer loop corresponds to
+the code block
+\begin{center}
+\code{for corr < max(implicitNonlinearIterations, 1)}
+\end{center}
+
+The state update has its own local fixed-point loop controlled by
+\code{stateImplicitIterations}, read from \code{implicitHOCoeffs/stateIterations}.
+For the current manufactured implicit tutorial this value is
+\begin{center}
+\code{stateImplicitIterations = 5}
+\end{center}
+Thus, inside each outer potential/source correction, the local ODE update for
+$u_1$, $u_2$, and $u_3$ is swept five times. This is used both for the
+cell-centred update \code{updateStateFieldsTheta} and for the quadrature-point
+update \code{updateIntegrationPointStatesTheta}. In both cases the repeated map
+has the form
+\begin{equation}
+u^{m+1} = u^n + \Delta t\left[(1-\theta)R(V^n,u^n)
++ \theta R(V^{k+1},u^m)\right],
+\end{equation}
+where $m$ is the inner state fixed-point iteration.
+
+If \code{implicitNonlinearIterations=1}, the method is best interpreted as
+semi-implicit: the diffusion operator is implicit, but the nonlinear source is
+evaluated from a lagged or once-updated guess. With the current value
+\code{implicitNonlinearIterations=3}, the implementation is a Picard/fixed-point
+coupling between $V_m$ and the nonlinear source. It is still not Newton because
+the matrix in Eq.~\eqref{eq:picard-potential-solve} does not include derivatives
+such as $\partial I_{\mathrm{ion}}/\partial V_m$ or
+$\partial I_{\mathrm{ion}}/\partial u_i$, and the present code does not check a
+nonlinear residual nor stop on a convergence tolerance.
+
+When \code{useHighOrder\_Iion=false}, the nonlinear source and states are updated
+at cell centres. When \code{useHighOrder\_Iion=true}, the states are stored and
+advanced at the $I_{\mathrm{ion}}$ quadrature points, $V_m$ is reconstructed to
+those points, and the cell source is obtained by quadrature averaging. Thus the
+``hoStates'' result-folder token should be read as the high-order quadrature
+level used for the ionic current and associated state evolution.
+
+\subsection{Algorithm per Time Step}
+Algorithm~\ref{alg:implicit-time-step} summarizes one time step. The notation
+$u$ denotes the state vector $(u_1,u_2,u_3)$, and $S$ denotes the manufactured
+source contribution containing the nonlinear ionic current.
+
+\begin{algorithm}[h]
+\caption{One implicit time step in \code{highOrderManufacturedFDAImplicit}}
+\label{alg:implicit-time-step}
+\begin{algorithmic}[1]
+\State Store old fields $V^n$, $u^n$ and initialize guesses $V^0\gets V^n$, $u^0\gets u^n$.
+\State Compute the old source $S^n=S(V^n,u^n)$.
+\If{\code{useHighOrder\_Iion=true}}
+    \State Reconstruct $V^n$ to the $I_{\mathrm{ion}}$ quadrature points.
+    \State Evaluate $I_{\mathrm{ion}}$ and the manufactured source at those quadrature points.
+    \State Average the quadrature source back to cell centres.
+\Else
+    \State Evaluate $I_{\mathrm{ion}}$ and the manufactured source directly at cell centres.
+\EndIf
+\State Let $N_{\mathrm{nl}}$ denote \code{implicitNonlinearIterations}.
+\For{$k=0$ to $\max(N_{\mathrm{nl}},1)-1$}
+    \State Evaluate the guessed source $S^k=S(V^k,u^k)$, using cell-centred or quadrature-point evaluation according to \code{useHighOrder\_Iion}.
+    \State Assemble the right-hand side
+    \[
+        b^k = \left(\frac{M}{\Delta t}+(1-\theta)L\right)V^n
+        + \theta S^k + (1-\theta)S^n .
+    \]
+    \State Solve the linear potential system
+    \[
+        \left(\frac{M}{\Delta t}-\theta L\right)V^{k+1}=b^k .
+    \]
+    \State Update the state variables with the same theta choice, using $V^n$ and $V^{k+1}$; repeat the local state fixed-point map \code{stateImplicitIterations} times.
+    \State Apply/update boundary conditions for $V^{k+1}$ and $u^{k+1}$.
+\EndFor
+\State Accept the last correction: $V^{n+1}\gets V^{k+1}$ and $u^{n+1}\gets u^{k+1}$.
+\State Write diagnostics and advance the OpenFOAM time object.
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Toward a Fully Implicit Nonlinear Solve}
+The Picard treatment is simple and avoids differentiating the ionic model. It is
+therefore robust to implement and keeps the linear system matrix independent of
+the current nonlinear guess. Its disadvantages are that the nonlinear source is
+only weakly coupled to the potential, convergence can be slow, and with only one
+correction the method retains an explicit/lagged character in the source term.
+Several stronger alternatives are possible:
+\begin{enumerate}[label=(\roman*)]
+\item \textbf{Residual-controlled Picard:} keep the current fixed-point structure,
+but iterate until $\|V^{k+1}-V^k\|$ or the nonlinear residual is below a tolerance.
+This is the least invasive improvement.
+\item \textbf{Newton with an approximate ionic Jacobian:} add
+$\partial I_{\mathrm{ion}}/\partial V_m$ to the implicit matrix while still
+updating the states separately. This gives a more implicit voltage-source
+coupling without requiring the full state Jacobian.
+\item \textbf{Fully coupled Newton:} solve simultaneously for
+$(V_m,u_1,u_2,u_3)$ at cells or quadrature points. This is the most consistent
+formulation, but it requires the full Jacobian of the PDE--ODE residual and a
+larger block system.
+\item \textbf{Jacobian-free Newton--Krylov:} compute nonlinear residuals and use
+finite-difference Jacobian-vector products. This avoids deriving all analytic
+partials, but requires robust preconditioning and careful scaling of the PDE and
+ODE unknowns.
+\end{enumerate}
+A fully implicit solver would target the residual
+\begin{equation}
+R(V^{n+1},u^{n+1}) = 0,
+\end{equation}
+with both the diffusion and the nonlinear ionic current evaluated at the new
+time level. That approach is more expensive per step, but it is the cleanest way
+to remove the lagged-source error when large time steps or strongly nonlinear
+front dynamics are important.
+
+\section{Error Measures and Convergence Rates}
+The solver writes cell-centred volume-weighted $L_1$, $L_2$, and $L_\infty$ errors for $V_m$, $u_1$, and $u_2$. It also writes reconstructed quadrature errors, denoted by the superscript $G$. Pairwise rates use consecutive mesh sizes,
+\begin{equation}
+p_{N_1,N_2} = \frac{\log(E_{N_1}/E_{N_2})}{\log(h_{N_1}/h_{N_2})}, \qquad h_N=1/N.
+\end{equation}
+The convergence tables below recompute log--log fits directly from the \path{errors\_vs\_N} files, using both the full $N=10$--$100$ mesh range and the finer $N=70$--$100$ range.
+
+\section{Observed Orders}
+The convergence orders in the following tables are computed directly from the current \path{errors\_vs\_N} files. For each available time step, one table is reported. The first six order columns use a log--log fit over meshes $N=10$--$100$, and the final six order columns use the finest range $N=70$--$100$.
+\input{tables/implicit_orders_2D_dt_1p0em03.tex}
+\input{tables/implicit_orders_2D_dt_1p0em04.tex}
+
+\section{Convergence Figures}
+Run \code{plot\_convergence.m} from this report directory to regenerate the PDF and PNG figures. The script scans the available result dimensions and generates individual plot files for each dimension, time step, implicit time scheme, mass matrix, variable, and error metric. The report assembles these individual files into one six-panel figure for each available $(\Delta t,\text{scheme},\text{mass})$ combination. In each figure, rows correspond to $V_m$, $u_1$, and $u_2$, while the two columns compare cell-centred $L_2$ and reconstructed quadrature $G_2$ errors. The legend is placed outside each plot, common axis limits are used across time steps for a fixed scheme/mass/variable/metric family, and the horizontal axis is reversed so refinement proceeds from left to right.
+
+\subsection{2D Figures}
+
+\subsubsection*{$\Delta t=10^{-3}$}
+
+\begin{figure}[p]
+\centering
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_backwardEuler_consistent_Vm_L2_dt_1p0em03.pdf}
+\caption{$\|V_m\|_{L_2}$}
+\label{fig:implicit-2d-backwardeuler-consistent-1p0em03-a}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf}
+\caption{$\|V_m\|_{G_2}$}
+\label{fig:implicit-2d-backwardeuler-consistent-1p0em03-b}
+\end{subfigure}
+\par\vspace{0.8em}
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf}
+\caption{$\|u_1\|_{L_2}$}
+\label{fig:implicit-2d-backwardeuler-consistent-1p0em03-c}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf}
+\caption{$\|u_1\|_{G_2}$}
+\label{fig:implicit-2d-backwardeuler-consistent-1p0em03-d}
+\end{subfigure}
+\par\vspace{0.8em}
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf}
+\caption{$\|u_2\|_{L_2}$}
+\label{fig:implicit-2d-backwardeuler-consistent-1p0em03-e}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf}
+\caption{$\|u_2\|_{G_2}$}
+\label{fig:implicit-2d-backwardeuler-consistent-1p0em03-f}
+\end{subfigure}
+\caption{Implicit manufactured FDA solver, 2D, bE with cons. mass, $\Delta t=10^{-3}$. Each row corresponds to one variable: $V_m$, $u_1$, and $u_2$ from top to bottom. The left column shows the cell-centred $L_2$ error and the right column shows the reconstructed quadrature $G_2$ error.}
+\label{fig:implicit-2d-backwardeuler-consistent-dt-1p0em03}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf}
+\caption{$\|V_m\|_{L_2}$}
+\label{fig:implicit-2d-backwardeuler-lumped-1p0em03-a}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf}
+\caption{$\|V_m\|_{G_2}$}
+\label{fig:implicit-2d-backwardeuler-lumped-1p0em03-b}
+\end{subfigure}
+\par\vspace{0.8em}
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf}
+\caption{$\|u_1\|_{L_2}$}
+\label{fig:implicit-2d-backwardeuler-lumped-1p0em03-c}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf}
+\caption{$\|u_1\|_{G_2}$}
+\label{fig:implicit-2d-backwardeuler-lumped-1p0em03-d}
+\end{subfigure}
+\par\vspace{0.8em}
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf}
+\caption{$\|u_2\|_{L_2}$}
+\label{fig:implicit-2d-backwardeuler-lumped-1p0em03-e}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf}
+\caption{$\|u_2\|_{G_2}$}
+\label{fig:implicit-2d-backwardeuler-lumped-1p0em03-f}
+\end{subfigure}
+\caption{Implicit manufactured FDA solver, 2D, bE with lump. mass, $\Delta t=10^{-3}$. Each row corresponds to one variable: $V_m$, $u_1$, and $u_2$ from top to bottom. The left column shows the cell-centred $L_2$ error and the right column shows the reconstructed quadrature $G_2$ error.}
+\label{fig:implicit-2d-backwardeuler-lumped-dt-1p0em03}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_consistent_Vm_L2_dt_1p0em03.pdf}
+\caption{$\|V_m\|_{L_2}$}
+\label{fig:implicit-2d-cranknicolson-consistent-1p0em03-a}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf}
+\caption{$\|V_m\|_{G_2}$}
+\label{fig:implicit-2d-cranknicolson-consistent-1p0em03-b}
+\end{subfigure}
+\par\vspace{0.8em}
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf}
+\caption{$\|u_1\|_{L_2}$}
+\label{fig:implicit-2d-cranknicolson-consistent-1p0em03-c}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf}
+\caption{$\|u_1\|_{G_2}$}
+\label{fig:implicit-2d-cranknicolson-consistent-1p0em03-d}
+\end{subfigure}
+\par\vspace{0.8em}
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf}
+\caption{$\|u_2\|_{L_2}$}
+\label{fig:implicit-2d-cranknicolson-consistent-1p0em03-e}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf}
+\caption{$\|u_2\|_{G_2}$}
+\label{fig:implicit-2d-cranknicolson-consistent-1p0em03-f}
+\end{subfigure}
+\caption{Implicit manufactured FDA solver, 2D, cN with cons. mass, $\Delta t=10^{-3}$. Each row corresponds to one variable: $V_m$, $u_1$, and $u_2$ from top to bottom. The left column shows the cell-centred $L_2$ error and the right column shows the reconstructed quadrature $G_2$ error.}
+\label{fig:implicit-2d-cranknicolson-consistent-dt-1p0em03}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf}
+\caption{$\|V_m\|_{L_2}$}
+\label{fig:implicit-2d-cranknicolson-lumped-1p0em03-a}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf}
+\caption{$\|V_m\|_{G_2}$}
+\label{fig:implicit-2d-cranknicolson-lumped-1p0em03-b}
+\end{subfigure}
+\par\vspace{0.8em}
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf}
+\caption{$\|u_1\|_{L_2}$}
+\label{fig:implicit-2d-cranknicolson-lumped-1p0em03-c}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf}
+\caption{$\|u_1\|_{G_2}$}
+\label{fig:implicit-2d-cranknicolson-lumped-1p0em03-d}
+\end{subfigure}
+\par\vspace{0.8em}
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf}
+\caption{$\|u_2\|_{L_2}$}
+\label{fig:implicit-2d-cranknicolson-lumped-1p0em03-e}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf}
+\caption{$\|u_2\|_{G_2}$}
+\label{fig:implicit-2d-cranknicolson-lumped-1p0em03-f}
+\end{subfigure}
+\caption{Implicit manufactured FDA solver, 2D, cN with lump. mass, $\Delta t=10^{-3}$. Each row corresponds to one variable: $V_m$, $u_1$, and $u_2$ from top to bottom. The left column shows the cell-centred $L_2$ error and the right column shows the reconstructed quadrature $G_2$ error.}
+\label{fig:implicit-2d-cranknicolson-lumped-dt-1p0em03}
+\end{figure}
+
+\subsubsection*{$\Delta t=10^{-4}$}
+
+\begin{figure}[p]
+\centering
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_consistent_Vm_L2_dt_1p0em04.pdf}
+\caption{$\|V_m\|_{L_2}$}
+\label{fig:implicit-2d-cranknicolson-consistent-1p0em04-a}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_consistent_Vm_G2_dt_1p0em04.pdf}
+\caption{$\|V_m\|_{G_2}$}
+\label{fig:implicit-2d-cranknicolson-consistent-1p0em04-b}
+\end{subfigure}
+\par\vspace{0.8em}
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_consistent_u1_L2_dt_1p0em04.pdf}
+\caption{$\|u_1\|_{L_2}$}
+\label{fig:implicit-2d-cranknicolson-consistent-1p0em04-c}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_consistent_u1_G2_dt_1p0em04.pdf}
+\caption{$\|u_1\|_{G_2}$}
+\label{fig:implicit-2d-cranknicolson-consistent-1p0em04-d}
+\end{subfigure}
+\par\vspace{0.8em}
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_consistent_u2_L2_dt_1p0em04.pdf}
+\caption{$\|u_2\|_{L_2}$}
+\label{fig:implicit-2d-cranknicolson-consistent-1p0em04-e}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.485\linewidth}
+\centering
+\maybeincludegraphics[width=\linewidth]{figures/implicit_2D_crankNicolson_consistent_u2_G2_dt_1p0em04.pdf}
+\caption{$\|u_2\|_{G_2}$}
+\label{fig:implicit-2d-cranknicolson-consistent-1p0em04-f}
+\end{subfigure}
+\caption{Implicit manufactured FDA solver, 2D, cN with cons. mass, $\Delta t=10^{-4}$. Each row corresponds to one variable: $V_m$, $u_1$, and $u_2$ from top to bottom. The left column shows the cell-centred $L_2$ error and the right column shows the reconstructed quadrature $G_2$ error.}
+\label{fig:implicit-2d-cranknicolson-consistent-dt-1p0em04}
+\end{figure}
+
+\FloatBarrier
+\section{Notes}
+Backward Euler is first-order in time and Crank--Nicolson is second-order for the smooth manufactured problem. Comparing the same spatial configuration across the bE/cN figures indicates whether the spatial error or time discretization dominates. The mass comparison isolates the effect of replacing the diagonal/lumped finite-volume mass by the consistent high-order mass matrix in the implicit potential solve. The reconstructed quantities $V_m^G$, $u_1^G$, and $u_2^G$ should be read as quadrature-point/reconstructed diagnostics; the cell-centred fields are the values used in the main finite-volume update and in the $L_2$ convergence table.
+
+\end{document}

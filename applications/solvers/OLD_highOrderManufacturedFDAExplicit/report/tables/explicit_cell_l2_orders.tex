@@ -1,0 +1,39 @@
+\begin{longtable}{p{0.38\linewidth}lrrrrrr}
+\caption{Explicit solver: observed cell-centred $L_2$ convergence orders obtained from the all-mesh log--log fit. The expected orders use $p1\mapsto2$, $p2\mapsto3$, $p3\mapsto4$; the non-HO standard option is treated as second order.}\label{tab:explicit-orders}\\
+\toprule
+Case & $\Delta t$ & Exp. $V_m$ & $V_m$ & Exp. states & $u_1$ & $u_2$ & $V_m^G$ \\
+\midrule
+\endfirsthead
+\toprule
+Case & $\Delta t$ & Exp. $V_m$ & $V_m$ & Exp. states & $u_1$ & $u_2$ & $V_m^G$ \\
+\midrule
+\endhead
+hoVm\_NO\_hoStates\_NO & $10^{-3}$ & 2 & 1.834 & 2 & 0.389 & 0.007 & 2.714 \\
+hoVm\_NO\_hoStates\_NO & $10^{-4}$ & 2 & 1.979 & 2 & 1.885 & 0.264 & 2.859 \\
+hoVm\_NO\_hoStates\_NO & $10^{-5}$ & 2 & 1.995 & 2 & 2.037 & 1.336 & 2.176 \\
+hoVm\_p1\_hoStates\_NO & $10^{-3}$ & 2 & 1.992 & 2 & 1.586 & 0.255 & 2.145 \\
+hoVm\_p1\_hoStates\_NO & $10^{-4}$ & 2 & 1.994 & 2 & 1.703 & 1.355 & 2.148 \\
+hoVm\_p1\_hoStates\_NO & $10^{-5}$ & 2 & 1.994 & 2 & 1.703 & 1.705 & 2.149 \\
+hoVm\_p1\_hoStates\_p1 & $10^{-3}$ & 2 & 1.992 & 2 & 1.586 & 0.255 & 2.145 \\
+hoVm\_p1\_hoStates\_p1 & $10^{-4}$ & 2 & 1.994 & 2 & 1.703 & 1.355 & 2.148 \\
+hoVm\_p1\_hoStates\_p1 & $10^{-5}$ & 2 & 1.994 & 2 & 1.703 & 1.705 & 2.149 \\
+hoVm\_p2\_hoStates\_NO & $10^{-3}$ & 3 & 2.069 & 2 & 1.317 & 0.098 & 2.514 \\
+hoVm\_p2\_hoStates\_NO & $10^{-4}$ & 3 & 2.118 & 2 & 2.229 & 0.877 & 2.557 \\
+hoVm\_p2\_hoStates\_NO & $10^{-5}$ & 3 & 2.123 & 2 & 2.151 & 1.969 & 2.562 \\
+hoVm\_p2\_hoStates\_p1 & $10^{-3}$ & 3 & 2.139 & 2 & 1.172 & 0.071 & 2.658 \\
+hoVm\_p2\_hoStates\_p1 & $10^{-4}$ & 3 & 2.210 & 2 & 2.296 & 0.766 & 2.711 \\
+hoVm\_p2\_hoStates\_p1 & $10^{-5}$ & 3 & 2.217 & 2 & 2.245 & 1.973 & 2.717 \\
+hoVm\_p2\_hoStates\_p2 & $10^{-3}$ & 3 & 2.140 & 3 & 1.156 & 0.078 & 2.658 \\
+hoVm\_p2\_hoStates\_p2 & $10^{-4}$ & 3 & 2.211 & 3 & 2.336 & 0.773 & 2.712 \\
+hoVm\_p2\_hoStates\_p2 & $10^{-5}$ & 3 & 2.219 & 3 & 2.263 & 1.953 & 2.718 \\
+hoVm\_p3\_hoStates\_NO & $10^{-3}$ & 4 & 1.953 & 2 & 0.437 & 0.009 & 2.382 \\
+hoVm\_p3\_hoStates\_NO & $10^{-4}$ & 4 & 2.143 & 2 & 1.909 & 0.282 & 2.573 \\
+hoVm\_p3\_hoStates\_NO & $10^{-5}$ & 4 & 2.166 & 2 & 2.235 & 1.349 & 2.596 \\
+hoVm\_p3\_hoStates\_p1 & $10^{-3}$ & 4 & 2.579 & 2 & 0.446 & -0.007 & 3.168 \\
+hoVm\_p3\_hoStates\_p1 & $10^{-4}$ & 4 & 2.297 & 2 & 1.471 & 0.139 & 2.900 \\
+hoVm\_p3\_hoStates\_p1 & $10^{-5}$ & 4 & 2.263 & 2 & 2.214 & 1.164 & 2.865 \\
+hoVm\_p3\_hoStates\_p3 & $10^{-3}$ & 4 & 3.281 & 4 & 0.438 & 0.004 & 3.808 \\
+hoVm\_p3\_hoStates\_p3 & $10^{-4}$ & 4 & 2.393 & 4 & 1.506 & 0.181 & 3.037 \\
+hoVm\_p3\_hoStates\_p3 & $10^{-5}$ & 4 & 2.341 & 4 & 2.245 & 1.129 & 2.983 \\
+\bottomrule
+\end{longtable}

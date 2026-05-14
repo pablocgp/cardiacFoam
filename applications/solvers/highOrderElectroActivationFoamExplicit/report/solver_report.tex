@@ -1,0 +1,551 @@
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{siunitx}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue
+}
+
+\title{High-Order Explicit Electro-Activation Solver with TNNP Ionic Model}
+\author{cardiacFoam: \texttt{highOrderElectroActivationFoamExplicit}}
+\date{May 6, 2026}
+
+\begin{document}
+\maketitle
+
+\section{Purpose}
+
+This report documents the solver
+\path{/home/pablo/cardiacFoam-pc/applications/solvers/highOrderElectroActivationFoamExplicit/}.
+The solver is an explicit monodomain electro-activation solver. It is intended
+for benchmark-type simulations such as the Niederer et al. three-dimensional
+cardiac electrophysiology benchmark. The solver supports either standard
+finite-volume diffusion and cell-centred ionic integration, or high-order LRE
+reconstruction for the diffusion operator and for the volume integration of
+the ionic source.
+
+The output quantities used by the benchmark are the activation time field,
+the activation time at point P8, and activation time samples along the
+diagonal from P1 to P8.
+
+\section{Governing Equation}
+
+The solver advances the monodomain equation for the transmembrane potential
+$V_m$,
+\begin{equation}
+  \frac{\partial V_m}{\partial t}
+  =
+  \frac{1}{\chi C_m}\nabla\cdot(\boldsymbol{\sigma}\nabla V_m)
+  - I_{\mathrm{ion}}(V_m,\mathbf{y})
+  + \frac{I_{\mathrm{stim}}}{\chi C_m},
+  \label{eq:monodomain}
+\end{equation}
+where $\chi$ is the membrane surface-to-volume ratio, $C_m$ is the membrane
+capacitance per unit area, $\boldsymbol{\sigma}$ is the conductivity tensor,
+$I_{\mathrm{stim}}$ is the applied stimulus current density, and
+$\mathbf{y}$ denotes the ionic state vector.
+
+The TNNP model uses membrane voltage in millivolts internally. The solver field
+$V_m$ is passed to the ionic model and converted as
+\begin{equation}
+  V = 1000\,V_m,
+\end{equation}
+where $V$ is the voltage used in the TNNP equations below.
+
+\section{Explicit Time Integration}
+
+Let $K_i$ be a control volume. The explicit update used by the solver can be
+written as
+\begin{equation}
+  V_{m,i}^{n+1}
+  =
+  V_{m,i}^{n}
+  +
+  \Delta t
+  \left[
+    \frac{1}{\chi C_m}L_i(V_m^n)
+    - \overline{I}_{\mathrm{ion},i}^{\,n}
+    + \frac{I_{\mathrm{stim},i}^{n}}{\chi C_m}
+  \right],
+  \label{eq:explicit-vm}
+\end{equation}
+where $L_i(V_m^n)$ is either the standard finite-volume diffusion operator or
+the high-order LRE diffusion operator. The ionic state equations are advanced
+after the voltage update through the selected OpenFOAM ODE solver. For the
+Niederer setup used here, the selected ODE method is RKF45.
+
+\section{High-Order Spatial Discretization}
+
+\subsection{Diffusion Operator}
+
+When \texttt{useHighOrder\_Vm false}, the diffusion term is evaluated with the
+standard finite-volume operator
+\begin{equation}
+  L_i(V_m) = \left[\nabla\cdot(\boldsymbol{\sigma}\nabla V_m)\right]_i.
+\end{equation}
+
+When \texttt{useHighOrder\_Vm true}, LRE reconstruction is used at face
+quadrature points. For a face $f$, the high-order diffusive flux is assembled
+as
+\begin{equation}
+  \Phi_f
+  =
+  |S_f|
+  \sum_{q=1}^{N_f}
+  w_{fq}\,
+  \mathbf{n}_f\cdot
+  \left(
+    \boldsymbol{\sigma}_{\mathrm{owner}(f)}
+    \nabla_h V_m(\mathbf{x}_{fq})
+  \right),
+  \label{eq:ho-face-flux}
+\end{equation}
+and the cell diffusion contribution is
+\begin{equation}
+  L_i(V_m) =
+  \frac{1}{|K_i|}
+  \sum_{f\in\partial K_i}
+  s_{if}\,\Phi_f,
+\end{equation}
+where $s_{if}=+1$ for outward owner-cell flux and $s_{if}=-1$ for neighbour
+contributions.
+
+\subsection{Ionic Source Quadrature}
+
+The solver distinguishes the high-order reconstruction of the voltage from the
+high-order volume integration of the ionic source.
+
+If \texttt{useHighOrder\_Iion false}, the ionic model is integrated at cell
+centres:
+\begin{equation}
+  \overline{I}_{\mathrm{ion},i}
+  =
+  I_{\mathrm{ion}}(V_{m,i},\mathbf{y}_i).
+\end{equation}
+
+If \texttt{useHighOrder\_Iion true}, the ionic states are stored and evolved at
+the cell quadrature points $\mathbf{x}_{iq}$. The volume-averaged source is
+then
+\begin{equation}
+  \overline{I}_{\mathrm{ion},i}
+  =
+  \frac{\sum_{q=1}^{N_i} w_{iq}
+    I_{\mathrm{ion}}\left(V_{m,iq},\mathbf{y}_{iq}\right)}
+       {\sum_{q=1}^{N_i} w_{iq}}.
+  \label{eq:iion-quadrature}
+\end{equation}
+The quadrature-point voltage is reconstructed as
+\begin{equation}
+  V_{m,iq} =
+  \begin{cases}
+    R_{\mathrm{LRE}}[V_m](\mathbf{x}_{iq}),
+      & \texttt{useHighOrder\_Vm true},\\
+    V_{m,i} + \nabla V_{m,i}\cdot(\mathbf{x}_{iq}-\mathbf{x}_i),
+      & \texttt{useHighOrder\_Vm false}.
+  \end{cases}
+\end{equation}
+The ionic state vector at each quadrature point is advanced by
+\begin{equation}
+  \frac{d\mathbf{y}_{iq}}{dt}
+  =
+  \mathbf{F}_{\mathrm{TNNP}}\left(V_{iq},\mathbf{y}_{iq},t\right).
+\end{equation}
+For writing fields such as \texttt{Ca\_i}, the solver volume-averages the
+quadrature states back to cells:
+\begin{equation}
+  \mathbf{y}_i
+  =
+  \frac{\sum_q w_{iq}\mathbf{y}_{iq}}{\sum_q w_{iq}}.
+\end{equation}
+
+\section{Boundary Conditions}
+
+For the standard finite-volume branch, OpenFOAM boundary fields determine the
+boundary contribution. For the high-order diffusion branch, \texttt{zeroGradient}
+and \texttt{empty} patches are treated as true no-flux boundaries:
+\begin{equation}
+  \mathbf{n}\cdot\boldsymbol{\sigma}\nabla V_m = 0
+  \quad\text{on}\quad \Gamma_N.
+\end{equation}
+In the implementation, this means that the high-order boundary face flux is set
+to zero on these patches:
+\begin{equation}
+  \Phi_f = 0,
+  \qquad f\subset\Gamma_N.
+\end{equation}
+This is important because simply reconstructing a high-order gradient at a
+\texttt{zeroGradient} boundary can produce a non-zero normal flux unless the
+Neumann condition is explicitly enforced at the high-order flux level.
+
+Only \texttt{fixedValue} or \texttt{fixedVoltage} patches are included in the
+high-order voltage stencil through boundary values. \texttt{zeroGradient}
+patches are not included as value constraints in the high-order voltage stencil.
+
+\section{Activation Time}
+
+The activation time field is the first time at which $V_m$ crosses the
+prescribed threshold $V_{\mathrm{thr}}$ from below. If
+$V_{m,i}^n<V_{\mathrm{thr}}\le V_{m,i}^{n+1}$, the crossing time is linearly
+interpolated as
+\begin{equation}
+  t_{\mathrm{act},i}
+  =
+  t^n
+  +
+  \Delta t
+  \frac{V_{\mathrm{thr}}-V_{m,i}^n}
+       {V_{m,i}^{n+1}-V_{m,i}^n}.
+\end{equation}
+The Niederer benchmark output point P8 is sampled from the activation-time
+field at
+\begin{equation}
+  \mathbf{x}_{P8} = (0.02,\;0.003,\;0)\;{\rm m}.
+\end{equation}
+
+\section{TNNP Ionic Model}
+
+The solver uses the ten Tusscher--Noble--Noble--Panfilov 2004 ionic model
+through \texttt{ionicModel TNNP}. The state vector is
+\begin{equation}
+  \mathbf{y} =
+  \left[
+  V, K_i, Na_i, Ca_i, X_{r1}, X_{r2}, X_s, m, h, j,
+  d, f, f_{Ca}, s, r, Ca_{SR}, g
+  \right]^T .
+\end{equation}
+For the monodomain solver, $V$ is imposed by the PDE and is not evolved inside
+the ionic ODE system unless \texttt{solveVmWithinODESolver} is enabled.
+
+\subsection{Reversal Potentials}
+
+\begin{align}
+  E_{Na} &= \frac{RT}{F}\ln\left(\frac{Na_o}{Na_i}\right),\\
+  E_K &= \frac{RT}{F}\ln\left(\frac{K_o}{K_i}\right),\\
+  E_{Ks} &=
+  \frac{RT}{F}
+  \ln\left(
+    \frac{K_o + P_{kna}Na_o}{K_i + P_{kna}Na_i}
+  \right),\\
+  E_{Ca} &= \frac{1}{2}\frac{RT}{F}\ln\left(\frac{Ca_o}{Ca_i}\right).
+\end{align}
+
+\subsection{Ionic Currents}
+
+The total ionic current used by the model is
+\begin{equation}
+  I_{\mathrm{ion}} =
+  i_{K1}+i_{to}+i_{Kr}+i_{Ks}+i_{CaL}+i_{NaK}
+  +i_{Na}+i_{bNa}+i_{NaCa}+i_{bCa}+i_{pK}+i_{pCa}.
+\end{equation}
+The individual currents are
+\begin{align}
+  i_{Na} &= g_{Na}m^3hj(V-E_{Na}),\\
+  i_{bNa} &= g_{bNa}(V-E_{Na}),\\
+  i_{K1} &=
+  g_{K1}x_{K1,\infty}\sqrt{\frac{K_o}{5.4}}(V-E_K),\\
+  i_{to} &= g_{to}rs(V-E_K),\\
+  i_{Kr} &= g_{Kr}\sqrt{\frac{K_o}{5.4}}X_{r1}X_{r2}(V-E_K),\\
+  i_{Ks} &= g_{Ks}X_s^2(V-E_{Ks}),\\
+  i_{bCa} &= g_{bCa}(V-E_{Ca}),\\
+  i_{pK} &= \frac{g_{pK}(V-E_K)}{1+\exp((25-V)/5.98)},\\
+  i_{pCa} &= \frac{g_{pCa}Ca_i}{Ca_i+K_{pCa}}.
+\end{align}
+The L-type calcium current is
+\begin{equation}
+  i_{CaL}
+  =
+  \frac{
+  g_{CaL}df f_{Ca}
+  \frac{4VF^2}{RT}
+  \left(Ca_i\exp(2VF/RT)-0.341Ca_o\right)}
+  {\exp(2VF/RT)-1}.
+  \label{eq:ical}
+\end{equation}
+The sodium--potassium pump and sodium--calcium exchanger are
+\begin{align}
+  i_{NaK} &=
+  \frac{
+    P_{NaK}\frac{K_o}{K_o+K_{mk}}\frac{Na_i}{Na_i+K_{mNa}}
+  }
+  {
+    1+0.1245\exp(-0.1VF/RT)+0.0353\exp(-VF/RT)
+  },\\
+  i_{NaCa} &=
+  \frac{
+    K_{NaCa}
+    \left[
+      \exp(\gamma V F/RT)Na_i^3 Ca_o
+      -
+      \exp((\gamma-1)VF/RT)Na_o^3 Ca_i\alpha
+    \right]
+  }
+  {
+    (K_{mNai}^3+Na_o^3)(K_{mCa}+Ca_o)
+    \left[1+K_{sat}\exp((\gamma-1)VF/RT)\right]
+  }.
+\end{align}
+
+\subsection{Gate Kinetics}
+
+Most gates use the standard form
+\begin{equation}
+  \frac{dx}{dt} = \frac{x_\infty(V,Ca_i)-x}{\tau_x(V,Ca_i)}.
+\end{equation}
+The implemented steady states and time constants are
+\begin{align}
+  m_\infty &= \left[1+\exp((-56.86-V)/9.03)\right]^{-2},\\
+  \alpha_m &= \left[1+\exp((-60-V)/5)\right]^{-1},\\
+  \beta_m &=
+  \frac{0.1}{1+\exp((V+35)/5)}
+  +
+  \frac{0.1}{1+\exp((V-50)/200)},\\
+  \tau_m &= \alpha_m\beta_m,\\
+  h_\infty &= \left[1+\exp((V+71.55)/7.43)\right]^{-2},\\
+  \alpha_h &=
+  \begin{cases}
+  0.057\exp(-(V+80)/6.8), & V<-40,\\
+  0, & V\ge -40,
+  \end{cases}\\
+  \beta_h &=
+  \begin{cases}
+  2.7\exp(0.079V)+310000\exp(0.3485V), & V<-40,\\
+  \dfrac{0.77}{0.13[1+\exp((V+10.66)/-11.1)]}, & V\ge -40,
+  \end{cases}\\
+  \tau_h &= \frac{1}{\alpha_h+\beta_h},\\
+  j_\infty &= h_\infty,\\
+  \alpha_j &=
+  \begin{cases}
+  \dfrac{[-25428\exp(0.2444V)-6.948\cdot 10^{-6}\exp(-0.04391V)](V+37.78)}
+  {1+\exp[0.311(V+79.23)]}, & V<-40,\\
+  0, & V\ge -40,
+  \end{cases}\\
+  \beta_j &=
+  \begin{cases}
+  \dfrac{0.02424\exp(-0.01052V)}
+  {1+\exp[-0.1378(V+40.14)]}, & V<-40,\\
+  \dfrac{0.6\exp(0.057V)}
+  {1+\exp[-0.1(V+32)]}, & V\ge -40,
+  \end{cases}\\
+  \tau_j &= \frac{1}{\alpha_j+\beta_j},\\
+  d_\infty &= \left[1+\exp((-5-V)/7.5)\right]^{-1},\\
+  \alpha_d &= \frac{1.4}{1+\exp((-35-V)/13)}+0.25,\\
+  \gamma_{fCa} &= \frac{1.4}{1+\exp((V+5)/5)},\\
+  \gamma_d &= \frac{1}{1+\exp((50-V)/20)},\\
+  \tau_d &= \alpha_d\gamma_{fCa}+\gamma_d,\\
+  f_\infty &= \left[1+\exp((V+20)/7)\right]^{-1},\\
+  \tau_f &= 1125\exp[-(V+27)^2/240]+80
+  +\frac{165}{1+\exp((25-V)/10)},\\
+  X_{r1,\infty} &= \left[1+\exp((-26-V)/7)\right]^{-1},\\
+  \alpha_{xr1} &= \frac{450}{1+\exp((-45-V)/10)},\\
+  \beta_{xr1} &= \frac{6}{1+\exp((V+30)/11.5)},\\
+  \tau_{xr1} &= \alpha_{xr1}\beta_{xr1},\\
+  X_{r2,\infty} &= \left[1+\exp((V+88)/24)\right]^{-1},\\
+  \alpha_{xr2} &= \frac{3}{1+\exp((-60-V)/20)},\\
+  \beta_{xr2} &= \frac{1.12}{1+\exp((V-60)/20)},\\
+  \tau_{xr2} &= \alpha_{xr2}\beta_{xr2},\\
+  X_{s,\infty} &= \left[1+\exp((-5-V)/14)\right]^{-1},\\
+  \alpha_{xs} &= 1100\left[1+\exp((-10-V)/6)\right]^{-1/2},\\
+  \beta_{xs} &= \left[1+\exp((V-60)/20)\right]^{-1},\\
+  \tau_{xs} &= \alpha_{xs}\beta_{xs},\\
+  r_\infty &= \left[1+\exp((20-V)/6)\right]^{-1},\\
+  \tau_r &= 9.5\exp[-(V+40)^2/1800]+0.8.
+\end{align}
+The $s$ gate depends on tissue type:
+\begin{equation}
+  s_\infty =
+  \begin{cases}
+  \left[1+\exp((V+20)/5)\right]^{-1},
+  & \text{endocardial},\\
+  1.1\left[1+\exp((V+28)/6)\right]^{-1},
+  & \text{M cell or epicardial}.
+  \end{cases}
+\end{equation}
+Its time constant is
+\begin{equation}
+  \tau_s =
+  \begin{cases}
+  85\exp[-(V+45)^2/320]
+  +\dfrac{5}{1+\exp((V-20)/5)}+3,
+  & \text{endocardial},\\
+  1000\exp[-(V+67)^2/1000]+8,
+  & \text{M cell or epicardial}.
+  \end{cases}
+\end{equation}
+The inward rectifier auxiliary variable used by $i_{K1}$ is
+\begin{align}
+  \alpha_{K1}
+  &= \frac{0.1}{1+\exp[0.06((V-E_K)-200)]},\\
+  \beta_{K1}
+  &=
+  \frac{
+  3\exp[0.0002((V-E_K)+100)]
+  + \exp[0.1((V-E_K)-10)]}
+  {1+\exp[-0.5(V-E_K)]},\\
+  x_{K1,\infty}
+  &= \frac{\alpha_{K1}}{\alpha_{K1}+\beta_{K1}}.
+\end{align}
+The calcium-dependent gates are
+\begin{align}
+  \alpha_{fCa} &= \left[1+\left(Ca_i/0.000325\right)^8\right]^{-1},\\
+  \beta_{fCa} &= 0.1\left[1+\exp((Ca_i-0.0005)/0.0001)\right]^{-1},\\
+  \beta_d &= 0.2\left[1+\exp((Ca_i-0.00075)/0.0008)\right]^{-1},\\
+  f_{Ca,\infty} &= \frac{\alpha_{fCa}+\beta_{fCa}+\beta_d+0.23}{1.46}.
+\end{align}
+The $f_{Ca}$ rate is conditionally limited:
+\begin{equation}
+  \frac{df_{Ca}}{dt}
+  =
+  \begin{cases}
+  0, & f_{Ca,\infty}>f_{Ca}\ \text{and}\ V>-60,\\
+  (f_{Ca,\infty}-f_{Ca})/\tau_{fCa}, & \text{otherwise}.
+  \end{cases}
+\end{equation}
+The RyR gate $g$ follows
+\begin{align}
+  g_\infty &=
+  \begin{cases}
+  \left[1+(Ca_i/0.00035)^6\right]^{-1}, & Ca_i<0.00035,\\
+  \left[1+(Ca_i/0.00035)^{16}\right]^{-1}, & Ca_i\ge 0.00035,
+  \end{cases}\\
+  \frac{dg}{dt}
+  &=
+  \begin{cases}
+  0, & g_\infty>g\ \text{and}\ V>-60,\\
+  (g_\infty-g)/\tau_g, & \text{otherwise}.
+  \end{cases}
+\end{align}
+
+\subsection{Concentration Equations}
+
+The sodium and potassium concentration rates are
+\begin{align}
+  \frac{dNa_i}{dt}
+  &=
+  -\frac{(i_{Na}+i_{bNa}+3i_{NaK}+3i_{NaCa})C_m}{V_cF},\\
+  \frac{dK_i}{dt}
+  &=
+  -\frac{[(i_{K1}+i_{to}+i_{Kr}+i_{Ks}+i_{pK}+I_{stim})
+  -2i_{NaK}]C_m}{V_cF}.
+\end{align}
+The calcium release, uptake and leak terms are
+\begin{align}
+  i_{rel} &=
+  \left[
+    \frac{a_{rel}Ca_{SR}^2}{b_{rel}^2+Ca_{SR}^2}
+    + c_{rel}
+  \right]dg,\\
+  i_{up} &= \frac{V_{max,up}}{1+K_{up}^2/Ca_i^2},\\
+  i_{leak} &= V_{leak}(Ca_{SR}-Ca_i).
+\end{align}
+The buffered calcium rates are
+\begin{align}
+  J_{Ca_i} &=
+  -\frac{(i_{CaL}+i_{bCa}+i_{pCa}-2i_{NaCa})C_m}
+  {2V_cF}
+  + i_{leak} - i_{up} + i_{rel},\\
+  f_{JCa_i} &=
+  \left[
+    1+\frac{Buf_cK_{buf,c}}{(Ca_i+K_{buf,c})^2}
+  \right]^{-1},\\
+  \frac{dCa_i}{dt} &= J_{Ca_i}f_{JCa_i},\\
+  J_{Ca_{SR}} &= \frac{V_c}{V_{SR}}(i_{up}-i_{rel}-i_{leak}),\\
+  f_{JCa_{SR}} &=
+  \left[
+    1+\frac{Buf_{SR}K_{buf,SR}}{(Ca_{SR}+K_{buf,SR})^2}
+  \right]^{-1},\\
+  \frac{dCa_{SR}}{dt} &= J_{Ca_{SR}}f_{JCa_{SR}}.
+\end{align}
+
+\section{Numerical Protections in TNNP}
+
+The generated TNNP algebra contains logarithms, powers and divisions that are
+only defined for physically admissible states. The most sensitive quantities
+are $Ca_i$, $Ca_{SR}$, $Na_i$, $K_i$, gate variables and the removable
+singularity in Eq.~\eqref{eq:ical} near $V=0$.
+
+The implemented protection is optional and controlled from
+\texttt{cardiacProperties}. When \texttt{TNNPNumericalProtection true}, the
+wrapper checks the state vector before calls to the generated TNNP algebra:
+\begin{itemize}
+  \item non-finite concentrations or concentrations below
+  \texttt{TNNPConcentrationFloor} are replaced by that floor;
+  \item gate variables are clipped to $[0,1]$ when
+  \texttt{TNNPClampGates true};
+  \item non-finite voltage is replaced by a resting fallback value;
+  \item voltage is limited to
+  $[V_{\min},V_{\max}]$ when \texttt{TNNPClampVmForRates true};
+  \item if $|V|<\varepsilon_V$, $V$ is shifted to
+  $\pm\varepsilon_V$ to avoid the direct evaluation of the
+  $i_{CaL}$ denominator at zero.
+\end{itemize}
+
+Each correction is written to \texttt{TNNP\_numericalProtection.log} when
+\texttt{TNNPLogNumericalProtection true}. The log columns are
+\begin{equation}
+  t_{\mathrm{ms}},\quad t_{\mathrm{s}},\quad
+  \text{integration point},\quad
+  \text{phase},\quad
+  \text{variable},\quad
+  \text{old value},\quad
+  \text{corrected value},\quad
+  \text{reason}.
+\end{equation}
+This makes the protection auditable: the run can be continued without losing
+information about which state became non-physical and where the correction was
+applied.
+
+\section{Niederer P8 Activation-Time Results}
+\label{sec:results}
+
+This section reports two-dimensional Niederer-benchmark results read from
+both result trees of this solver:
+\path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderNiedererEtAl2012Explicit/}
+and
+\path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderNiedererEtAl2012Explicit_2/}.
+The first folder contains the historical sweep over the requested
+$\Delta t \in \{10^{-2}, 5\!\cdot\!10^{-5}, 10^{-5}, 5\!\cdot\!10^{-6}\}$~s;
+the second folder is a more recent and more complete sweep at the
+single requested $\Delta t = 10^{-2}$~s. Because the explicit solver
+applies the CFL stability limit, the value the solver actually uses
+($\Delta t_{\rm eff}$, table at the top of the next subsection) is far
+smaller than the requested one and depends on the mesh size~$\Delta x$.
+Computational cost data come from \texttt{/usr/bin/time -v} and are
+reported as elapsed wall-clock time and peak resident set size (RSS).
+\textsc{NC} means that no run was found for that combination in the
+results tree.
+
+\noindent The label \emph{Vm} refers to the LRE p-level used for the
+high-order diffusion reconstruction, and the label \emph{Iion} refers
+to the LRE p-level used for the cell-quadrature ionic-source
+integration. \texttt{NO} means that high-order is disabled for that
+quantity (cell-centre Laplacian / cell-centre ionic source).
+
+\input{results_tables.tex}
+
+\section{Implementation Notes}
+
+The most relevant implementation details are:
+\begin{itemize}
+  \item \texttt{useHighOrder\_Vm} controls the LRE high-order diffusion
+  reconstruction.
+  \item \texttt{useHighOrder\_Iion} controls whether TNNP states are evolved
+  at cell quadrature points and whether $I_{\mathrm{ion}}$ is volume-integrated
+  with those points.
+  \item \texttt{useHighOrder\_states} is still accepted as a legacy dictionary
+  keyword, but the current solver interprets it as the high-order
+  $I_{\mathrm{ion}}$ quadrature switch.
+  \item \texttt{activationTime} is written as a field and can be viewed in
+  ParaView.
+  \item \texttt{P8\_activationTime.dat} and
+  \texttt{diagonalActivationTime.dat} are written for benchmark postprocessing.
+\end{itemize}
+
+\end{document}

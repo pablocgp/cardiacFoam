@@ -97,3 +97,10 @@ SunOS*Gcc*/
 # Generated mesh / field data (VTK)
 *.vtk
 *.vtu
+
+# AI/Agents
+.claude/
+.agents/
+.codex
+CLAUDE.md
+*.local.md

@@ -54,6 +54,24 @@ class TNNP
 {
     // Private Data
 
+        struct ProtectionSummaryEntry
+        {
+            word phase;
+            word variable;
+            word reason;
+            label count;
+            scalar firstTimeMs;
+            scalar firstTimeS;
+            label firstIntegrationPoint;
+            scalar firstOldValue;
+            scalar firstCorrectedValue;
+            scalar minOldValue;
+            scalar maxOldValue;
+            scalar maxAbsDelta;
+
+            ProtectionSummaryEntry();
+        };
+
         //- States
         mutable PtrList<scalarField> STATES_;
 
@@ -69,6 +87,48 @@ class TNNP
         //- Rates
         mutable PtrList<scalarField> RATES_;
 
+        //- Enable numerical protection for the generated TNNP algebra
+        Switch numericalProtection_;
+
+        //- Clamp gate variables to [0, 1] when numericalProtection_ is active
+        Switch clampGates_;
+
+        //- Clamp Vm in mV before evaluating the generated rates
+        Switch clampVmForRates_;
+
+        //- Write a log entry whenever a protection correction is applied
+        Switch logNumericalProtection_;
+
+        //- Floor for positive concentrations used inside log/pow divisions
+        scalar concentrationFloor_;
+
+        //- Lower Vm bound used by the rate protection [mV]
+        scalar vmMinForRates_;
+
+        //- Upper Vm bound used by the rate protection [mV]
+        scalar vmMaxForRates_;
+
+        //- Small Vm offset used to avoid the i_CaL V=0 removable singularity [mV]
+        scalar vmZeroEps_;
+
+        //- Maximum number of unique protection event types written to disk
+        label maxProtectionLogEntries_;
+
+        //- Integration point currently being processed by the ODE solver
+        mutable label activeIntegrationPoint_;
+
+        //- Number of applied numerical corrections
+        mutable label protectionCorrections_;
+
+        //- Number of unique protection event types written to disk
+        mutable label protectionLogEntries_;
+
+        //- Optional protection summary stream
+        mutable autoPtr<OFstream> protectionLogPtr_;
+
+        //- Protection summary entries, grouped by phase/variable/reason
+        mutable List<ProtectionSummaryEntry> protectionSummary_;
+
 
     // Private Member Functions
 
@@ -77,6 +137,45 @@ class TNNP
 
         //- No copy assignment
         void operator=(const TNNP&) = delete;
+
+        //- Open the optional numerical protection log
+        void openProtectionLog(const dictionary& dict) const;
+
+        //- Log one numerical protection correction in the compact summary
+        void logProtection
+        (
+            const scalar t,
+            const label integrationPtI,
+            const char* phase,
+            const label stateI,
+            const scalar oldValue,
+            const scalar correctedValue,
+            const char* reason
+        ) const;
+
+        //- Write compact numerical protection summary
+        void writeProtectionSummary() const;
+
+        //- Correct a state component and record the correction
+        void correctStateComponent
+        (
+            scalarField& state,
+            const label stateI,
+            const scalar correctedValue,
+            const scalar t,
+            const label integrationPtI,
+            const char* phase,
+            const char* reason
+        ) const;
+
+        //- Apply conservative guards before evaluating the generated TNNP algebra
+        void protectState
+        (
+            scalarField& state,
+            const scalar t,
+            const label integrationPtI,
+            const char* phase
+        ) const;
 
 
         public:
@@ -171,6 +270,13 @@ class TNNP
                 PtrList<volScalarField>&
             ) override;
 
+            virtual void exportStatesIntegrationPoints
+            (
+                const Field<Field<scalar>>&,
+                PtrList<volScalarField>&,
+                const CompactListList<scalar>&
+            ) override;
+
             // Override to print variables in solver
             void debugPrintFields
             (
@@ -200,5 +306,3 @@ class TNNP
 #endif
 
 // ************************************************************************* //
-
-

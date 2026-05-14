@@ -1,0 +1,164 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{placeins}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
+\providecommand{\reportdir}{}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\ReportInput}[1]{\input{\reportdir#1}}
+\newcommand{\maybeincludegraphics}[2][]{%
+\IfFileExists{#2}{\includegraphics[#1]{#2}}{\fbox{\parbox[c][0.26\textheight][c]{0.92\linewidth}{\centering Missing figure: \texttt{\detokenize{#2}}\\Run \code{plot\_convergence.m} in the report directory.}}}%
+}
+\newcommand{\ReportFigure}[1]{\maybeincludegraphics[width=\linewidth]{\reportdir#1}}
+\title{High-Order Explicit Heat Equation Solver\\Verification Report for \code{example5}}
+\author{Generated report for \code{testHighOrderHeatEquationExplicit}}
+\date{\today}
+\begin{document}
+\maketitle
+\begin{abstract}
+This report updates the verification documentation for \code{testHighOrderHeatEquationExplicit} using the current \code{example5} results in \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/testHighOrderHeatEquationExplicit/results/example5}. Its structure follows the report used for \code{highOrderManufacturedFDAExplicit}, but the model is simpler: only the scalar heat variable $T$ is advanced, and there are no ionic ODE states or local state reconstructions. The report compares the standard second-order finite-volume operator (\code{hoT\_NO}) with LRE high-order reconstructions for $T$.
+\end{abstract}
+\section{Governing Equation}
+The solver advances a transient scalar diffusion problem,
+\begin{equation}
+\rho C_p\frac{\partial T}{\partial t} = \nabla\cdot(\alpha\nabla T) + Q.
+\end{equation}
+The explicit cell update is
+\begin{equation}
+T_K^{n+1} = T_K^n + \frac{\Delta t}{\rho C_p}R_K^n.
+\end{equation}
+For \code{example5}, the implementation uses $R_K^n=L_h(T^n)_K-Q_K^n$, where $Q$ is the exact FDA-like manufactured ionic source reused as a scalar heat-equation source.
+\section{Manufactured Example5}
+The exact temperature is
+\begin{equation}
+T^\star(\mathbf{x},t)=A\sqrt{1+t}F(\mathbf{x}).
+\end{equation}
+For two-dimensional runs,
+\begin{align}
+F(x,y)&=\cos(\pi x)\cos(2\pi y), & G(x,y)&=1+xy^2.
+\end{align}
+The source is built from
+\begin{equation}
+Q^\star(\mathbf{x},t)=A I_{\mathrm{ion}}^\star(\mathbf{x},t),
+\end{equation}
+where
+\begin{align}
+I_{\mathrm{ion}}^\star &= -\frac12\left(u_1^\star+u_3^\star-T^\star\right)(u_2^\star)^2\left(T^\star-u_3^\star\right)+\beta_T\left(T^\star-u_3^\star\right),\\
+u_1^\star&=(1+t)G+T^\star, & u_2^\star&=\frac{1}{(1+t)\sqrt{G}}, & u_3^\star&=0.
+\end{align}
+These $u_i^\star$ are analytical helper functions only; unlike the FDA solver, this heat solver does not solve ODEs.
+\section{Spatial Discretization}
+When \code{useHighOrder\_T=false}, diffusion is computed with the standard OpenFOAM finite-volume Laplacian. When \code{useHighOrder\_T=true}, face fluxes are computed using LRE-reconstructed gradients,
+\begin{equation}
+\Phi_f\approx |S_f|\sum_q\omega_{fq}\mathbf{n}_f\cdot\alpha\nabla_hT(\mathbf{x}_{fq}),
+\end{equation}
+and assembled from \code{fvc::div(fluxT\_HO)}. The labels \code{p1}, \code{p2}, and \code{p3} denote first-, second-, and third-order Taylor terms. The label \code{NO} denotes the standard second-order finite-volume calculation.
+\section{Boundary Conditions}
+For the high-order flux, \code{zeroGradient} and \code{empty} patches are treated as no-flux boundaries by setting the high-order boundary flux to zero,
+\begin{equation}
+\int_{\partial K\cap\Gamma_N}\mathbf{n}\cdot\alpha\nabla T\,dS=0.
+\end{equation}
+Fixed-value patches keep their boundary contribution in the high-order reconstruction.
+\section{Time Integration}
+Time is advanced with forward Euler. There is no implicit linear system, no ODE solve, and no consistent mass matrix in this solver; the finite-volume update corresponds to a diagonal cell-volume mass. Large time steps can therefore produce divergent spatial fits, which appear as large negative fitted orders in the tables.
+\section{Error Measures and Rates}
+The solver writes cell-centred errors such as
+\begin{equation}
+L_2=\left(\frac{\sum_K |T_K-T_K^\star|^2 |K|}{\sum_K |K|}\right)^{1/2}
+\end{equation}
+and reconstructed quadrature errors $G_2$, computed by reconstructing $T_h$ at cell quadrature points and comparing with $T^\star$ there. The expected spatial orders are approximately $2$ for \code{NO} and \code{p1}, $3$ for \code{p2}, and $4$ for \code{p3}.
+\section{2D Results}
+The available 2D data are read from \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/testHighOrderHeatEquationExplicit/results/example5/2D}. Table~\ref{tab:heat-explicit-orders-2D} reports the all-mesh log--log spatial fits stored in the \path{spatial_convergence_rate_dt_*_total.dat} files.
+\ReportInput{tables/heat_explicit_orders_2D.tex}
+\subsection{2D Convergence Figures}
+
+\begin{figure}[p]
+    \centering
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_explicit_2D_T_L2_dt_1p0em03.pdf}
+        \caption{$\|T-T^\star\|_{L_2}$}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_explicit_2D_T_G2_dt_1p0em03.pdf}
+        \caption{$\|T_h-T^\star\|_{G_2}$}
+    \end{subfigure}
+    \caption{Explicit high-order heat-equation solver, 2D example5 results for $\Delta t=10^{-3}$. The left panel shows the cell-centred $L_2$ error and the right panel shows the reconstructed quadrature $G_2$ error.}
+    \label{fig:heat-explicit-2d-dt-1p0em03}
+\end{figure}
+
+
+\begin{figure}[p]
+    \centering
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_explicit_2D_T_L2_dt_1p0em04.pdf}
+        \caption{$\|T-T^\star\|_{L_2}$}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_explicit_2D_T_G2_dt_1p0em04.pdf}
+        \caption{$\|T_h-T^\star\|_{G_2}$}
+    \end{subfigure}
+    \caption{Explicit high-order heat-equation solver, 2D example5 results for $\Delta t=10^{-4}$. The left panel shows the cell-centred $L_2$ error and the right panel shows the reconstructed quadrature $G_2$ error.}
+    \label{fig:heat-explicit-2d-dt-1p0em04}
+\end{figure}
+
+
+\begin{figure}[p]
+    \centering
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_explicit_2D_T_L2_dt_1p0em05.pdf}
+        \caption{$\|T-T^\star\|_{L_2}$}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_explicit_2D_T_G2_dt_1p0em05.pdf}
+        \caption{$\|T_h-T^\star\|_{G_2}$}
+    \end{subfigure}
+    \caption{Explicit high-order heat-equation solver, 2D example5 results for $\Delta t=10^{-5}$. The left panel shows the cell-centred $L_2$ error and the right panel shows the reconstructed quadrature $G_2$ error.}
+    \label{fig:heat-explicit-2d-dt-1p0em05}
+\end{figure}
+
+
+\begin{figure}[p]
+    \centering
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_explicit_2D_T_L2_dt_1p0em06.pdf}
+        \caption{$\|T-T^\star\|_{L_2}$}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.485\linewidth}
+        \centering
+        \ReportFigure{figures/heat_explicit_2D_T_G2_dt_1p0em06.pdf}
+        \caption{$\|T_h-T^\star\|_{G_2}$}
+    \end{subfigure}
+    \caption{Explicit high-order heat-equation solver, 2D example5 results for $\Delta t=10^{-6}$. The left panel shows the cell-centred $L_2$ error and the right panel shows the reconstructed quadrature $G_2$ error.}
+    \label{fig:heat-explicit-2d-dt-1p0em06}
+\end{figure}
+
+\FloatBarrier
+\section{Three-Dimensional Results}
+No \path{example5/3D} result directory was present when this report was generated. The report and plotting script are organized so that three-dimensional data can be added later with the same folder structure.
+\section{Discussion}
+The current \code{example5} dataset contains only two-dimensional runs. The smaller time steps show the intended second-order behaviour for the standard operator and approximately fourth-order behaviour for \code{p3} in $L_2$ and $G_2$. The larger time steps, especially $10^{-3}$ and in several cases $10^{-4}$, are dominated by explicit time-step instability or temporal error, so their fitted spatial rates should not be interpreted as asymptotic spatial convergence.
+\section{Files}
+\begin{itemize}[nosep]
+\item Solver source: \path{/home/pablo/cardiacFoam-pc/applications/solvers/testHighOrderHeatEquationExplicit/testHighOrderHeatEquationExplicit.C}
+\item Tutorial results: \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/testHighOrderHeatEquationExplicit/results/example5}
+\item Plot script: \path{/home/pablo/cardiacFoam-pc/applications/solvers/testHighOrderHeatEquationExplicit/report/plot_convergence.m}
+\end{itemize}
+\end{document}

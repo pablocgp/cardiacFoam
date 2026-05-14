@@ -301,9 +301,11 @@ const Switch useHighOrder_Vm
     spatialIntegrationProperties.lookupOrDefault<Switch>("useHighOrder_Vm", true)
 );
 
-const Switch useHighOrder_states
+const Switch useHighOrder_Iion
 (
-    spatialIntegrationProperties.lookupOrDefault<Switch>("useHighOrder_states", true)
+    spatialIntegrationProperties.found("useHighOrder_Iion")
+  ? spatialIntegrationProperties.lookupOrDefault<Switch>("useHighOrder_Iion", true)
+  : spatialIntegrationProperties.lookupOrDefault<Switch>("useHighOrder_states", true)
 );
 
 boolList includePatchInVmStencils(mesh.boundaryMesh().size(), false);
@@ -322,8 +324,8 @@ forAll(includePatchInVmStencils, patchI)
     }
 }
 
-boolList includePatchInStateStencils(mesh.boundaryMesh().size(), false);
-forAll(includePatchInStateStencils, patchI)
+boolList includePatchInIionStencils(mesh.boundaryMesh().size(), false);
+forAll(includePatchInIionStencils, patchI)
 {
     const word bcType = u1.boundaryField()[patchI].type();
 
@@ -333,7 +335,29 @@ forAll(includePatchInStateStencils, patchI)
      || bcType == zeroGradientFvPatchScalarField::typeName
     )
     {
-        includePatchInStateStencils[patchI] = true;
+        includePatchInIionStencils[patchI] = true;
+    }
+}
+
+const dictionary& highOrderCoeffs =
+    spatialIntegrationProperties.subDict("highOrderCoeffs");
+
+word IionCoeffsName("LRECoeffs_Iion");
+if (!highOrderCoeffs.found(IionCoeffsName))
+{
+    if (highOrderCoeffs.found("LRECoeffs_states"))
+    {
+        IionCoeffsName = "LRECoeffs_states";
+        WarningInFunction
+            << "Using legacy highOrderCoeffs/LRECoeffs_states for "
+            << "Iion quadrature. Prefer LRECoeffs_Iion." << nl;
+    }
+    else
+    {
+        FatalErrorInFunction
+            << "highOrderCoeffs contains neither LRECoeffs_Iion nor "
+            << "legacy LRECoeffs_states." << nl
+            << abort(FatalError);
     }
 }
 
@@ -341,12 +365,27 @@ LRE LREInterp_Vm
 (
     mesh,
     includePatchInVmStencils,
-    spatialIntegrationProperties.subDict("highOrderCoeffs").subDict("LRECoeffs_Vm")
+    highOrderCoeffs.subDict("LRECoeffs_Vm")
 );
 
-LRE LREInterp_states
+LRE LREInterp_Iion
 (
     mesh,
-    includePatchInStateStencils,
-    spatialIntegrationProperties.subDict("highOrderCoeffs").subDict("LRECoeffs_states")
+    includePatchInIionStencils,
+    highOrderCoeffs.subDict(IionCoeffsName)
 );
+
+label totalIionIntegrationPoints = mesh.nCells();
+if (useHighOrder_Iion)
+{
+    totalIionIntegrationPoints = 0;
+    const CompactListList<point>& cellIionQuadP =
+        LREInterp_Iion.cellQuadPoints();
+
+    forAll(mesh.cells(), cellI)
+    {
+        totalIionIntegrationPoints += cellIionQuadP[cellI].size();
+    }
+}
+
+Info<< "Iion integration points: " << totalIionIntegrationPoints << nl << endl;

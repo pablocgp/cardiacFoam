@@ -496,6 +496,17 @@ namespace
                 continue;
             }
 
+            const word bcType = Vm.boundaryField()[patchI].type();
+            if
+            (
+                bcType == zeroGradientFvPatchScalarField::typeName
+             || bcType == "empty"
+            )
+            {
+                patchFlux = 0.0;
+                continue;
+            }
+
             const label start = mesh.boundaryMesh()[patchI].start();
             const scalarField& pMagSf = mesh.magSf().boundaryField()[patchI];
             const vectorField& pNormals = nHat.boundaryField()[patchI];
@@ -523,7 +534,7 @@ namespace
         lapVm = fvc::div(fluxVm_HO);
     }
 
-    void computeVolumeAveragedIion
+    void computeCellCentredIion
     (
         const volScalarField& Vm,
         const volScalarField& u1,
@@ -532,178 +543,224 @@ namespace
         const scalar beta,
         const scalar chiVal,
         const scalar CmVal,
-        const bool useHighOrderStates,
-        const LRE& LREInterp_Vm,
-        const LRE& LREInterp_states,
         volScalarField& Iion
     )
     {
-        const fvMesh& mesh = Vm.mesh();
-
-        if (!useHighOrderStates || mesh.nGeometricD() == 1)
-        {
-            forAll(Vm.internalField(), cellI)
-            {
-                Iion[cellI] =
-                    ionicCurrentPDE
-                    (
-                        Vm[cellI],
-                        u1[cellI],
-                        u2[cellI],
-                        u3[cellI],
-                        beta,
-                        chiVal,
-                        CmVal
-                    );
-            }
-
-            Iion.correctBoundaryConditions();
-            return;
-        }
-
-        const bool twoD = mesh.nGeometricD() == 2;
-
-        tmp<volVectorField> tGradVm = LREInterp_Vm.grad(Vm);
-        const volVectorField& gradVm = tGradVm();
-
-        tmp<volVectorField> tGradU1 = LREInterp_states.grad(u1);
-        const volVectorField& gradU1 = tGradU1();
-
-        tmp<volVectorField> tGradU2 = LREInterp_states.grad(u2);
-        const volVectorField& gradU2 = tGradU2();
-
-        tmp<volSymmTensorField> tHessVm;
-        const volSymmTensorField* hessVmPtr = nullptr;
-        if (LREInterp_Vm.order() >= 2)
-        {
-            tHessVm = LREInterp_Vm.hessian(Vm);
-            hessVmPtr = &tHessVm();
-        }
-
-        tmp<volSymmTensorField> tHessU1;
-        const volSymmTensorField* hessU1Ptr = nullptr;
-        if (LREInterp_states.order() >= 2)
-        {
-            tHessU1 = LREInterp_states.hessian(u1);
-            hessU1Ptr = &tHessU1();
-        }
-
-        tmp<volSymmTensorField> tHessU2;
-        const volSymmTensorField* hessU2Ptr = nullptr;
-        if (LREInterp_states.order() >= 2)
-        {
-            tHessU2 = LREInterp_states.hessian(u2);
-            hessU2Ptr = &tHessU2();
-        }
-
-        autoPtr<List<LRE::symmTensor3Order>> thirdVmPtr;
-        const List<LRE::symmTensor3Order>* thirdVmList = nullptr;
-        if (LREInterp_Vm.order() >= 3)
-        {
-            thirdVmPtr = LREInterp_Vm.thirdDeriv(Vm);
-            thirdVmList = &thirdVmPtr();
-        }
-
-        autoPtr<List<LRE::symmTensor3Order>> thirdU1Ptr;
-        const List<LRE::symmTensor3Order>* thirdU1List = nullptr;
-        if (LREInterp_states.order() >= 3)
-        {
-            thirdU1Ptr = LREInterp_states.thirdDeriv(u1);
-            thirdU1List = &thirdU1Ptr();
-        }
-
-        autoPtr<List<LRE::symmTensor3Order>> thirdU2Ptr;
-        const List<LRE::symmTensor3Order>* thirdU2List = nullptr;
-        if (LREInterp_states.order() >= 3)
-        {
-            thirdU2Ptr = LREInterp_states.thirdDeriv(u2);
-            thirdU2List = &thirdU2Ptr();
-        }
-
-        const vectorField& C = mesh.C();
-
-        List<point> qPoints;
-        scalarField qWeights;
-
         forAll(Vm.internalField(), cellI)
         {
-            cellQuadraturePointsAndWeights(mesh, cellI, qPoints, qWeights);
-
-            scalar iBar = 0.0;
-            scalar wSum = 0.0;
-
-            forAll(qPoints, qpI)
-            {
-                const vector d = qPoints[qpI] - C[cellI];
-                const scalar w = qWeights[qpI];
-
-                const symmTensor* HVm =
-                    hessVmPtr ? &((*hessVmPtr)[cellI]) : nullptr;
-                const symmTensor* HU1 =
-                    hessU1Ptr ? &((*hessU1Ptr)[cellI]) : nullptr;
-                const symmTensor* HU2 =
-                    hessU2Ptr ? &((*hessU2Ptr)[cellI]) : nullptr;
-
-                const LRE::symmTensor3Order* TVm =
-                    thirdVmList ? &((*thirdVmList)[cellI]) : nullptr;
-                const LRE::symmTensor3Order* TU1 =
-                    thirdU1List ? &((*thirdU1List)[cellI]) : nullptr;
-                const LRE::symmTensor3Order* TU2 =
-                    thirdU2List ? &((*thirdU2List)[cellI]) : nullptr;
-
-                const scalar Vg =
-                    reconstructFromTaylor
-                    (
-                        Vm[cellI],
-                        gradVm[cellI],
-                        HVm,
-                        TVm,
-                        d,
-                        twoD
-                    );
-
-                const scalar u1g =
-                    reconstructFromTaylor
-                    (
-                        u1[cellI],
-                        gradU1[cellI],
-                        HU1,
-                        TU1,
-                        d,
-                        twoD
-                    );
-
-                const scalar u2g =
-                    reconstructFromTaylor
-                    (
-                        u2[cellI],
-                        gradU2[cellI],
-                        HU2,
-                        TU2,
-                        d,
-                        twoD
-                    );
-
-                iBar +=
-                    w
-                   *ionicCurrentPDE
-                    (
-                        Vg,
-                        u1g,
-                        u2g,
-                        0.0,
-                        beta,
-                        chiVal,
-                        CmVal
-                    );
-
-                wSum += w;
-            }
-
-            Iion[cellI] = iBar/max(wSum, SMALL);
+            Iion[cellI] =
+                ionicCurrentPDE
+                (
+                    Vm[cellI],
+                    u1[cellI],
+                    u2[cellI],
+                    u3[cellI],
+                    beta,
+                    chiVal,
+                    CmVal
+                );
         }
 
         Iion.correctBoundaryConditions();
+    }
+
+    void reconstructVmAtIionIntegrationPoints
+    (
+        const volScalarField& Vm,
+        const Switch useHighOrderVm,
+        const LRE& LREInterp_Vm,
+        const LRE& LREInterp_Iion,
+        scalarField& VmIntegrationPoints
+    )
+    {
+        const fvMesh& mesh = Vm.mesh();
+        const vectorField& C = mesh.C();
+        const CompactListList<point>& cellIionQuadP =
+            LREInterp_Iion.cellQuadPoints();
+
+        label integrationPointI = 0;
+
+        if (useHighOrderVm)
+        {
+            const bool twoD = mesh.nGeometricD() == 2;
+
+            tmp<volVectorField> tGradVm = LREInterp_Vm.grad(Vm);
+            const vectorField& gradVm = tGradVm->internalField();
+
+            tmp<volSymmTensorField> tHessVm;
+            const symmTensorField* hessVm = nullptr;
+            if (LREInterp_Vm.order() >= 2)
+            {
+                tHessVm = LREInterp_Vm.hessian(Vm);
+                hessVm = &(tHessVm->internalField());
+            }
+
+            autoPtr<List<LRE::symmTensor3Order>> thirdVmPtr;
+            const List<LRE::symmTensor3Order>* thirdVm = nullptr;
+            if (LREInterp_Vm.order() >= 3)
+            {
+                thirdVmPtr = LREInterp_Vm.thirdDeriv(Vm);
+                thirdVm = &thirdVmPtr();
+            }
+
+            forAll(mesh.cells(), cellI)
+            {
+                const scalar Vc = Vm[cellI];
+                const vector& gradVc = gradVm[cellI];
+                const vector& xc = C[cellI];
+
+                const symmTensor* H = hessVm ? &((*hessVm)[cellI]) : nullptr;
+                const LRE::symmTensor3Order* T3 =
+                    thirdVm ? &((*thirdVm)[cellI]) : nullptr;
+
+                forAll(cellIionQuadP[cellI], qI)
+                {
+                    const vector d = cellIionQuadP[cellI][qI] - xc;
+                    VmIntegrationPoints[integrationPointI] =
+                        reconstructFromTaylor(Vc, gradVc, H, T3, d, twoD);
+                    ++integrationPointI;
+                }
+            }
+        }
+        else
+        {
+            tmp<volVectorField> tGradVm = fvc::grad(Vm);
+            const vectorField& gradVm = tGradVm->internalField();
+
+            forAll(mesh.cells(), cellI)
+            {
+                const scalar Vc = Vm[cellI];
+                const vector& gradVc = gradVm[cellI];
+                const vector& xc = C[cellI];
+
+                forAll(cellIionQuadP[cellI], qI)
+                {
+                    const vector d = cellIionQuadP[cellI][qI] - xc;
+                    VmIntegrationPoints[integrationPointI] = Vc + (gradVc & d);
+                    ++integrationPointI;
+                }
+            }
+        }
+    }
+
+    void averageIntegrationPointFieldToCells
+    (
+        const scalarField& integrationPointValues,
+        const LRE& LREInterp_Iion,
+        volScalarField& field
+    )
+    {
+        const fvMesh& mesh = field.mesh();
+        const CompactListList<scalar>& cellIionQuadW =
+            LREInterp_Iion.cellQuadWeight();
+
+        scalarField& cellValues = field.primitiveFieldRef();
+        label integrationPointI = 0;
+
+        forAll(mesh.cells(), cellI)
+        {
+            scalar valueBar = 0.0;
+            scalar wSum = 0.0;
+
+            forAll(cellIionQuadW[cellI], qI)
+            {
+                const scalar w = cellIionQuadW[cellI][qI];
+                valueBar += w*integrationPointValues[integrationPointI];
+                wSum += w;
+                ++integrationPointI;
+            }
+
+            cellValues[cellI] = valueBar/max(wSum, SMALL);
+        }
+
+        field.correctBoundaryConditions();
+    }
+
+    void initialiseIionIntegrationPointStates
+    (
+        const LRE& LREInterp_Iion,
+        const scalar t,
+        const label dim,
+        scalarField& u1IntegrationPoints,
+        scalarField& u2IntegrationPoints,
+        scalarField& u3IntegrationPoints
+    )
+    {
+        const CompactListList<point>& cellIionQuadP =
+            LREInterp_Iion.cellQuadPoints();
+
+        label integrationPointI = 0;
+        forAll(cellIionQuadP, cellI)
+        {
+            forAll(cellIionQuadP[cellI], qI)
+            {
+                const point& p = cellIionQuadP[cellI][qI];
+                u1IntegrationPoints[integrationPointI] = exactU1(p, t, dim);
+                u2IntegrationPoints[integrationPointI] = exactU2(p, t, dim);
+                u3IntegrationPoints[integrationPointI] = exactU3(p, t, dim);
+                ++integrationPointI;
+            }
+        }
+    }
+
+    void computeIionFromIntegrationPoints
+    (
+        const scalarField& VmIntegrationPoints,
+        const scalarField& u1IntegrationPoints,
+        const scalarField& u2IntegrationPoints,
+        const scalarField& u3IntegrationPoints,
+        const scalar beta,
+        const scalar chiVal,
+        const scalar CmVal,
+        scalarField& IionIntegrationPoints
+    )
+    {
+        forAll(IionIntegrationPoints, integrationPointI)
+        {
+            IionIntegrationPoints[integrationPointI] =
+                ionicCurrentPDE
+                (
+                    VmIntegrationPoints[integrationPointI],
+                    u1IntegrationPoints[integrationPointI],
+                    u2IntegrationPoints[integrationPointI],
+                    u3IntegrationPoints[integrationPointI],
+                    beta,
+                    chiVal,
+                    CmVal
+                );
+        }
+    }
+
+    void advanceIionIntegrationPointStates
+    (
+        const scalar dt,
+        const scalarField& VmIntegrationPoints,
+        scalarField& u1IntegrationPoints,
+        scalarField& u2IntegrationPoints,
+        scalarField& u3IntegrationPoints
+    )
+    {
+        forAll(u1IntegrationPoints, integrationPointI)
+        {
+            scalar du1dt = 0.0;
+            scalar du2dt = 0.0;
+            scalar du3dt = 0.0;
+
+            reactionRates
+            (
+                VmIntegrationPoints[integrationPointI],
+                u1IntegrationPoints[integrationPointI],
+                u2IntegrationPoints[integrationPointI],
+                u3IntegrationPoints[integrationPointI],
+                du1dt,
+                du2dt,
+                du3dt
+            );
+
+            u1IntegrationPoints[integrationPointI] += dt*du1dt;
+            u2IntegrationPoints[integrationPointI] += dt*du2dt;
+            u3IntegrationPoints[integrationPointI] += dt*du3dt;
+        }
     }
 
     ReconstructionErrorSummary computeGaussReconstructedError
@@ -797,6 +854,90 @@ namespace
                 eInf = max(eInf, mag(err));
                 n2 += meas*sqr(ex);
                 volTot += meas;
+            }
+        }
+
+        e1 = returnReduce(e1, sumOp<scalar>());
+        e2 = returnReduce(e2, sumOp<scalar>());
+        eInf = returnReduce(eInf, maxOp<scalar>());
+        n2 = returnReduce(n2, sumOp<scalar>());
+        volTot = returnReduce(volTot, sumOp<scalar>());
+
+        ReconstructionErrorSummary s;
+        s.L1 = e1/max(volTot, SMALL);
+        s.L2 = std::sqrt(e2/max(volTot, SMALL));
+        s.Linf = eInf;
+        s.normL2 = std::sqrt(n2/max(volTot, SMALL));
+        s.relL2 = 100.0*s.L2/max(s.normL2, SMALL);
+
+        return s;
+    }
+
+    ReconstructionErrorSummary cellAsReconstructionError
+    (
+        const FieldErrorSummary& cellErr,
+        const volScalarField& exact
+    )
+    {
+        ReconstructionErrorSummary s;
+
+        s.L1 = cellErr.L1;
+        s.L2 = cellErr.L2;
+        s.Linf = cellErr.Linf;
+
+        s.normL2 = volumeWeightedL2(exact);
+        s.relL2 = 100.0*s.L2/max(s.normL2, SMALL);
+
+        return s;
+    }
+
+    ReconstructionErrorSummary computeIntegrationPointStateError
+    (
+        const scalarField& stateIntegrationPoints,
+        const scalar t,
+        const ManufacturedFieldID fieldID,
+        const label dim,
+        const LRE& LREInterp_Iion,
+        const fvMesh& mesh
+    )
+    {
+        const CompactListList<point>& cellIionQuadP =
+            LREInterp_Iion.cellQuadPoints();
+        const CompactListList<scalar>& cellIionQuadW =
+            LREInterp_Iion.cellQuadWeight();
+        const scalarField& V = mesh.V();
+
+        scalar e1 = 0.0;
+        scalar e2 = 0.0;
+        scalar eInf = 0.0;
+        scalar n2 = 0.0;
+        scalar volTot = 0.0;
+
+        label integrationPointI = 0;
+        forAll(mesh.cells(), cellI)
+        {
+            const scalar cellV = V[cellI];
+            scalar wSum = 0.0;
+
+            forAll(cellIionQuadW[cellI], qI)
+            {
+                wSum += cellIionQuadW[cellI][qI];
+            }
+
+            forAll(cellIionQuadP[cellI], qI)
+            {
+                const point& gp = cellIionQuadP[cellI][qI];
+                const scalar meas =
+                    cellV*cellIionQuadW[cellI][qI]/max(wSum, SMALL);
+                const scalar ex = exactFieldValue(fieldID, gp, t, dim);
+                const scalar err = stateIntegrationPoints[integrationPointI] - ex;
+
+                e1 += meas*mag(err);
+                e2 += meas*sqr(err);
+                eInf = max(eInf, mag(err));
+                n2 += meas*sqr(ex);
+                volTot += meas;
+                ++integrationPointI;
             }
         }
 
@@ -911,12 +1052,22 @@ int main(int argc, char* argv[])
     const scalar chiVal = chi.value();
     const scalar CmVal = Cm.value();
 
+    scalarField VmIntegrationPoints(totalIionIntegrationPoints, 0.0);
+    scalarField IionIntegrationPoints(totalIionIntegrationPoints, 0.0);
+    scalarField u1IntegrationPoints(totalIionIntegrationPoints, 0.0);
+    scalarField u2IntegrationPoints(totalIionIntegrationPoints, 0.0);
+    scalarField u3IntegrationPoints(totalIionIntegrationPoints, 0.0);
+
     Info<< "Running high-order manufactured FDA explicit solver" << nl
         << "Dimension = " << dim << nl
         << "beta = " << beta << nl
-        << "dt = " << dt << endl;
+        << "dt = " << dt << nl
+        << "useHighOrder_Vm = " << useHighOrder_Vm << nl
+        << "useHighOrder_Iion = " << useHighOrder_Iion << nl
+        << "Iion integration points = " << totalIionIntegrationPoints
+        << endl;
 
-    if (dim == 1 && (useHighOrder_Vm || useHighOrder_states))
+    if (dim == 1 && (useHighOrder_Vm || useHighOrder_Iion))
     {
         WarningInFunction
             << "1D LRE face/cell quadrature is not implemented in the current "
@@ -937,26 +1088,69 @@ int main(int argc, char* argv[])
     u2.correctBoundaryConditions();
     u3.correctBoundaryConditions();
 
+    if (useHighOrder_Iion && dim > 1)
+    {
+        initialiseIionIntegrationPointStates
+        (
+            LREInterp_Iion,
+            runTime.value(),
+            dim,
+            u1IntegrationPoints,
+            u2IntegrationPoints,
+            u3IntegrationPoints
+        );
+    }
+
     label nSteps = 0;
 
     while (runTime.value() < runTime.endTime().value() - SMALL)
     {
         const scalar t = runTime.value();
 
-        computeVolumeAveragedIion
-        (
-            Vm,
-            u1,
-            u2,
-            u3,
-            beta,
-            chiVal,
-            CmVal,
-            useHighOrder_states,
-            LREInterp_Vm,
-            LREInterp_states,
-            Iion
-        );
+        if (useHighOrder_Iion && dim > 1)
+        {
+            reconstructVmAtIionIntegrationPoints
+            (
+                Vm,
+                useHighOrder_Vm,
+                LREInterp_Vm,
+                LREInterp_Iion,
+                VmIntegrationPoints
+            );
+
+            computeIionFromIntegrationPoints
+            (
+                VmIntegrationPoints,
+                u1IntegrationPoints,
+                u2IntegrationPoints,
+                u3IntegrationPoints,
+                beta,
+                chiVal,
+                CmVal,
+                IionIntegrationPoints
+            );
+
+            averageIntegrationPointFieldToCells
+            (
+                IionIntegrationPoints,
+                LREInterp_Iion,
+                Iion
+            );
+        }
+        else
+        {
+            computeCellCentredIion
+            (
+                Vm,
+                u1,
+                u2,
+                u3,
+                beta,
+                chiVal,
+                CmVal,
+                Iion
+            );
+        }
 
         if (useHighOrder_Vm && dim > 1)
         {
@@ -976,32 +1170,71 @@ int main(int argc, char* argv[])
 
         rhsVm = lapVm/(chi*Cm) - Iion;
 
-        scalarField& VmI = Vm.primitiveFieldRef();
-        scalarField& u1I = u1.primitiveFieldRef();
-        scalarField& u2I = u2.primitiveFieldRef();
-        scalarField& u3I = u3.primitiveFieldRef();
+        const scalarField VmOld(Vm.primitiveField());
 
+        scalarField& VmI = Vm.primitiveFieldRef();
         forAll(VmI, cellI)
         {
-            scalar du1dt = 0.0;
-            scalar du2dt = 0.0;
-            scalar du3dt = 0.0;
+            VmI[cellI] += dt*rhsVm[cellI];
+        }
 
-            reactionRates
+        if (useHighOrder_Iion && dim > 1)
+        {
+            advanceIionIntegrationPointStates
             (
-                VmI[cellI],
-                u1I[cellI],
-                u2I[cellI],
-                u3I[cellI],
-                du1dt,
-                du2dt,
-                du3dt
+                dt,
+                VmIntegrationPoints,
+                u1IntegrationPoints,
+                u2IntegrationPoints,
+                u3IntegrationPoints
             );
 
-            VmI[cellI] += dt*rhsVm[cellI];
-            u1I[cellI] += dt*du1dt;
-            u2I[cellI] += dt*du2dt;
-            u3I[cellI] += dt*du3dt;
+            averageIntegrationPointFieldToCells
+            (
+                u1IntegrationPoints,
+                LREInterp_Iion,
+                u1
+            );
+            averageIntegrationPointFieldToCells
+            (
+                u2IntegrationPoints,
+                LREInterp_Iion,
+                u2
+            );
+            averageIntegrationPointFieldToCells
+            (
+                u3IntegrationPoints,
+                LREInterp_Iion,
+                u3
+            );
+        }
+        else
+        {
+            scalarField& u1I = u1.primitiveFieldRef();
+            scalarField& u2I = u2.primitiveFieldRef();
+            scalarField& u3I = u3.primitiveFieldRef();
+
+            forAll(u1I, cellI)
+            {
+                scalar du1dt = 0.0;
+                scalar du2dt = 0.0;
+                scalar du3dt = 0.0;
+
+                reactionRates
+                (
+                    VmOld[cellI],
+                    u1I[cellI],
+                    u2I[cellI],
+                    u3I[cellI],
+                    du1dt,
+                    du2dt,
+                    du3dt
+                );
+
+                u1I[cellI] += dt*du1dt;
+                u2I[cellI] += dt*du2dt;
+                u3I[cellI] += dt*du3dt;
+            }
         }
 
         Vm.correctBoundaryConditions();
@@ -1033,20 +1266,50 @@ int main(int argc, char* argv[])
 
     fillExactFields(VmExact, u1Exact, u2Exact, runTime.value(), dim);
 
-    computeVolumeAveragedIion
-    (
-        Vm,
-        u1,
-        u2,
-        u3,
-        beta,
-        chiVal,
-        CmVal,
-        useHighOrder_states,
-        LREInterp_Vm,
-        LREInterp_states,
-        Iion
-    );
+    if (useHighOrder_Iion && dim > 1)
+    {
+        reconstructVmAtIionIntegrationPoints
+        (
+            Vm,
+            useHighOrder_Vm,
+            LREInterp_Vm,
+            LREInterp_Iion,
+            VmIntegrationPoints
+        );
+
+        computeIionFromIntegrationPoints
+        (
+            VmIntegrationPoints,
+            u1IntegrationPoints,
+            u2IntegrationPoints,
+            u3IntegrationPoints,
+            beta,
+            chiVal,
+            CmVal,
+            IionIntegrationPoints
+        );
+
+        averageIntegrationPointFieldToCells
+        (
+            IionIntegrationPoints,
+            LREInterp_Iion,
+            Iion
+        );
+    }
+    else
+    {
+        computeCellCentredIion
+        (
+            Vm,
+            u1,
+            u2,
+            u3,
+            beta,
+            chiVal,
+            CmVal,
+            Iion
+        );
+    }
 
     if (useHighOrder_Vm && dim > 1)
     {
@@ -1075,13 +1338,35 @@ int main(int argc, char* argv[])
     const FieldErrorSummary u2Cell = computeFieldErrorSummary(u2Error);
 
     const ReconstructionErrorSummary VmHO =
-        computeGaussReconstructedError(Vm, runTime.value(), mfVm, dim, LREInterp_Vm);
+            useHighOrder_Vm && dim > 1
+        ? computeGaussReconstructedError(Vm, runTime.value(), mfVm, dim, LREInterp_Vm)
+        : cellAsReconstructionError(VmCell, VmExact);
 
     const ReconstructionErrorSummary u1HO =
-        computeGaussReconstructedError(u1, runTime.value(), mfU1, dim, LREInterp_states);
+            useHighOrder_Iion && dim > 1
+        ? computeIntegrationPointStateError
+          (
+              u1IntegrationPoints,
+              runTime.value(),
+              mfU1,
+              dim,
+              LREInterp_Iion,
+              mesh
+          )
+        : cellAsReconstructionError(u1Cell, u1Exact);
 
     const ReconstructionErrorSummary u2HO =
-        computeGaussReconstructedError(u2, runTime.value(), mfU2, dim, LREInterp_states);
+            useHighOrder_Iion && dim > 1
+        ? computeIntegrationPointStateError
+          (
+              u2IntegrationPoints,
+              runTime.value(),
+              mfU2,
+              dim,
+              LREInterp_Iion,
+              mesh
+          )
+        : cellAsReconstructionError(u2Cell, u2Exact);
 
     runTime.write();
 
