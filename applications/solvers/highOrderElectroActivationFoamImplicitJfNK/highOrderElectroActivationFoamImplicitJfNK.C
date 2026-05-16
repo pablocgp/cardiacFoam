@@ -43,8 +43,6 @@ Description
 \*---------------------------------------------------------------------------*/
 
 #include "fvCFD.H"
-#include "ionicModel.H"
-#include "TNNP.H"
 #include "LRE.H"
 #include "Field.H"
 #include "volFields.H"
@@ -59,6 +57,1283 @@ namespace
     using SpMat = Eigen::SparseMatrix<scalar, Eigen::RowMajor>;
     using Triplet = Eigen::Triplet<scalar>;
     using EigVec = Eigen::Matrix<scalar, Eigen::Dynamic, 1>;
+
+
+    // ----------------------------------------------------------------- //
+    // Embedded ten Tusscher--Noble--Noble--Panfilov 2004 ionic model.
+    //
+    // The original electro solver used cardiacFoam's runtime-selected
+    // ionicModel/TNNP classes from src/.  This solver keeps the same TNNP
+    // equations locally so the numerical PDE/source coupling can be kept
+    // aligned with the manufactured JFNK solver without linking against
+    // cardiacFoam-pc/src.  Units follow the generated CellML code:
+    // Vm is stored internally in mV and time in ms.  Since 1 mV/ms = 1 V/s,
+    // Iion_cm can be inserted directly into the monodomain source used by
+    // the PDE, whose Vm field is in V.
+    // ----------------------------------------------------------------- //
+
+enum CONSTANTS_INDEX{
+    R,              // 0  : gas constant
+    T,              // 1  : temperature
+    F,              // 2  : Faraday constant
+    Cm,             // 3  : membrane capacitance (pF)
+    V_c,            // 4  : cell volume (um^3)
+
+    // Stimulus (S1)
+    stim_start,         // 5
+    stim_period_S1,     // 6
+    stim_duration,      // 7
+    stim_amplitude,     // 8
+
+    // Reversal potentials & ion concentrations
+    P_kna,          // 9
+    K_o,            // 10
+    Na_o,           // 11
+    Ca_o,           // 12
+
+    // Conductances
+    g_K1,           // 13
+    g_Kr,           // 14
+    g_Ks,           // 15
+    g_Na,           // 16
+    g_bNa,          // 17
+    g_CaL,          // 18
+    g_bCa,          // 19
+    g_to,           // 20
+
+    // Na/K Pump
+    P_NaK,          // 21
+    K_mk,           // 22
+    K_mNa,          // 23
+
+    // NCX exchanger
+    K_NaCa,         // 24
+    K_sat,          // 25
+    alpha_NCX,      // 26
+    gamma_NCX,      // 27
+    Km_Ca,          // 28
+    Km_Nai,         // 29
+
+    // Calcium pump + potassium pump
+    g_pCa,          // 30
+    K_pCa,          // 31
+    g_pK,           // 32
+
+    // Calcium dynamics (SR release / uptake)
+    tau_g,          // 33
+    a_rel,          // 34
+    b_rel,          // 35
+    c_rel,          // 36
+    K_up,           // 37
+    V_leak,         // 38
+    Vmax_up,        // 39
+
+    // Buffers
+    Buf_c,          // 40
+    K_buf_c,        // 41
+    Buf_sr,         // 42
+    K_buf_sr,       // 43
+    V_sr,           // 44
+    tau_fCa,        // 45
+
+    // Added multi-stimulus parameters (S1/S2 protocol)
+    nstim1,         // 46
+    stim_period_S2, // 47
+    nstim2,         // 48
+
+    NUM_CONSTANTS
+};
+
+
+enum STATES_INDEX {
+    V,      // membrane voltage
+    K_i,    // intracellular potassium
+    Na_i,   // intracellular sodium
+    Ca_i,   // intracellular calcium
+    Xr1,
+    Xr2,
+    Xs,
+    m,
+    h,
+    j,
+    d,
+    f,
+    fCa,
+    s,
+    r,
+    Ca_SR,
+    g,
+    NUM_STATES
+};
+
+
+enum ALGEBRAIC_INDEX {
+    Istim,
+    xr1_inf,
+    xr2_inf,
+    xs_inf,
+    m_inf,
+    h_inf,
+    j_inf,
+    d_inf,
+    f_inf,
+    alpha_fCa,
+    s_inf,
+    r_inf,
+    g_inf,
+    E_Na,
+    alpha_xr1,
+    alpha_xr2,
+    alpha_xs,
+    alpha_m,
+    alpha_h,
+    alpha_j,
+    alpha_d,
+    tau_f,
+    beta_fCa,
+    tau_s,
+    tau_r,
+    d_g,
+    E_K,
+    beta_xr1,
+    beta_xr2,
+    beta_xs,
+    beta_m,
+    beta_h,
+    beta_j,
+    gama_fCa,
+    beta_d,
+    E_Ks,
+    tau_xr1,
+    tau_xr2,
+    tau_xs,
+    tau_m,
+    tau_h,
+    tau_j,
+    gamma_d,
+    fCa_inf,
+    E_Ca,
+    tau_d,
+    d_fCa,
+    alpha_K1,
+    beta_K1,
+    xK1_inf,
+    i_K1,
+    i_Kr,
+    i_Ks,
+    i_Na,
+    i_b_Na,
+    i_CaL,
+    i_b_Ca,
+    i_to,
+    i_NaK,
+    i_NaCa,
+    i_p_Ca,
+    i_p_K,
+    i_rel,
+    i_up,
+    i_leak,
+    ddt_Ca_i_total,
+    ddt_Ca_sr_total,
+    f_JCa_i_free,
+    f_JCa_sr_free,
+    Iion_cm,
+
+    NUM_ALGEBRAIC
+};
+
+static const char* TNNP_STATES_NAMES[17] = {
+    "V",        // 0: membrane voltage (millivolt)
+    "K_i",      // 1: intracellular potassium (millimolar)
+    "Na_i",     // 2: intracellular sodium (millimolar)
+    "Ca_i",     // 3: intracellular calcium (millimolar)
+    "Xr1",      // 4: Xr1 gate (dimensionless)
+    "Xr2",      // 5: Xr2 gate (dimensionless)
+    "Xs",       // 6: Xs gate (dimensionless)
+    "m",        // 7: m gate (dimensionless)
+    "h",        // 8: h gate (dimensionless)
+    "j",        // 9: j gate (dimensionless)
+    "d",        // 10: d gate (dimensionless)
+    "f",        // 11: f gate (dimensionless)
+    "fCa",      // 12: fCa gate (dimensionless)
+    "s",        // 13: s gate (dimensionless)
+    "r",        // 14: r gate (dimensionless)
+    "Ca_SR",    // 15: sarcoplasmic reticulum calcium (millimolar)
+    "g"         // 16: g gate (dimensionless)
+};
+static const char* TNNP_ALGEBRAIC_NAMES[70] = {
+    "Istim",                    // 0
+    "xr1_inf",                  // 1
+    "xr2_inf",                  // 2
+    "xs_inf",                   // 3
+    "m_inf",                    // 4
+    "h_inf",                    // 5
+    "j_inf",                    // 6
+    "d_inf",                    // 7
+    "f_inf",                    // 8
+    "alpha_fCa",               // 9
+    "s_inf",                    // 10
+    "r_inf",                    // 11
+    "g_inf",                    // 12
+    "E_Na",                     // 13
+    "alpha_xr1",               // 14
+    "alpha_xr2",               // 15
+    "alpha_xs",                // 16
+    "alpha_m",                 // 17
+    "alpha_h",                 // 18
+    "alpha_j",                 // 19
+    "alpha_d",                 // 20
+    "tau_f",                    // 21
+    "beta_fCa",                // 22
+    "tau_s",                    // 23
+    "tau_r",                    // 24
+    "d_g",                      // 25
+    "E_K",                      // 26
+    "beta_xr1",                // 27
+    "beta_xr2",                // 28
+    "beta_xs",                 // 29
+    "beta_m",                  // 30
+    "beta_h",                  // 31
+    "beta_j",                  // 32
+    "gama_fCa",                // 33
+    "beta_d",                  // 34
+    "E_Ks",                     // 35
+    "tau_xr1",                 // 36
+    "tau_xr2",                 // 37
+    "tau_xs",                  // 38
+    "tau_m",                   // 39
+    "tau_h",                   // 40
+    "tau_j",                   // 41
+    "gamma_d",                 // 42
+    "fCa_inf",                 // 43
+    "E_Ca",                     // 44
+    "tau_d",                   // 45
+    "d_fCa",                   // 46
+    "alpha_K1",                // 47
+    "beta_K1",                 // 48
+    "xK1_inf",                 // 49
+    "i_K1",                     // 50
+    "i_Kr",                     // 51
+    "i_Ks",                     // 52
+    "i_Na",                     // 53
+    "i_b_Na",                   // 54
+    "i_CaL",                    // 55
+    "i_b_Ca",                   // 56
+    "i_to",                     // 57
+    "i_NaK",                    // 58
+    "i_NaCa",                   // 59
+    "i_p_Ca",                   // 60
+    "i_p_K",                    // 61
+    "i_rel",                    // 62
+    "i_up",                     // 63
+    "i_leak",                   // 64
+    "ddt_Ca_i_total",           // 65
+    "ddt_Ca_sr_total",          // 66
+    "f_JCa_i_free",             // 67
+    "f_JCa_sr_free",            // 68
+    "Iion_cm"                   // 69
+};
+
+    scalar embeddedComputeStimulus
+    (
+        const scalar VOI,
+        const scalar stimStart,
+        const scalar stimPeriodS1,
+        const scalar stimDuration,
+        const scalar stimAmplitude,
+        const label nStim1,
+        const scalar stimPeriodS2,
+        const label nStim2
+    )
+    {
+        scalar Istim = 0.0;
+
+        if (stimPeriodS1 > 0.0 && nStim1 > 0)
+        {
+            const scalar tp = VOI - stimStart;
+            if (tp >= 0.0 && tp <= stimPeriodS1*nStim1)
+            {
+                const scalar phase = tp - std::floor(tp/stimPeriodS1)*stimPeriodS1;
+                if (phase >= 0.0 && phase <= stimDuration)
+                {
+                    Istim = -stimAmplitude;
+                }
+            }
+        }
+
+        if (Istim == 0.0 && stimPeriodS2 > 0.0 && nStim2 > 0)
+        {
+            const scalar tS1End = stimStart + stimPeriodS1*nStim1;
+            const scalar tp = VOI - tS1End;
+            if (tp >= 0.0 && tp <= stimPeriodS2*nStim2)
+            {
+                const scalar phase = tp - std::floor(tp/stimPeriodS2)*stimPeriodS2;
+                if (phase >= 0.0 && phase <= stimDuration)
+                {
+                    Istim = -stimAmplitude;
+                }
+            }
+        }
+
+        return Istim;
+    }
+
+    inline Foam::scalar computeIstim(Foam::scalar t, const double* C)
+    {
+        return embeddedComputeStimulus
+        (
+            t,
+            C[stim_start],
+            C[stim_period_S1],
+            C[stim_duration],
+            C[stim_amplitude],
+            Foam::label(C[nstim1]),
+            C[stim_period_S2],
+            Foam::label(C[nstim2])
+        );
+    }
+
+void
+TNNPinitConsts(double* CONSTANTS, double* RATES, double *STATES, int tissueFlag, const Foam::dictionary& stimulus)
+
+{
+STATES[V] = -86.2;
+CONSTANTS[R] = 8.314;
+CONSTANTS[T] = 310;
+CONSTANTS[F] = 96.485;
+CONSTANTS[Cm] = 185;
+CONSTANTS[V_c] = 16404;
+
+
+CONSTANTS[P_kna] = 0.03;
+CONSTANTS[K_o] = 5.4;
+CONSTANTS[Na_o] = 140;
+STATES[K_i] = 138.3;
+STATES[Na_i] = 11.6;
+CONSTANTS[Ca_o] = 2;
+STATES[Ca_i] = 0.0002;
+CONSTANTS[g_K1] = 5.405;
+CONSTANTS[g_Kr] = 0.096;
+STATES[Xr1] = 0;
+STATES[Xr2] = 1;
+//Conditional tissue conductance Gks
+CONSTANTS[g_Ks] = (tissueFlag == 2)
+          ? 0.062
+          : 0.245;
+
+STATES[Xs] = 0;
+CONSTANTS[g_Na] = 14.838;
+STATES[m] = 0;
+STATES[h] = 0.75;
+STATES[j] = 0.75;
+CONSTANTS[g_bNa] = 0.00029;
+CONSTANTS[g_CaL] = 0.175;
+STATES[d] = 0;
+STATES[f] = 1;
+STATES[fCa] = 1;
+CONSTANTS[g_bCa] = 0.000592;
+//Conditional tissue conductance Gto
+CONSTANTS[g_to] = (tissueFlag == 3)
+          ? 0.073
+          : 0.294;
+
+STATES[s] = 1;
+STATES[r] = 0;
+CONSTANTS[P_NaK] = 1.362;
+CONSTANTS[K_mk] = 1;
+CONSTANTS[K_mNa] = 40;
+CONSTANTS[K_NaCa] = 1000;
+CONSTANTS[K_sat] = 0.1;
+CONSTANTS[alpha_NCX] = 2.5;
+CONSTANTS[gamma_NCX] = 0.35;
+CONSTANTS[Km_Ca] = 1.38;
+CONSTANTS[Km_Nai] = 87.5;
+CONSTANTS[g_pCa] = 0.825;
+CONSTANTS[K_pCa] = 0.0005;
+CONSTANTS[g_pK] = 0.0146;
+STATES[Ca_SR] = 0.2;
+STATES[g] = 1;
+CONSTANTS[tau_g] = 2;
+CONSTANTS[a_rel] = 0.016464;
+CONSTANTS[b_rel] = 0.25;
+CONSTANTS[c_rel] = 0.008232;
+CONSTANTS[K_up] = 0.00025;
+CONSTANTS[V_leak] = 8e-5;
+CONSTANTS[Vmax_up] = 0.000425;
+CONSTANTS[Buf_c] = 0.15;
+CONSTANTS[K_buf_c] = 0.001;
+CONSTANTS[Buf_sr] = 10;
+CONSTANTS[K_buf_sr] = 0.3;
+CONSTANTS[V_sr] = 1094;
+CONSTANTS[tau_fCa] = 2.00000;
+
+}
+
+void
+TNNPcomputeRates(double VOI, double* CONSTANTS, double* RATES, double* STATES, double* ALGEBRAIC,int tissueFlag, bool solveVmWithinODESolver)
+{
+
+//INa
+ALGEBRAIC[m_inf] = 1.00000/std::pow(1.00000+std::exp((- 56.8600 - STATES[V])/9.03000), 2.00000);
+ALGEBRAIC[alpha_m] = 1.00000/(1.00000+std::exp((- 60.0000 - STATES[V])/5.00000));
+ALGEBRAIC[beta_m] = 0.100000/(1.00000+std::exp((STATES[V]+35.0000)/5.00000))+0.100000/(1.00000+std::exp((STATES[V] - 50.0000)/200.000));
+ALGEBRAIC[tau_m] =  1.00000*ALGEBRAIC[alpha_m]*ALGEBRAIC[beta_m];
+RATES[m] = (ALGEBRAIC[m_inf] - STATES[m])/ALGEBRAIC[tau_m];
+ALGEBRAIC[h_inf] = 1.00000/std::pow(1.00000+std::exp((STATES[V]+71.5500)/7.43000), 2.00000);
+ALGEBRAIC[alpha_h] = (STATES[V]<- 40.0000 ?  0.0570000*std::exp(- (STATES[V]+80.0000)/6.80000) : 0.00000);
+ALGEBRAIC[beta_h] = (STATES[V]<- 40.0000 ?  2.70000*std::exp( 0.0790000*STATES[V])+ 310000.*std::exp( 0.348500*STATES[V]) : 0.770000/( 0.130000*(1.00000+std::exp((STATES[V]+10.6600)/- 11.1000))));
+ALGEBRAIC[tau_h] = 1.00000/(ALGEBRAIC[alpha_h]+ALGEBRAIC[beta_h]);
+RATES[h] = (ALGEBRAIC[h_inf] - STATES[h])/ALGEBRAIC[tau_h];
+ALGEBRAIC[j_inf] = 1.00000/std::pow(1.00000+std::exp((STATES[V]+71.5500)/7.43000), 2.00000);
+ALGEBRAIC[alpha_j] = (STATES[V]<- 40.0000 ? (( ( - 25428.0*std::exp( 0.244400*STATES[V]) -  6.94800e-06*std::exp( - 0.0439100*STATES[V]))*(STATES[V]+37.7800))/1.00000)/(1.00000+std::exp( 0.311000*(STATES[V]+79.2300))) : 0.00000);
+ALGEBRAIC[beta_j] = (STATES[V]<- 40.0000 ? ( 0.0242400*std::exp( - 0.0105200*STATES[V]))/(1.00000+std::exp( - 0.137800*(STATES[V]+40.1400))) : ( 0.600000*std::exp( 0.0570000*STATES[V]))/(1.00000+std::exp( - 0.100000*(STATES[V]+32.0000))));
+ALGEBRAIC[tau_j] = 1.00000/(ALGEBRAIC[alpha_j]+ALGEBRAIC[beta_j]);
+RATES[j] = (ALGEBRAIC[j_inf] - STATES[j])/ALGEBRAIC[tau_j];
+
+//ICaL
+ALGEBRAIC[d_inf] = 1.00000/(1.00000+std::exp((- 5.00000 - STATES[V])/7.50000));
+ALGEBRAIC[alpha_d] = 1.40000/(1.00000+std::exp((- 35.0000 - STATES[V])/13.0000))+0.250000;
+ALGEBRAIC[gama_fCa] = 1.40000/(1.00000+std::exp((STATES[V]+5.00000)/5.00000));
+ALGEBRAIC[gamma_d] = 1.00000/(1.00000+std::exp((50.0000 - STATES[V])/20.0000));
+ALGEBRAIC[tau_d] =  1.00000*ALGEBRAIC[alpha_d]*ALGEBRAIC[gama_fCa]+ALGEBRAIC[gamma_d];
+RATES[d] = (ALGEBRAIC[d_inf] - STATES[d])/ALGEBRAIC[tau_d];
+ALGEBRAIC[f_inf] = 1.00000/(1.00000+std::exp((STATES[V]+20.0000)/7.00000));
+ALGEBRAIC[tau_f] =  1125.00*std::exp(- std::pow(STATES[V]+27.0000, 2.00000)/240.000)+80.0000+165.000/(1.00000+std::exp((25.0000 - STATES[V])/10.0000));
+RATES[f] = (ALGEBRAIC[f_inf] - STATES[f])/ALGEBRAIC[tau_f];
+
+ALGEBRAIC[alpha_fCa] = 1.00000/(1.00000+std::pow(STATES[Ca_i]/0.000325000, 8.00000));
+ALGEBRAIC[beta_fCa] = 0.100000/(1.00000+std::exp((STATES[Ca_i] - 0.000500000)/0.000100000));
+ALGEBRAIC[beta_d] = 0.200000/(1.00000+std::exp((STATES[Ca_i] - 0.000750000)/0.000800000));
+ALGEBRAIC[fCa_inf] = (ALGEBRAIC[alpha_fCa]+ALGEBRAIC[beta_fCa]+ALGEBRAIC[beta_d]+0.230000)/1.46000;
+ALGEBRAIC[d_fCa] = (ALGEBRAIC[fCa_inf] - STATES[fCa])/CONSTANTS[tau_fCa];
+RATES[fCa] = (ALGEBRAIC[fCa_inf]>STATES[fCa]&&STATES[V]>- 60.0000 ? 0.00000 : ALGEBRAIC[d_fCa]);
+
+//Ito
+//Conditional tissue flag for the Ito current
+ALGEBRAIC[s_inf] = (tissueFlag == 1)
+    ? 1.00000 / (1.00000 + std::exp((STATES[V] + 20.0000) / 5.00000))
+    : 1.10000 / (1.00000 + std::exp((STATES[V] + 28.0000) / 6.00000));
+ALGEBRAIC[tau_s] = (tissueFlag == 1)
+     ? 85.0000*std::exp(- std::pow(STATES[V]+45.0000, 2.00000)/320.000)+5.00000/(1.00000+std::exp((STATES[V] - 20.0000)/5.00000))+3.00000
+     : 1000.0000*std::exp(- std::pow(STATES[V]+67.0000, 2.00000)/1000.000)+8.00000;
+RATES[s] = (ALGEBRAIC[s_inf] - STATES[s])/ALGEBRAIC[tau_s];
+ALGEBRAIC[r_inf] = 1.00000/(1.00000+std::exp((20.0000 - STATES[V])/6.00000));
+ALGEBRAIC[tau_r] =  9.50000*std::exp(- std::pow(STATES[V]+40.0000, 2.00000)/1800.00)+0.800000;
+RATES[r] = (ALGEBRAIC[r_inf] - STATES[r])/ALGEBRAIC[tau_r];
+
+//IKr
+ALGEBRAIC[xr1_inf] = 1.00000/(1.00000+std::exp((- 26.0000 - STATES[V])/7.00000));
+ALGEBRAIC[alpha_xr1] = 450.000/(1.00000+std::exp((- 45.0000 - STATES[V])/10.0000));
+ALGEBRAIC[beta_xr1] = 6.00000/(1.00000+std::exp((STATES[V]+30.0000)/11.5000));
+ALGEBRAIC[tau_xr1] =  1.00000*ALGEBRAIC[alpha_xr1]*ALGEBRAIC[beta_xr1];
+RATES[Xr1] = (ALGEBRAIC[xr1_inf] - STATES[Xr1])/ALGEBRAIC[tau_xr1];
+ALGEBRAIC[xr2_inf] = 1.00000/(1.00000+std::exp((STATES[V]+88.0000)/24.0000));
+ALGEBRAIC[alpha_xr2] = 3.00000/(1.00000+std::exp((- 60.0000 - STATES[V])/20.0000));
+ALGEBRAIC[beta_xr2] = 1.12000/(1.00000+std::exp((STATES[V] - 60.0000)/20.0000));
+ALGEBRAIC[tau_xr2] =  1.00000*ALGEBRAIC[alpha_xr2]*ALGEBRAIC[beta_xr2];
+RATES[Xr2] = (ALGEBRAIC[xr2_inf] - STATES[Xr2])/ALGEBRAIC[tau_xr2];
+
+//IKs
+ALGEBRAIC[xs_inf] = 1.00000/(1.00000+std::exp((- 5.00000 - STATES[V])/14.0000));
+ALGEBRAIC[alpha_xs] = 1100.00/ std::pow((1.00000+std::exp((- 10.0000 - STATES[V])/6.00000)), 1.0 / 2);
+ALGEBRAIC[beta_xs] = 1.00000/(1.00000+std::exp((STATES[V] - 60.0000)/20.0000));
+ALGEBRAIC[tau_xs] =  1.00000*ALGEBRAIC[alpha_xs]*ALGEBRAIC[beta_xs];
+RATES[Xs] = (ALGEBRAIC[xs_inf] - STATES[Xs])/ALGEBRAIC[tau_xs];
+
+//SR calcium RyR gate g
+ALGEBRAIC[g_inf] = (STATES[Ca_i]<0.000350000 ? 1.00000/(1.00000+std::pow(STATES[Ca_i]/0.000350000, 6.00000)) : 1.00000/(1.00000+std::pow(STATES[Ca_i]/0.000350000, 16.0000)));
+ALGEBRAIC[d_g] = (ALGEBRAIC[g_inf] - STATES[g])/CONSTANTS[tau_g];
+RATES[g] = (ALGEBRAIC[g_inf]>STATES[g]&&STATES[V]>- 60.0000 ? 0.00000 : ALGEBRAIC[d_g]);
+
+
+ALGEBRAIC[i_NaK] = (( (( CONSTANTS[P_NaK]*CONSTANTS[K_o])/(CONSTANTS[K_o]+CONSTANTS[K_mk]))*STATES[Na_i])/(STATES[Na_i]+CONSTANTS[K_mNa]))/(1.00000+ 0.124500*std::exp(( - 0.100000*STATES[V]*CONSTANTS[F])/( CONSTANTS[R]*CONSTANTS[T]))+ 0.0353000*std::exp(( - STATES[V]*CONSTANTS[F])/( CONSTANTS[R]*CONSTANTS[T])));
+ALGEBRAIC[E_Na] =  (( CONSTANTS[R]*CONSTANTS[T])/CONSTANTS[F])*std::log(CONSTANTS[Na_o]/STATES[Na_i]);
+ALGEBRAIC[i_Na] =  CONSTANTS[g_Na]*std::pow(STATES[m], 3.00000)*STATES[h]*STATES[j]*(STATES[V] - ALGEBRAIC[E_Na]);
+ALGEBRAIC[i_b_Na] =  CONSTANTS[g_bNa]*(STATES[V] - ALGEBRAIC[E_Na]);
+ALGEBRAIC[i_NaCa] = ( CONSTANTS[K_NaCa]*( std::exp(( CONSTANTS[gamma_NCX]*STATES[V]*CONSTANTS[F])/( CONSTANTS[R]*CONSTANTS[T]))*std::pow(STATES[Na_i], 3.00000)*CONSTANTS[Ca_o] -  std::exp(( (CONSTANTS[gamma_NCX] - 1.00000)*STATES[V]*CONSTANTS[F])/( CONSTANTS[R]*CONSTANTS[T]))*std::pow(CONSTANTS[Na_o], 3.00000)*STATES[Ca_i]*CONSTANTS[alpha_NCX]))/( (std::pow(CONSTANTS[Km_Nai], 3.00000)+std::pow(CONSTANTS[Na_o], 3.00000))*(CONSTANTS[Km_Ca]+CONSTANTS[Ca_o])*(1.00000+ CONSTANTS[K_sat]*std::exp(( (CONSTANTS[gamma_NCX] - 1.00000)*STATES[V]*CONSTANTS[F])/( CONSTANTS[R]*CONSTANTS[T]))));
+RATES[Na_i] = ( - (ALGEBRAIC[i_Na]+ALGEBRAIC[i_b_Na]+ 3.00000*ALGEBRAIC[i_NaK]+ 3.00000*ALGEBRAIC[i_NaCa])*CONSTANTS[Cm])/( CONSTANTS[V_c]*CONSTANTS[F]);
+
+ALGEBRAIC[E_K] =  (( CONSTANTS[R]*CONSTANTS[T])/CONSTANTS[F])*std::log(CONSTANTS[K_o]/STATES[K_i]);
+ALGEBRAIC[alpha_K1] = 0.100000/(1.00000+std::exp( 0.0600000*((STATES[V] - ALGEBRAIC[E_K]) - 200.000)));
+ALGEBRAIC[beta_K1] = ( 3.00000*std::exp( 0.000200000*((STATES[V] - ALGEBRAIC[E_K])+100.000))+ 1.00000*std::exp( 0.100000*((STATES[V] - ALGEBRAIC[E_K]) - 10.0000)))/(1.00000+std::exp( - 0.500000*(STATES[V] - ALGEBRAIC[E_K])));
+ALGEBRAIC[xK1_inf] = ALGEBRAIC[alpha_K1]/(ALGEBRAIC[alpha_K1]+ALGEBRAIC[beta_K1]);
+ALGEBRAIC[i_K1] =  CONSTANTS[g_K1]*ALGEBRAIC[xK1_inf]* std::pow((CONSTANTS[K_o]/5.40000), 1.0 / 2)*(STATES[V] - ALGEBRAIC[E_K]);
+
+ALGEBRAIC[i_to] =  CONSTANTS[g_to]*STATES[r]*STATES[s]*(STATES[V] - ALGEBRAIC[E_K]);
+
+ALGEBRAIC[i_Kr] =  CONSTANTS[g_Kr]* std::pow((CONSTANTS[K_o]/5.40000), 1.0 / 2)*STATES[Xr1]*STATES[Xr2]*(STATES[V] - ALGEBRAIC[E_K]);
+ALGEBRAIC[E_Ks] =  (( CONSTANTS[R]*CONSTANTS[T])/CONSTANTS[F])*std::log((CONSTANTS[K_o]+ CONSTANTS[P_kna]*CONSTANTS[Na_o])/(STATES[K_i]+ CONSTANTS[P_kna]*STATES[Na_i]));
+ALGEBRAIC[i_Ks] =  CONSTANTS[g_Ks]*std::pow(STATES[Xs], 2.00000)*(STATES[V] - ALGEBRAIC[E_Ks]);
+ALGEBRAIC[i_CaL] = ( (( CONSTANTS[g_CaL]*STATES[d]*STATES[f]*STATES[fCa]*4.00000*STATES[V]*std::pow(CONSTANTS[F], 2.00000))/( CONSTANTS[R]*CONSTANTS[T]))*( STATES[Ca_i]*std::exp(( 2.00000*STATES[V]*CONSTANTS[F])/( CONSTANTS[R]*CONSTANTS[T])) -  0.341000*CONSTANTS[Ca_o]))/(std::exp(( 2.00000*STATES[V]*CONSTANTS[F])/( CONSTANTS[R]*CONSTANTS[T])) - 1.00000);
+ALGEBRAIC[E_Ca] =  (( 0.500000*CONSTANTS[R]*CONSTANTS[T])/CONSTANTS[F])*std::log(CONSTANTS[Ca_o]/STATES[Ca_i]);
+ALGEBRAIC[i_b_Ca] =  CONSTANTS[g_bCa]*(STATES[V] - ALGEBRAIC[E_Ca]);
+ALGEBRAIC[i_p_K] = ( CONSTANTS[g_pK]*(STATES[V] - ALGEBRAIC[E_K]))/(1.00000+std::exp((25.0000 - STATES[V])/5.98000));
+ALGEBRAIC[i_p_Ca] = ( CONSTANTS[g_pCa]*STATES[Ca_i])/(STATES[Ca_i]+CONSTANTS[K_pCa]);
+
+ALGEBRAIC[Iion_cm] = ALGEBRAIC[i_K1]+ALGEBRAIC[i_to]+ALGEBRAIC[i_Kr]+
+                ALGEBRAIC[i_Ks]+ALGEBRAIC[i_CaL]+ALGEBRAIC[i_NaK]+
+                ALGEBRAIC[i_Na]+ALGEBRAIC[i_b_Na]+ALGEBRAIC[i_NaCa]+
+                ALGEBRAIC[i_b_Ca]+ALGEBRAIC[i_p_K]+ALGEBRAIC[i_p_Ca];
+
+ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
+
+RATES[V] = 0.0;
+if (solveVmWithinODESolver)
+    {
+        RATES[V] = -ALGEBRAIC[Iion_cm] - ALGEBRAIC[Istim];
+    }
+
+RATES[K_i] = ( - ((ALGEBRAIC[i_K1]+ALGEBRAIC[i_to]+ALGEBRAIC[i_Kr]+ALGEBRAIC[i_Ks]+ALGEBRAIC[i_p_K]+ALGEBRAIC[Istim]) -  2.00000*ALGEBRAIC[i_NaK])*CONSTANTS[Cm])/( CONSTANTS[V_c]*CONSTANTS[F]);
+ALGEBRAIC[i_rel] =  (( CONSTANTS[a_rel]*std::pow(STATES[Ca_SR], 2.00000))/(std::pow(CONSTANTS[b_rel], 2.00000)+std::pow(STATES[Ca_SR], 2.00000))+CONSTANTS[c_rel])*STATES[d]*STATES[g];
+ALGEBRAIC[i_up] = CONSTANTS[Vmax_up]/(1.00000+std::pow(CONSTANTS[K_up], 2.00000)/std::pow(STATES[Ca_i], 2.00000));
+ALGEBRAIC[i_leak] =  CONSTANTS[V_leak]*(STATES[Ca_SR] - STATES[Ca_i]);
+ALGEBRAIC[ddt_Ca_i_total] = (( (- ((ALGEBRAIC[i_CaL]+ALGEBRAIC[i_b_Ca]+ALGEBRAIC[i_p_Ca]) -  2.00000*ALGEBRAIC[i_NaCa])/( 2.00000*CONSTANTS[V_c]*CONSTANTS[F]))*CONSTANTS[Cm]+ALGEBRAIC[i_leak]) - ALGEBRAIC[i_up])+ALGEBRAIC[i_rel];
+ALGEBRAIC[f_JCa_i_free] = 1.00000/(1.00000+( CONSTANTS[Buf_c]*CONSTANTS[K_buf_c])/std::pow(STATES[Ca_i]+CONSTANTS[K_buf_c], 2.00000));
+RATES[Ca_i] =  ALGEBRAIC[ddt_Ca_i_total]*ALGEBRAIC[f_JCa_i_free];
+ALGEBRAIC[ddt_Ca_sr_total] =  (CONSTANTS[V_c]/CONSTANTS[V_sr])*(ALGEBRAIC[i_up] - (ALGEBRAIC[i_rel]+ALGEBRAIC[i_leak]));
+ALGEBRAIC[f_JCa_sr_free] = 1.00000/(1.00000+( CONSTANTS[Buf_sr]*CONSTANTS[K_buf_sr])/std::pow(STATES[Ca_SR]+CONSTANTS[K_buf_sr], 2.00000));
+RATES[Ca_SR] =  ALGEBRAIC[ddt_Ca_sr_total]*ALGEBRAIC[f_JCa_sr_free];
+}
+
+
+
+
+
+void
+TNNPcomputeVariables(double VOI, double* CONSTANTS, double* RATES, double* STATES, double* ALGEBRAIC, int tissueFlag, bool solveVmWithinODESolver)
+{
+
+ALGEBRAIC[f_inf] = 1.00000/(1.00000+std::exp((STATES[V]+20.0000)/7.00000));
+ALGEBRAIC[tau_f] =  1125.00*std::exp(- std::pow(STATES[V]+27.0000, 2.00000)/240.000)+80.0000+165.000/(1.00000+std::exp((25.0000 - STATES[V])/10.0000));
+
+//Conditional tissue flag for the Ito current
+ALGEBRAIC[s_inf] = (tissueFlag == 1)
+    ? 1.00000 / (1.00000 + std::exp((STATES[V] + 20.0000) / 5.00000))
+    : 1.10000 / (1.00000 + std::exp((STATES[V] + 28.0000) / 6.00000));
+
+ALGEBRAIC[tau_s] = (tissueFlag == 1)
+     ? 85.0000*std::exp(- std::pow(STATES[V]+45.0000, 2.00000)/320.000)+5.00000/(1.00000+std::exp((STATES[V] - 20.0000)/5.00000))+3.00000
+     : 1000.0000*std::exp(- std::pow(STATES[V]+67.0000, 2.00000)/1000.000)+8.00000;
+
+ALGEBRAIC[r_inf] = 1.00000/(1.00000+std::exp((20.0000 - STATES[V])/6.00000));
+ALGEBRAIC[tau_r] =  9.50000*std::exp(- std::pow(STATES[V]+40.0000, 2.00000)/1800.00)+0.800000;
+ALGEBRAIC[g_inf] = (STATES[Ca_i]<0.000350000 ? 1.00000/(1.00000+std::pow(STATES[Ca_i]/0.000350000, 6.00000)) : 1.00000/(1.00000+std::pow(STATES[Ca_i]/0.000350000, 16.0000)));
+ALGEBRAIC[d_g] = (ALGEBRAIC[g_inf] - STATES[g])/CONSTANTS[tau_g];
+ALGEBRAIC[xr1_inf] = 1.00000/(1.00000+std::exp((- 26.0000 - STATES[V])/7.00000));
+ALGEBRAIC[alpha_xr1] = 450.000/(1.00000+std::exp((- 45.0000 - STATES[V])/10.0000));
+ALGEBRAIC[beta_xr1] = 6.00000/(1.00000+std::exp((STATES[V]+30.0000)/11.5000));
+ALGEBRAIC[tau_xr1] =  1.00000*ALGEBRAIC[alpha_xr1]*ALGEBRAIC[beta_xr1];
+ALGEBRAIC[xr2_inf] = 1.00000/(1.00000+std::exp((STATES[V]+88.0000)/24.0000));
+ALGEBRAIC[alpha_xr2] = 3.00000/(1.00000+std::exp((- 60.0000 - STATES[V])/20.0000));
+ALGEBRAIC[beta_xr2] = 1.12000/(1.00000+std::exp((STATES[V] - 60.0000)/20.0000));
+ALGEBRAIC[tau_xr2] =  1.00000*ALGEBRAIC[alpha_xr2]*ALGEBRAIC[beta_xr2];
+ALGEBRAIC[xs_inf] = 1.00000/(1.00000+std::exp((- 5.00000 - STATES[V])/14.0000));
+ALGEBRAIC[alpha_xs] = 1100.00/ std::pow((1.00000+std::exp((- 10.0000 - STATES[V])/6.00000)), 1.0 / 2);
+ALGEBRAIC[beta_xs] = 1.00000/(1.00000+std::exp((STATES[V] - 60.0000)/20.0000));
+ALGEBRAIC[tau_xs] =  1.00000*ALGEBRAIC[alpha_xs]*ALGEBRAIC[beta_xs];
+ALGEBRAIC[m_inf] = 1.00000/std::pow(1.00000+std::exp((- 56.8600 - STATES[V])/9.03000), 2.00000);
+ALGEBRAIC[alpha_m] = 1.00000/(1.00000+std::exp((- 60.0000 - STATES[V])/5.00000));
+ALGEBRAIC[beta_m] = 0.100000/(1.00000+std::exp((STATES[V]+35.0000)/5.00000))+0.100000/(1.00000+std::exp((STATES[V] - 50.0000)/200.000));
+ALGEBRAIC[tau_m] =  1.00000*ALGEBRAIC[alpha_m]*ALGEBRAIC[beta_m];
+ALGEBRAIC[h_inf] = 1.00000/std::pow(1.00000+std::exp((STATES[V]+71.5500)/7.43000), 2.00000);
+ALGEBRAIC[alpha_h] = (STATES[V]<- 40.0000 ?  0.0570000*std::exp(- (STATES[V]+80.0000)/6.80000) : 0.00000);
+ALGEBRAIC[beta_h] = (STATES[V]<- 40.0000 ?  2.70000*std::exp( 0.0790000*STATES[V])+ 310000.*std::exp( 0.348500*STATES[V]) : 0.770000/( 0.130000*(1.00000+std::exp((STATES[V]+10.6600)/- 11.1000))));
+ALGEBRAIC[tau_h] = 1.00000/(ALGEBRAIC[alpha_h]+ALGEBRAIC[beta_h]);
+ALGEBRAIC[j_inf] = 1.00000/std::pow(1.00000+std::exp((STATES[V]+71.5500)/7.43000), 2.00000);
+ALGEBRAIC[alpha_j] = (STATES[V]<- 40.0000 ? (( ( - 25428.0*std::exp( 0.244400*STATES[V]) -  6.94800e-06*std::exp( - 0.0439100*STATES[V]))*(STATES[V]+37.7800))/1.00000)/(1.00000+std::exp( 0.311000*(STATES[V]+79.2300))) : 0.00000);
+ALGEBRAIC[beta_j] = (STATES[V]<- 40.0000 ? ( 0.0242400*std::exp( - 0.0105200*STATES[V]))/(1.00000+std::exp( - 0.137800*(STATES[V]+40.1400))) : ( 0.600000*std::exp( 0.0570000*STATES[V]))/(1.00000+std::exp( - 0.100000*(STATES[V]+32.0000))));
+ALGEBRAIC[tau_j] = 1.00000/(ALGEBRAIC[alpha_j]+ALGEBRAIC[beta_j]);
+ALGEBRAIC[d_inf] = 1.00000/(1.00000+std::exp((- 5.00000 - STATES[V])/7.50000));
+ALGEBRAIC[alpha_d] = 1.40000/(1.00000+std::exp((- 35.0000 - STATES[V])/13.0000))+0.250000;
+ALGEBRAIC[gama_fCa] = 1.40000/(1.00000+std::exp((STATES[V]+5.00000)/5.00000));
+ALGEBRAIC[gamma_d] = 1.00000/(1.00000+std::exp((50.0000 - STATES[V])/20.0000));
+ALGEBRAIC[tau_d] =  1.00000*ALGEBRAIC[alpha_d]*ALGEBRAIC[gama_fCa]+ALGEBRAIC[gamma_d];
+ALGEBRAIC[alpha_fCa] = 1.00000/(1.00000+std::pow(STATES[Ca_i]/0.000325000, 8.00000));
+ALGEBRAIC[beta_fCa] = 0.100000/(1.00000+std::exp((STATES[Ca_i] - 0.000500000)/0.000100000));
+ALGEBRAIC[beta_d] = 0.200000/(1.00000+std::exp((STATES[Ca_i] - 0.000750000)/0.000800000));
+ALGEBRAIC[fCa_inf] = (ALGEBRAIC[alpha_fCa]+ALGEBRAIC[beta_fCa]+ALGEBRAIC[beta_d]+0.230000)/1.46000;
+ALGEBRAIC[d_fCa] = (ALGEBRAIC[fCa_inf] - STATES[fCa])/CONSTANTS[tau_fCa];
+ALGEBRAIC[i_NaK] = (( (( CONSTANTS[P_NaK]*CONSTANTS[K_o])/(CONSTANTS[K_o]+CONSTANTS[K_mk]))*STATES[Na_i])/(STATES[Na_i]+CONSTANTS[K_mNa]))/(1.00000+ 0.124500*std::exp(( - 0.100000*STATES[V]*CONSTANTS[F])/( CONSTANTS[R]*CONSTANTS[T]))+ 0.0353000*std::exp(( - STATES[V]*CONSTANTS[F])/( CONSTANTS[R]*CONSTANTS[T])));
+ALGEBRAIC[E_Na] =  (( CONSTANTS[R]*CONSTANTS[T])/CONSTANTS[F])*std::log(CONSTANTS[Na_o]/STATES[Na_i]);
+ALGEBRAIC[i_Na] =  CONSTANTS[g_Na]*std::pow(STATES[m], 3.00000)*STATES[h]*STATES[j]*(STATES[V] - ALGEBRAIC[E_Na]);
+ALGEBRAIC[i_b_Na] =  CONSTANTS[g_bNa]*(STATES[V] - ALGEBRAIC[E_Na]);
+ALGEBRAIC[i_NaCa] = ( CONSTANTS[K_NaCa]*( std::exp(( CONSTANTS[gamma_NCX]*STATES[V]*CONSTANTS[F])/( CONSTANTS[R]*CONSTANTS[T]))*std::pow(STATES[Na_i], 3.00000)*CONSTANTS[Ca_o] -  std::exp(( (CONSTANTS[gamma_NCX] - 1.00000)*STATES[V]*CONSTANTS[F])/( CONSTANTS[R]*CONSTANTS[T]))*std::pow(CONSTANTS[Na_o], 3.00000)*STATES[Ca_i]*CONSTANTS[alpha_NCX]))/( (std::pow(CONSTANTS[Km_Nai], 3.00000)+std::pow(CONSTANTS[Na_o], 3.00000))*(CONSTANTS[Km_Ca]+CONSTANTS[Ca_o])*(1.00000+ CONSTANTS[K_sat]*std::exp(( (CONSTANTS[gamma_NCX] - 1.00000)*STATES[V]*CONSTANTS[F])/( CONSTANTS[R]*CONSTANTS[T]))));
+ALGEBRAIC[E_K] =  (( CONSTANTS[R]*CONSTANTS[T])/CONSTANTS[F])*std::log(CONSTANTS[K_o]/STATES[K_i]);
+ALGEBRAIC[alpha_K1] = 0.100000/(1.00000+std::exp( 0.0600000*((STATES[V] - ALGEBRAIC[E_K]) - 200.000)));
+ALGEBRAIC[beta_K1] = ( 3.00000*std::exp( 0.000200000*((STATES[V] - ALGEBRAIC[E_K])+100.000))+ 1.00000*std::exp( 0.100000*((STATES[V] - ALGEBRAIC[E_K]) - 10.0000)))/(1.00000+std::exp( - 0.500000*(STATES[V] - ALGEBRAIC[E_K])));
+ALGEBRAIC[xK1_inf] = ALGEBRAIC[alpha_K1]/(ALGEBRAIC[alpha_K1]+ALGEBRAIC[beta_K1]);
+ALGEBRAIC[i_K1] =  CONSTANTS[g_K1]*ALGEBRAIC[xK1_inf]* std::pow((CONSTANTS[K_o]/5.40000), 1.0 / 2)*(STATES[V] - ALGEBRAIC[E_K]);
+ALGEBRAIC[i_to] =  CONSTANTS[g_to]*STATES[r]*STATES[s]*(STATES[V] - ALGEBRAIC[E_K]);
+ALGEBRAIC[i_Kr] =  CONSTANTS[g_Kr]* std::pow((CONSTANTS[K_o]/5.40000), 1.0 / 2)*STATES[Xr1]*STATES[Xr2]*(STATES[V] - ALGEBRAIC[E_K]);
+ALGEBRAIC[E_Ks] =  (( CONSTANTS[R]*CONSTANTS[T])/CONSTANTS[F])*std::log((CONSTANTS[K_o]+ CONSTANTS[P_kna]*CONSTANTS[Na_o])/(STATES[K_i]+ CONSTANTS[P_kna]*STATES[Na_i]));
+ALGEBRAIC[i_Ks] =  CONSTANTS[g_Ks]*std::pow(STATES[Xs], 2.00000)*(STATES[V] - ALGEBRAIC[E_Ks]);
+ALGEBRAIC[i_CaL] = ( (( CONSTANTS[g_CaL]*STATES[d]*STATES[f]*STATES[fCa]*4.00000*STATES[V]*std::pow(CONSTANTS[F], 2.00000))/( CONSTANTS[R]*CONSTANTS[T]))*( STATES[Ca_i]*std::exp(( 2.00000*STATES[V]*CONSTANTS[F])/( CONSTANTS[R]*CONSTANTS[T])) -  0.341000*CONSTANTS[Ca_o]))/(std::exp(( 2.00000*STATES[V]*CONSTANTS[F])/( CONSTANTS[R]*CONSTANTS[T])) - 1.00000);
+ALGEBRAIC[E_Ca] =  (( 0.500000*CONSTANTS[R]*CONSTANTS[T])/CONSTANTS[F])*std::log(CONSTANTS[Ca_o]/STATES[Ca_i]);
+ALGEBRAIC[i_b_Ca] =  CONSTANTS[g_bCa]*(STATES[V] - ALGEBRAIC[E_Ca]);
+ALGEBRAIC[i_p_K] = ( CONSTANTS[g_pK]*(STATES[V] - ALGEBRAIC[E_K]))/(1.00000+std::exp((25.0000 - STATES[V])/5.98000));
+ALGEBRAIC[i_p_Ca] = ( CONSTANTS[g_pCa]*STATES[Ca_i])/(STATES[Ca_i]+CONSTANTS[K_pCa]);
+
+ALGEBRAIC[i_rel] =  (( CONSTANTS[a_rel]*std::pow(STATES[Ca_SR], 2.00000))/(std::pow(CONSTANTS[b_rel], 2.00000)+std::pow(STATES[Ca_SR], 2.00000))+CONSTANTS[c_rel])*STATES[d]*STATES[g];
+ALGEBRAIC[i_up] = CONSTANTS[Vmax_up]/(1.00000+std::pow(CONSTANTS[K_up], 2.00000)/std::pow(STATES[Ca_i], 2.00000));
+ALGEBRAIC[i_leak] =  CONSTANTS[V_leak]*(STATES[Ca_SR] - STATES[Ca_i]);
+ALGEBRAIC[ddt_Ca_i_total] = (( (- ((ALGEBRAIC[i_CaL]+ALGEBRAIC[i_b_Ca]+ALGEBRAIC[i_p_Ca]) -  2.00000*ALGEBRAIC[i_NaCa])/( 2.00000*CONSTANTS[V_c]*CONSTANTS[F]))*CONSTANTS[Cm]+ALGEBRAIC[i_leak]) - ALGEBRAIC[i_up])+ALGEBRAIC[i_rel];
+ALGEBRAIC[f_JCa_i_free] = 1.00000/(1.00000+( CONSTANTS[Buf_c]*CONSTANTS[K_buf_c])/std::pow(STATES[Ca_i]+CONSTANTS[K_buf_c], 2.00000));
+ALGEBRAIC[ddt_Ca_sr_total] =  (CONSTANTS[V_c]/CONSTANTS[V_sr])*(ALGEBRAIC[i_up] - (ALGEBRAIC[i_rel]+ALGEBRAIC[i_leak]));
+ALGEBRAIC[f_JCa_sr_free] = 1.00000/(1.00000+( CONSTANTS[Buf_sr]*CONSTANTS[K_buf_sr])/std::pow(STATES[Ca_SR]+CONSTANTS[K_buf_sr], 2.00000));
+
+ALGEBRAIC[Iion_cm] = ALGEBRAIC[i_K1]+ALGEBRAIC[i_to]+ALGEBRAIC[i_Kr]+
+                ALGEBRAIC[i_Ks]+ALGEBRAIC[i_CaL]+ALGEBRAIC[i_NaK]+
+                ALGEBRAIC[i_Na]+ALGEBRAIC[i_b_Na]+ALGEBRAIC[i_NaCa]+
+                ALGEBRAIC[i_b_Ca]+ALGEBRAIC[i_p_K]+ALGEBRAIC[i_p_Ca];
+
+ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
+}
+
+
+    class EmbeddedTNNPModel
+    {
+        dictionary dict_;
+        label nPoints_;
+        scalarField constants_;
+        Field<Field<scalar>> algebraic_;
+        Field<Field<scalar>> rates_;
+        Field<Field<scalar>> oldStates_;
+        scalarList stepMs_;
+        wordList exportedNames_;
+        wordList debugNames_;
+        label tissue_;
+        word odeSolverName_;
+        scalar odeInitialStepMs_;
+        scalar odeAbsTol_;
+        scalar odeRelTol_;
+        label odeMaxSteps_;
+        Switch numericalProtection_;
+        Switch clampGates_;
+        Switch clampVmForRates_;
+        Switch logNumericalProtection_;
+        scalar concentrationFloor_;
+        scalar vmMinForRates_;
+        scalar vmMaxForRates_;
+        scalar vmZeroEps_;
+        label maxProtectionLogEntries_;
+        word protectionLogName_;
+        label protectionCorrections_;
+
+        static label tissueFlag(const word& tissueName)
+        {
+            if (tissueName == "epicardialCells") return 1;
+            if (tissueName == "mCells") return 2;
+            if (tissueName == "endocardialCells") return 3;
+            if (tissueName == "myocyte") return 4;
+
+            FatalErrorInFunction
+                << "Unsupported TNNP tissue '" << tissueName << "'. Valid options are "
+                << "epicardialCells, mCells, endocardialCells, myocyte."
+                << exit(FatalError);
+
+            return 1;
+        }
+
+        static label stateIndex(const word& name)
+        {
+            for (label i = 0; i < NUM_STATES; ++i)
+            {
+                if (name == TNNP_STATES_NAMES[i]) return i;
+            }
+            return -1;
+        }
+
+        static label algebraicIndex(const word& name)
+        {
+            for (label i = 0; i < NUM_ALGEBRAIC; ++i)
+            {
+                if (name == TNNP_ALGEBRAIC_NAMES[i]) return i;
+            }
+            return -1;
+        }
+
+        void loadStimulusProtocol()
+        {
+            constants_[stim_start] = dict_.lookupOrDefault<scalar>("stim_start", 0.0);
+            constants_[stim_period_S1] = dict_.lookupOrDefault<scalar>("stim_period_S1", 0.0);
+            constants_[stim_duration] = dict_.lookupOrDefault<scalar>("stim_duration", 0.0);
+            constants_[stim_amplitude] = dict_.lookupOrDefault<scalar>("stim_amplitude", 0.0);
+            constants_[nstim1] = dict_.lookupOrDefault<scalar>("nstim1", 0.0);
+            constants_[stim_period_S2] = dict_.lookupOrDefault<scalar>("stim_period_S2", 0.0);
+            constants_[nstim2] = dict_.lookupOrDefault<scalar>("nstim2", 0.0);
+        }
+
+        void recordCorrection()
+        {
+            if (protectionCorrections_ < maxProtectionLogEntries_)
+            {
+                ++protectionCorrections_;
+            }
+        }
+
+        void protectState
+        (
+            scalarField& state,
+            const scalar,
+            const label,
+            const char*
+        )
+        {
+            if (!numericalProtection_) return;
+
+            auto correct = [&](const label i, const scalar value)
+            {
+                if (state[i] != value)
+                {
+                    state[i] = value;
+                    recordCorrection();
+                }
+            };
+
+            if (!std::isfinite(state[V]))
+            {
+                correct(V, -86.2);
+            }
+            if (clampVmForRates_)
+            {
+                correct(V, min(max(state[V], vmMinForRates_), vmMaxForRates_));
+            }
+            if (mag(state[V]) < vmZeroEps_)
+            {
+                correct(V, state[V] < 0.0 ? -vmZeroEps_ : vmZeroEps_);
+            }
+
+            const label concentrationIDs[] = {K_i, Na_i, Ca_i, Ca_SR};
+            for (const label id : concentrationIDs)
+            {
+                if (!std::isfinite(state[id]) || state[id] < concentrationFloor_)
+                {
+                    correct(id, concentrationFloor_);
+                }
+            }
+
+            if (clampGates_)
+            {
+                const label gateIDs[] = {Xr1, Xr2, Xs, m, h, j, d, f, fCa, s, r, g};
+                for (const label id : gateIDs)
+                {
+                    if (!std::isfinite(state[id]))
+                    {
+                        correct(id, 0.0);
+                    }
+                    else
+                    {
+                        correct(id, min(max(state[id], scalar(0.0)), scalar(1.0)));
+                    }
+                }
+            }
+        }
+
+        void computeRates
+        (
+            const scalar tMs,
+            const scalarField& y,
+            scalarField& dydt,
+            scalarField& algebraic,
+            const label pointI,
+            const char* phase
+        )
+        {
+            if (numericalProtection_)
+            {
+                scalarField yProtected(y);
+                protectState(yProtected, tMs, pointI, phase);
+                TNNPcomputeRates
+                (
+                    tMs,
+                    constants_.data(),
+                    dydt.data(),
+                    yProtected.data(),
+                    algebraic.data(),
+                    tissue_,
+                    false
+                );
+            }
+            else
+            {
+                scalarField yCopy(y);
+                TNNPcomputeRates
+                (
+                    tMs,
+                    constants_.data(),
+                    dydt.data(),
+                    yCopy.data(),
+                    algebraic.data(),
+                    tissue_,
+                    false
+                );
+            }
+        }
+
+        void computeVariables
+        (
+            const scalar tMs,
+            scalarField& y,
+            scalarField& rates,
+            scalarField& algebraic
+        )
+        {
+            TNNPcomputeVariables
+            (
+                tMs,
+                constants_.data(),
+                rates.data(),
+                y.data(),
+                algebraic.data(),
+                tissue_,
+                false
+            );
+        }
+
+        void eulerStep
+        (
+            const scalar tMs,
+            const scalar hMs,
+            scalarField& y,
+            scalarField& rates,
+            scalarField& algebraic,
+            const label pointI
+        )
+        {
+            computeRates(tMs, y, rates, algebraic, pointI, "Euler");
+            forAll(y, i)
+            {
+                y[i] += hMs*rates[i];
+            }
+        }
+
+        void rk4Step
+        (
+            const scalar tMs,
+            const scalar hMs,
+            scalarField& y,
+            scalarField& rates,
+            scalarField& algebraic,
+            const label pointI
+        )
+        {
+            scalarField k1(NUM_STATES, 0.0), k2(NUM_STATES, 0.0);
+            scalarField k3(NUM_STATES, 0.0), k4(NUM_STATES, 0.0);
+            scalarField yt(NUM_STATES, 0.0);
+
+            computeRates(tMs, y, k1, algebraic, pointI, "RK4_k1");
+            forAll(y, i) yt[i] = y[i] + 0.5*hMs*k1[i];
+            computeRates(tMs + 0.5*hMs, yt, k2, algebraic, pointI, "RK4_k2");
+            forAll(y, i) yt[i] = y[i] + 0.5*hMs*k2[i];
+            computeRates(tMs + 0.5*hMs, yt, k3, algebraic, pointI, "RK4_k3");
+            forAll(y, i) yt[i] = y[i] + hMs*k3[i];
+            computeRates(tMs + hMs, yt, k4, algebraic, pointI, "RK4_k4");
+
+            forAll(y, i)
+            {
+                y[i] += (hMs/6.0)*(k1[i] + 2.0*k2[i] + 2.0*k3[i] + k4[i]);
+            }
+            rates = k4;
+        }
+
+        void rkf45Trial
+        (
+            const scalar tMs,
+            const scalar hMs,
+            const scalarField& y,
+            scalarField& yFifth,
+            scalarField& rates,
+            scalarField& algebraic,
+            const label pointI,
+            scalar& err
+        )
+        {
+            scalarField k1(NUM_STATES, 0.0), k2(NUM_STATES, 0.0), k3(NUM_STATES, 0.0);
+            scalarField k4(NUM_STATES, 0.0), k5(NUM_STATES, 0.0), k6(NUM_STATES, 0.0);
+            scalarField yt(NUM_STATES, 0.0), yFourth(NUM_STATES, 0.0);
+
+            computeRates(tMs, y, k1, algebraic, pointI, "RKF45_k1");
+            forAll(y, i) yt[i] = y[i] + hMs*(1.0/5.0)*k1[i];
+            computeRates(tMs + hMs/5.0, yt, k2, algebraic, pointI, "RKF45_k2");
+            forAll(y, i) yt[i] = y[i] + hMs*((3.0/40.0)*k1[i] + (9.0/40.0)*k2[i]);
+            computeRates(tMs + 3.0*hMs/10.0, yt, k3, algebraic, pointI, "RKF45_k3");
+            forAll(y, i) yt[i] = y[i] + hMs*((3.0/10.0)*k1[i] - (9.0/10.0)*k2[i] + (6.0/5.0)*k3[i]);
+            computeRates(tMs + 3.0*hMs/5.0, yt, k4, algebraic, pointI, "RKF45_k4");
+            forAll(y, i) yt[i] = y[i] + hMs*((-11.0/54.0)*k1[i] + (5.0/2.0)*k2[i] - (70.0/27.0)*k3[i] + (35.0/27.0)*k4[i]);
+            computeRates(tMs + hMs, yt, k5, algebraic, pointI, "RKF45_k5");
+            forAll(y, i) yt[i] = y[i] + hMs*((1631.0/55296.0)*k1[i] + (175.0/512.0)*k2[i] + (575.0/13824.0)*k3[i] + (44275.0/110592.0)*k4[i] + (253.0/4096.0)*k5[i]);
+            computeRates(tMs + 7.0*hMs/8.0, yt, k6, algebraic, pointI, "RKF45_k6");
+
+            err = 0.0;
+            forAll(y, i)
+            {
+                yFifth[i] = y[i] + hMs*((37.0/378.0)*k1[i] + (250.0/621.0)*k3[i] + (125.0/594.0)*k4[i] + (512.0/1771.0)*k6[i]);
+                yFourth[i] = y[i] + hMs*((2825.0/27648.0)*k1[i] + (18575.0/48384.0)*k3[i] + (13525.0/55296.0)*k4[i] + (277.0/14336.0)*k5[i] + 0.25*k6[i]);
+                const scalar scale = odeAbsTol_ + odeRelTol_*max(mag(yFifth[i]), mag(yFourth[i]));
+                err = max(err, mag(yFifth[i] - yFourth[i])/max(scale, SMALL));
+            }
+            rates = k6;
+        }
+
+        void advancePoint
+        (
+            const scalar tStartMs,
+            const scalar dtMs,
+            const scalar VmVolt,
+            scalarField& state,
+            scalarField& algebraic,
+            scalarField& rates,
+            scalar& stepMs,
+            const label pointI
+        )
+        {
+            if (state.size() != NUM_STATES)
+            {
+                state.setSize(NUM_STATES, 0.0);
+                TNNPinitConsts(constants_.data(), rates.data(), state.data(), tissue_, dict_);
+                loadStimulusProtocol();
+            }
+
+            state[V] = 1000.0*VmVolt;
+            protectState(state, tStartMs, pointI, "solveODE_start");
+
+            if (dtMs <= SMALL)
+            {
+                computeVariables(tStartMs, state, rates, algebraic);
+                return;
+            }
+
+            if (odeSolverName_ == "Euler" || odeSolverName_ == "forwardEuler")
+            {
+                eulerStep(tStartMs, dtMs, state, rates, algebraic, pointI);
+                protectState(state, tStartMs + dtMs, pointI, "solveODE_end");
+                computeVariables(tStartMs + dtMs, state, rates, algebraic);
+                stepMs = dtMs;
+                return;
+            }
+
+            if (odeSolverName_ == "RK4")
+            {
+                rk4Step(tStartMs, dtMs, state, rates, algebraic, pointI);
+                protectState(state, tStartMs + dtMs, pointI, "solveODE_end");
+                computeVariables(tStartMs + dtMs, state, rates, algebraic);
+                stepMs = dtMs;
+                return;
+            }
+
+            if
+            (
+                odeSolverName_ != "RKF45"
+             && odeSolverName_ != "RKT45"
+             && odeSolverName_ != "rkf45"
+            )
+            {
+                FatalErrorInFunction
+                    << "Unknown embedded TNNP ODE solver: " << odeSolverName_ << nl
+                    << "Valid options are RKF45, RKT45, RK4, Euler"
+                    << exit(FatalError);
+            }
+
+            scalar tau = 0.0;
+            scalar h = stepMs > SMALL ? min(dtMs, stepMs) : min(dtMs, odeInitialStepMs_);
+            if (h <= SMALL) h = dtMs;
+            const scalar hMin = max(dtMs*1.0e-12, SMALL);
+            scalarField yTrial(NUM_STATES, 0.0);
+
+            for (label subStep = 0; subStep < max(odeMaxSteps_, label(1)); ++subStep)
+            {
+                if (tau >= dtMs - SMALL) break;
+                h = min(h, dtMs - tau);
+
+                scalar err = GREAT;
+                rkf45Trial
+                (
+                    tStartMs + tau,
+                    h,
+                    state,
+                    yTrial,
+                    rates,
+                    algebraic,
+                    pointI,
+                    err
+                );
+
+                if (err <= 1.0 || h <= hMin)
+                {
+                    state = yTrial;
+                    tau += h;
+                }
+
+                const scalar factor = min
+                (
+                    scalar(4.0),
+                    max(scalar(0.1), scalar(0.84)*std::pow(1.0/(err + SMALL), 0.25))
+                );
+                h = max(hMin, min(dtMs - tau, h*factor));
+                stepMs = h;
+            }
+
+            if (tau < dtMs - 10.0*SMALL)
+            {
+                WarningInFunction
+                    << "Embedded TNNP RKF45 reached maxSteps before completing dt. "
+                    << "tau = " << tau << " ms, dt = " << dtMs << " ms" << nl;
+            }
+
+            protectState(state, tStartMs + dtMs, pointI, "solveODE_end");
+            computeVariables(tStartMs + dtMs, state, rates, algebraic);
+        }
+
+    public:
+        EmbeddedTNNPModel
+        (
+            const dictionary& dict,
+            const label nIntegrationPoints,
+            const scalar initialDeltaT
+        )
+        :
+            dict_(dict),
+            nPoints_(nIntegrationPoints),
+            constants_(NUM_CONSTANTS, 0.0),
+            algebraic_(nIntegrationPoints, Field<scalar>(NUM_ALGEBRAIC, 0.0)),
+            rates_(nIntegrationPoints, Field<scalar>(NUM_STATES, 0.0)),
+            oldStates_(nIntegrationPoints, Field<scalar>(NUM_STATES, 0.0)),
+            stepMs_(nIntegrationPoints, max(1000.0*initialDeltaT, SMALL)),
+            exportedNames_(),
+            debugNames_(),
+            tissue_(tissueFlag(dict.lookupOrDefault<word>("tissue", "epicardialCells"))),
+            odeSolverName_(dict.lookupOrDefault<word>("solver", dict.lookupOrDefault<word>("stateODESolver", "RKF45"))),
+            odeInitialStepMs_(dict.lookupOrDefault<scalar>("initialODEStep", dict.lookupOrDefault<scalar>("stateODEInitialStep", 1.0e-5))),
+            odeAbsTol_(max(dict.lookupOrDefault<scalar>("absTol", dict.lookupOrDefault<scalar>("stateODEAbsTol", 1.0e-9)), scalar(SMALL))),
+            odeRelTol_(max(dict.lookupOrDefault<scalar>("relTol", dict.lookupOrDefault<scalar>("stateODERelTol", 1.0e-6)), scalar(SMALL))),
+            odeMaxSteps_(dict.lookupOrDefault<label>("maxSteps", dict.lookupOrDefault<label>("stateODEMaxSteps", 10000))),
+            numericalProtection_(dict.lookupOrDefault<Switch>("TNNPNumericalProtection", false)),
+            clampGates_(dict.lookupOrDefault<Switch>("TNNPClampGates", true)),
+            clampVmForRates_(dict.lookupOrDefault<Switch>("TNNPClampVmForRates", true)),
+            logNumericalProtection_(dict.lookupOrDefault<Switch>("TNNPLogNumericalProtection", true)),
+            concentrationFloor_(max(dict.lookupOrDefault<scalar>("TNNPConcentrationFloor", 1.0e-12), scalar(SMALL))),
+            vmMinForRates_(dict.lookupOrDefault<scalar>("TNNPVMinForRates", -200.0)),
+            vmMaxForRates_(dict.lookupOrDefault<scalar>("TNNPVMaxForRates", 100.0)),
+            vmZeroEps_(max(dict.lookupOrDefault<scalar>("TNNPVoltageZeroEps", 1.0e-8), scalar(SMALL))),
+            maxProtectionLogEntries_(dict.lookupOrDefault<label>("TNNPMaxProtectionLogEntries", 1000000)),
+            protectionLogName_(dict.lookupOrDefault<word>("TNNPProtectionLog", "TNNP_numericalProtection_summary.dat")),
+            protectionCorrections_(0)
+        {
+            if (dict_.found("exportedVariables"))
+            {
+                dict_.lookup("exportedVariables") >> exportedNames_;
+            }
+            if (dict_.found("debugPrintVariables"))
+            {
+                dict_.lookup("debugPrintVariables") >> debugNames_;
+            }
+
+            Info<< "Using embedded TNNP ionic model" << nl
+                << "    tissue flag = " << tissue_ << nl
+                << "    ODE solver = " << odeSolverName_ << nl
+                << "    absTol = " << odeAbsTol_ << nl
+                << "    relTol = " << odeRelTol_ << nl
+                << "    maxSteps = " << odeMaxSteps_ << nl;
+
+            if (numericalProtection_)
+            {
+                Info<< "    numerical protection enabled" << nl;
+            }
+        }
+
+        ~EmbeddedTNNPModel()
+        {
+            if (numericalProtection_ && logNumericalProtection_)
+            {
+                OFstream os(protectionLogName_);
+                os  << "# Embedded TNNP numerical protection summary" << nl
+                    << "corrections " << protectionCorrections_ << nl;
+            }
+        }
+
+        label nEqns() const
+        {
+            return NUM_STATES;
+        }
+
+        wordList exportedFieldNames() const
+        {
+            return exportedNames_;
+        }
+
+        void initialiseStates(Field<Field<scalar>>& states)
+        {
+            states.setSize(nPoints_);
+            forAll(states, pointI)
+            {
+                states[pointI].setSize(NUM_STATES, 0.0);
+                rates_[pointI].setSize(NUM_STATES, 0.0);
+                algebraic_[pointI].setSize(NUM_ALGEBRAIC, 0.0);
+                TNNPinitConsts
+                (
+                    constants_.data(),
+                    rates_[pointI].data(),
+                    states[pointI].data(),
+                    tissue_,
+                    dict_
+                );
+                loadStimulusProtocol();
+                computeVariables(0.0, states[pointI], rates_[pointI], algebraic_[pointI]);
+            }
+            oldStates_ = states;
+        }
+
+        void updateStatesOld(const Field<Field<scalar>>& states)
+        {
+            oldStates_ = states;
+        }
+
+        void resetStatesToStatesOld(Field<Field<scalar>>& states)
+        {
+            states = oldStates_;
+        }
+
+        void calculateCurrent
+        (
+            const scalar stepStartTime,
+            const scalar,
+            const scalarField& Vm,
+            scalarField& Im,
+            Field<Field<scalar>>& states
+        )
+        {
+            const scalar tStartMs = 1000.0*stepStartTime;
+            if (Im.size() != Vm.size())
+            {
+                FatalErrorInFunction
+                    << "Im.size() != Vm.size()" << abort(FatalError);
+            }
+
+            if (states.size() != Vm.size())
+            {
+                initialiseStates(states);
+            }
+
+            forAll(Vm, pointI)
+            {
+                scalarField& y = states[pointI];
+                y[V] = 1000.0*Vm[pointI];
+                protectState(y, tStartMs, pointI, "calculateCurrent");
+                computeVariables(tStartMs, y, rates_[pointI], algebraic_[pointI]);
+                Im[pointI] = algebraic_[pointI][Iion_cm];
+            }
+        }
+
+        void solveODE
+        (
+            const scalar stepStartTime,
+            const scalar deltaT,
+            const scalarField& Vm,
+            scalarField& Im,
+            Field<Field<scalar>>& states
+        )
+        {
+            const scalar tStartMs = 1000.0*stepStartTime;
+            const scalar dtMs = 1000.0*deltaT;
+            if (Im.size() != Vm.size())
+            {
+                FatalErrorInFunction
+                    << "Im.size() != Vm.size()" << abort(FatalError);
+            }
+
+            if (states.size() != Vm.size())
+            {
+                initialiseStates(states);
+            }
+
+            forAll(Vm, pointI)
+            {
+                advancePoint
+                (
+                    tStartMs,
+                    dtMs,
+                    Vm[pointI],
+                    states[pointI],
+                    algebraic_[pointI],
+                    rates_[pointI],
+                    stepMs_[pointI],
+                    pointI
+                );
+                Im[pointI] = algebraic_[pointI][Iion_cm];
+            }
+        }
+
+        void exportStates
+        (
+            const Field<Field<scalar>>& states,
+            PtrList<volScalarField>& outFields
+        )
+        {
+            forAll(outFields, outI)
+            {
+                const word& name = exportedNames_[outI];
+                const label sI = stateIndex(name);
+                const label aI = algebraicIndex(name);
+                scalarField& fld = outFields[outI].primitiveFieldRef();
+
+                forAll(fld, cellI)
+                {
+                    if (sI >= 0 && cellI < states.size())
+                    {
+                        fld[cellI] = states[cellI][sI];
+                    }
+                    else if (aI >= 0 && cellI < algebraic_.size())
+                    {
+                        fld[cellI] = algebraic_[cellI][aI];
+                    }
+                    else
+                    {
+                        fld[cellI] = 0.0;
+                    }
+                }
+                outFields[outI].correctBoundaryConditions();
+            }
+        }
+
+        void exportStatesIntegrationPoints
+        (
+            const Field<Field<scalar>>& states,
+            PtrList<volScalarField>& outFields,
+            const CompactListList<scalar>& cellIionQuadW
+        )
+        {
+            forAll(outFields, outI)
+            {
+                const word& name = exportedNames_[outI];
+                const label sI = stateIndex(name);
+                const label aI = algebraicIndex(name);
+                scalarField& fld = outFields[outI].primitiveFieldRef();
+
+                label integrationPointI = 0;
+                forAll(cellIionQuadW, cellI)
+                {
+                    scalar wSum = 0.0;
+                    scalar value = 0.0;
+                    forAll(cellIionQuadW[cellI], qI)
+                    {
+                        const scalar w = cellIionQuadW[cellI][qI];
+                        wSum += w;
+                        if (sI >= 0 && integrationPointI < states.size())
+                        {
+                            value += w*states[integrationPointI][sI];
+                        }
+                        else if (aI >= 0 && integrationPointI < algebraic_.size())
+                        {
+                            value += w*algebraic_[integrationPointI][aI];
+                        }
+                        ++integrationPointI;
+                    }
+                    fld[cellI] = value/max(wSum, SMALL);
+                }
+                outFields[outI].correctBoundaryConditions();
+            }
+        }
+    };
 
     scalar characteristicDx(const fvMesh& mesh)
     {
@@ -483,7 +1758,7 @@ namespace
                 }
 
                 // Sub-diagonal entry of the Hessenberg matrix.
-                // Happy breakdown (H(j+1,j) ≈ 0) means the Krylov space is
+                // Happy breakdown (H(j+1,j) ~= 0) means the Krylov space is
                 // already A-invariant and the current iterate is exact.
                 H(j + 1, j) = w.norm();
                 if (H(j + 1, j) > SMALL && j + 1 < m + 1)
@@ -1350,13 +2625,14 @@ int main(int argc, char* argv[])
     #include "createFields.H"
 
     const label nStates = ionicModel->nEqns();
-    TNNP* tnnpModel = dynamic_cast<TNNP*>(&ionicModel());
+    EmbeddedTNNPModel* tnnpModel = &ionicModel();
 
     Field<Field<scalar>> states
     (
         totalIionIntegrationPoints,
         Field<scalar>(nStates, 0.0)
     );
+    ionicModel->initialiseStates(states);
 
     scalarField VmIntegrationPoints(totalIionIntegrationPoints, 0.0);
     scalarField IionIntegrationPoints(totalIionIntegrationPoints, 0.0);
@@ -1980,7 +3256,7 @@ int main(int argc, char* argv[])
             auto residualFor =
             [&](const EigVec& xCandidate, const bool updateGuess) -> EigVec
             {
-                // Standard JfNK residual: F(Vm) = A·Vm - rhs(Iion(Vm))
+                // Standard JfNK residual: F(Vm) = A*Vm - rhs(Iion(Vm))
                 // This avoids an inner linear solve inside every matVec evaluation.
                 auto standardResidual =
                 [&](volScalarField& VmCandidate,
@@ -2087,7 +3363,7 @@ int main(int argc, char* argv[])
                 }
 
                 // Finite-difference approximation to the Jacobian-vector
-                // product:    J*v ≈ (F(x + eps*v) - F(x)) / eps
+                // product:    J*v ~= (F(x + eps*v) - F(x)) / eps
                 // The forward-difference perturbation follows the standard
                 // JFNK formula  eps = sqrt(eps_mach) * (1 + ||x||) / ||v|| ,
                 // which balances truncation and round-off error and is

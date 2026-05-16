@@ -2,41 +2,47 @@
 \contentsline {section}{\numberline {2}Governing equations}{3}{section.2}%
 \contentsline {subsection}{\numberline {2.1}Monodomain PDE}{3}{subsection.2.1}%
 \contentsline {subsection}{\numberline {2.2}Ionic ODE}{3}{subsection.2.2}%
-\contentsline {subsection}{\numberline {2.3}External stimulus}{3}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.3}Manufactured MMS equation used for convergence transfer}{4}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}External stimulus}{4}{subsection.2.4}%
 \contentsline {section}{\numberline {3}Time discretisation: the $\theta $-scheme}{4}{section.3}%
-\contentsline {section}{\numberline {4}Spatial discretisation}{4}{section.4}%
-\contentsline {subsection}{\numberline {4.1}Standard orthogonal FV Laplacian}{4}{subsection.4.1}%
-\contentsline {subsection}{\numberline {4.2}High-order LRE diffusion}{4}{subsection.4.2}%
-\contentsline {subsection}{\numberline {4.3}Mass matrices}{4}{subsection.4.3}%
-\contentsline {paragraph}{Lumped (\texttt {\small massMatrix lumped}).}{4}{section*.2}%
+\contentsline {section}{\numberline {4}Spatial discretisation}{5}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Standard orthogonal FV Laplacian}{5}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}High-order LRE diffusion}{5}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Mass matrices}{5}{subsection.4.3}%
+\contentsline {paragraph}{Lumped (\texttt {\small massMatrix lumped}).}{5}{section*.2}%
 \contentsline {paragraph}{Consistent HO (\texttt {\small massMatrix consistent}).}{5}{section*.3}%
 \contentsline {subsection}{\numberline {4.4}High-order reconstruction at ionic quadrature points}{5}{subsection.4.4}%
-\contentsline {subsection}{\numberline {4.5}High-order cell averaging of $I_{\text {ion}}$}{5}{subsection.4.5}%
-\contentsline {section}{\numberline {5}Nonlinear solver}{5}{section.5}%
-\contentsline {subsection}{\numberline {5.1}Jacobian-Free Newton--Krylov}{5}{subsection.5.1}%
-\contentsline {subsection}{\numberline {5.2}In-house restarted GMRES}{5}{subsection.5.2}%
-\contentsline {subsection}{\numberline {5.3}Armijo backtracking line search}{6}{subsection.5.3}%
-\contentsline {subsection}{\numberline {5.4}Linear extrapolation initial guess}{6}{subsection.5.4}%
-\contentsline {subsection}{\numberline {5.5}Protective Vm clamp on ODE input}{6}{subsection.5.5}%
-\contentsline {subsection}{\numberline {5.6}Convergence criteria}{6}{subsection.5.6}%
-\contentsline {subsection}{\numberline {5.7}Rollback on non-convergence}{6}{subsection.5.7}%
-\contentsline {subsection}{\numberline {5.8}Alternative nonlinear methods}{6}{subsection.5.8}%
-\contentsline {section}{\numberline {6}Linear solver: Eigen back-end}{7}{section.6}%
-\contentsline {section}{\numberline {7}Ionic ODE integration}{7}{section.7}%
-\contentsline {section}{\numberline {8}TNNP numerical protection}{7}{section.8}%
-\contentsline {section}{\numberline {9}Activation tracking and benchmarks}{8}{section.9}%
-\contentsline {paragraph}{Activation time per cell.}{8}{section*.4}%
-\contentsline {paragraph}{Early termination on P8.}{8}{section*.5}%
-\contentsline {paragraph}{Diagonal sampling.}{8}{section*.6}%
-\contentsline {section}{\numberline {10}Solver flow chart}{8}{section.10}%
-\contentsline {section}{\numberline {11}Driver script: \texttt {run\_convergence.py}}{10}{section.11}%
-\contentsline {subsection}{\numberline {11.1}Geometry and parameter sweep}{10}{subsection.11.1}%
-\contentsline {subsection}{\numberline {11.2}Nonlinear solver (JFNK / Picard)}{10}{subsection.11.2}%
-\contentsline {subsection}{\numberline {11.3}JFNK matrix-free options}{10}{subsection.11.3}%
-\contentsline {subsection}{\numberline {11.4}Linear solver (Eigen)}{11}{subsection.11.4}%
-\contentsline {subsection}{\numberline {11.5}Inner ODE integrator (RKF45)}{11}{subsection.11.5}%
-\contentsline {subsection}{\numberline {11.6}LRE high-order parameters per p-level}{11}{subsection.11.6}%
-\contentsline {subsection}{\numberline {11.7}Post-processing and run-control}{11}{subsection.11.7}%
-\contentsline {section}{\numberline {A}Dimension table}{12}{appendix.A}%
-\contentsline {section}{\numberline {B}File map}{12}{appendix.B}%
-\contentsline {section}{\numberline {C}Differences vs.\ the PETSc sibling}{12}{appendix.C}%
+\contentsline {subsection}{\numberline {4.5}High-order cell averaging of $I_{\text {ion}}$}{6}{subsection.4.5}%
+\contentsline {section}{\numberline {5}Nonlinear solver}{6}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Shared residuals and stopping tests}{6}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Picard fixed-point method}{6}{subsection.5.2}%
+\contentsline {paragraph}{Advantages.}{7}{section*.4}%
+\contentsline {paragraph}{Disadvantages.}{7}{section*.5}%
+\contentsline {subsection}{\numberline {5.3}Diagonal $I_{\text {ion}}$ linearisation}{7}{subsection.5.3}%
+\contentsline {paragraph}{Advantages.}{7}{section*.6}%
+\contentsline {paragraph}{Disadvantages.}{7}{section*.7}%
+\contentsline {subsection}{\numberline {5.4}Jacobian-Free Newton--Krylov}{7}{subsection.5.4}%
+\contentsline {subsection}{\numberline {5.5}In-house restarted GMRES}{7}{subsection.5.5}%
+\contentsline {paragraph}{Advantages.}{8}{section*.8}%
+\contentsline {paragraph}{Disadvantages.}{8}{section*.9}%
+\contentsline {subsection}{\numberline {5.6}Armijo backtracking line search}{8}{subsection.5.6}%
+\contentsline {subsection}{\numberline {5.7}Initial guess, ODE clamp and rollback}{8}{subsection.5.7}%
+\contentsline {section}{\numberline {6}Linear solver: Eigen back-end}{8}{section.6}%
+\contentsline {section}{\numberline {7}Ionic ODE integration}{9}{section.7}%
+\contentsline {section}{\numberline {8}TNNP numerical protection}{9}{section.8}%
+\contentsline {section}{\numberline {9}Activation tracking and benchmarks}{9}{section.9}%
+\contentsline {paragraph}{Activation time per cell.}{9}{section*.10}%
+\contentsline {paragraph}{Early termination on P8.}{10}{section*.11}%
+\contentsline {paragraph}{Diagonal sampling.}{10}{section*.12}%
+\contentsline {section}{\numberline {10}Solver flow chart}{10}{section.10}%
+\contentsline {section}{\numberline {11}Manufactured driver: \texttt {run\_convergence.py}}{11}{section.11}%
+\contentsline {subsection}{\numberline {11.1}Geometry and parameter sweep}{11}{subsection.11.1}%
+\contentsline {subsection}{\numberline {11.2}Nonlinear method and convergence controls}{12}{subsection.11.2}%
+\contentsline {subsection}{\numberline {11.3}JFNK and diagonal-Iion controls}{13}{subsection.11.3}%
+\contentsline {subsection}{\numberline {11.4}Linear PDE solver}{14}{subsection.11.4}%
+\contentsline {subsection}{\numberline {11.5}State ODE integrator}{14}{subsection.11.5}%
+\contentsline {subsection}{\numberline {11.6}LRE high-order parameters per p-level}{14}{subsection.11.6}%
+\contentsline {subsection}{\numberline {11.7}Diagnostics and run-control}{14}{subsection.11.7}%
+\contentsline {section}{\numberline {A}Dimension table}{15}{appendix.A}%
+\contentsline {section}{\numberline {B}File map}{15}{appendix.B}%
+\contentsline {section}{\numberline {C}Differences vs.\ the PETSc sibling}{15}{appendix.C}%

@@ -839,13 +839,15 @@ dictionary solutionVariablesMemory(cardiacProperties);
 solutionVariablesMemory.merge(timeIntegrationProperties);
 solutionVariablesMemory.merge(stimulusProtocol);
 
-autoPtr<ionicModel> ionicModel =
-    ionicModel::New
+autoPtr<EmbeddedTNNPModel> ionicModel
+(
+    new EmbeddedTNNPModel
     (
         solutionVariablesMemory,
         totalIionIntegrationPoints,
         runTime.deltaTValue()
-    );
+    )
+);
 
 volScalarField activationTime
 (
