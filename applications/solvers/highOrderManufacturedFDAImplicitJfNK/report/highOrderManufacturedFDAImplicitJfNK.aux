@@ -17,9 +17,9 @@
 \providecommand\HyField@AuxAddToFields[1]{}
 \providecommand\HyField@AuxAddToCoFields[2]{}
 \@writefile{toc}{\contentsline {section}{\numberline {1}Purpose and notation}{2}{section.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {2}Governing equations}{2}{section.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Electrophysiology motivation}{2}{subsection.2.1}\protected@file@percent }
-\newlabel{eq:phys-monodomain}{{1}{2}{Electrophysiology motivation}{equation.2.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {2}Governing equations}{3}{section.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Electrophysiology motivation}{3}{subsection.2.1}\protected@file@percent }
+\newlabel{eq:phys-monodomain}{{1}{3}{Electrophysiology motivation}{equation.2.1}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Manufactured PDE--ODE system}{3}{subsection.2.2}\protected@file@percent }
 \newlabel{eq:mms-pde}{{3}{3}{Manufactured PDE--ODE system}{equation.2.3}{}}
 \newlabel{eq:mms-u1}{{4}{3}{Manufactured PDE--ODE system}{equation.2.4}{}}
@@ -559,6 +559,478 @@
 \@writefile{toc}{\contentsline {paragraph}{Temporal scheme.}{43}{section*.35}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Mass matrix.}{43}{section*.36}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Matching the voltage and source/state orders.}{43}{section*.37}\protected@file@percent }
+\gdef \LT@viii {\LT@entry 
+    {1}{14.4179pt}\LT@entry 
+    {1}{16.35292pt}\LT@entry 
+    {1}{27.14973pt}\LT@entry 
+    {3}{21.73312pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{23.84415pt}\LT@entry 
+    {1}{40.4747pt}}
 \@writefile{toc}{\contentsline {paragraph}{Recommended 2D configuration.}{44}{section*.38}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {11}Notes}{44}{section.11}\protected@file@percent }
-\gdef \@abspage@last{44}
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.3}Three-dimensional manufactured problem}{44}{subsection.10.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {10.3.1}\texttt  {\small  Picard}}{44}{subsubsection.10.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{$\Delta t=10^{-2}$}{44}{section*.39}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces 3D manufactured results for \texttt  {\small  Picard} with $\Delta t=10^{-2}$. The first six convergence columns are log--log fits over meshes $N=10$--$30$; the next six columns are fits over $N=20$--$30$. The time column is the sum of the reported wall-clock total over all mesh runs in the row, and the memory column is the sum of the reported peak resident memory in MB over the same mesh runs. The corresponding convergence figures are Figs.\nobreakspace  {}\ref  {fig:results-3d-picard-1p0em02-backwardeuler-consistent}, \ref  {fig:results-3d-picard-1p0em02-backwardeuler-lumped}, \ref  {fig:results-3d-picard-1p0em02-cranknicolson-consistent}, \ref  {fig:results-3d-picard-1p0em02-cranknicolson-lumped}.\relax }}{44}{table.8}\protected@file@percent }
+\newlabel{tab:results-3d-picard-1p0em02}{{8}{44}{3D manufactured results for \code {Picard} with $\Delta t=10^{-2}$. The first six convergence columns are log--log fits over meshes $N=10$--$30$; the next six columns are fits over $N=20$--$30$. The time column is the sum of the reported wall-clock total over all mesh runs in the row, and the memory column is the sum of the reported peak resident memory in MB over the same mesh runs. The corresponding convergence figures are Figs.~\ref {fig:results-3d-picard-1p0em02-backwardeuler-consistent}, \ref {fig:results-3d-picard-1p0em02-backwardeuler-lumped}, \ref {fig:results-3d-picard-1p0em02-cranknicolson-consistent}, \ref {fig:results-3d-picard-1p0em02-cranknicolson-lumped}.\relax }{table.8}{}}
+\newlabel{fig:results-3d-picard-1p0em02-backwardeuler-consistent-a}{{25a}{46}{$\|V_m\|_{L_2}$\relax }{figure.caption.40}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-backwardeuler-consistent-a}{{a}{46}{$\|V_m\|_{L_2}$\relax }{figure.caption.40}{}}
+\newlabel{fig:results-3d-picard-1p0em02-backwardeuler-consistent-b}{{25b}{46}{$\|V_m\|_{G_2}$\relax }{figure.caption.40}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-backwardeuler-consistent-b}{{b}{46}{$\|V_m\|_{G_2}$\relax }{figure.caption.40}{}}
+\newlabel{fig:results-3d-picard-1p0em02-backwardeuler-consistent-c}{{25c}{46}{$\|u_1\|_{L_2}$\relax }{figure.caption.40}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-backwardeuler-consistent-c}{{c}{46}{$\|u_1\|_{L_2}$\relax }{figure.caption.40}{}}
+\newlabel{fig:results-3d-picard-1p0em02-backwardeuler-consistent-d}{{25d}{46}{$\|u_1\|_{G_2}$\relax }{figure.caption.40}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-backwardeuler-consistent-d}{{d}{46}{$\|u_1\|_{G_2}$\relax }{figure.caption.40}{}}
+\newlabel{fig:results-3d-picard-1p0em02-backwardeuler-consistent-e}{{25e}{46}{$\|u_2\|_{L_2}$\relax }{figure.caption.40}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-backwardeuler-consistent-e}{{e}{46}{$\|u_2\|_{L_2}$\relax }{figure.caption.40}{}}
+\newlabel{fig:results-3d-picard-1p0em02-backwardeuler-consistent-f}{{25f}{46}{$\|u_2\|_{G_2}$\relax }{figure.caption.40}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-backwardeuler-consistent-f}{{f}{46}{$\|u_2\|_{G_2}$\relax }{figure.caption.40}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {25}{\ignorespaces 3D convergence curves for \texttt  {\small  Picard}, $\Delta t=10^{-2}$, bE with cons. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-picard-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{46}{figure.caption.40}\protected@file@percent }
+\newlabel{fig:results-3d-picard-1p0em02-backwardeuler-consistent}{{25}{46}{3D convergence curves for \code {Picard}, $\Delta t=10^{-2}$, bE with cons. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-picard-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.40}{}}
+\newlabel{fig:results-3d-picard-1p0em02-backwardeuler-lumped-a}{{26a}{47}{$\|V_m\|_{L_2}$\relax }{figure.caption.41}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-backwardeuler-lumped-a}{{a}{47}{$\|V_m\|_{L_2}$\relax }{figure.caption.41}{}}
+\newlabel{fig:results-3d-picard-1p0em02-backwardeuler-lumped-b}{{26b}{47}{$\|V_m\|_{G_2}$\relax }{figure.caption.41}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-backwardeuler-lumped-b}{{b}{47}{$\|V_m\|_{G_2}$\relax }{figure.caption.41}{}}
+\newlabel{fig:results-3d-picard-1p0em02-backwardeuler-lumped-c}{{26c}{47}{$\|u_1\|_{L_2}$\relax }{figure.caption.41}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-backwardeuler-lumped-c}{{c}{47}{$\|u_1\|_{L_2}$\relax }{figure.caption.41}{}}
+\newlabel{fig:results-3d-picard-1p0em02-backwardeuler-lumped-d}{{26d}{47}{$\|u_1\|_{G_2}$\relax }{figure.caption.41}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-backwardeuler-lumped-d}{{d}{47}{$\|u_1\|_{G_2}$\relax }{figure.caption.41}{}}
+\newlabel{fig:results-3d-picard-1p0em02-backwardeuler-lumped-e}{{26e}{47}{$\|u_2\|_{L_2}$\relax }{figure.caption.41}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-backwardeuler-lumped-e}{{e}{47}{$\|u_2\|_{L_2}$\relax }{figure.caption.41}{}}
+\newlabel{fig:results-3d-picard-1p0em02-backwardeuler-lumped-f}{{26f}{47}{$\|u_2\|_{G_2}$\relax }{figure.caption.41}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-backwardeuler-lumped-f}{{f}{47}{$\|u_2\|_{G_2}$\relax }{figure.caption.41}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {26}{\ignorespaces 3D convergence curves for \texttt  {\small  Picard}, $\Delta t=10^{-2}$, bE with lump. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-picard-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{47}{figure.caption.41}\protected@file@percent }
+\newlabel{fig:results-3d-picard-1p0em02-backwardeuler-lumped}{{26}{47}{3D convergence curves for \code {Picard}, $\Delta t=10^{-2}$, bE with lump. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-picard-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.41}{}}
+\newlabel{fig:results-3d-picard-1p0em02-cranknicolson-consistent-a}{{27a}{48}{$\|V_m\|_{L_2}$\relax }{figure.caption.42}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-cranknicolson-consistent-a}{{a}{48}{$\|V_m\|_{L_2}$\relax }{figure.caption.42}{}}
+\newlabel{fig:results-3d-picard-1p0em02-cranknicolson-consistent-b}{{27b}{48}{$\|V_m\|_{G_2}$\relax }{figure.caption.42}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-cranknicolson-consistent-b}{{b}{48}{$\|V_m\|_{G_2}$\relax }{figure.caption.42}{}}
+\newlabel{fig:results-3d-picard-1p0em02-cranknicolson-consistent-c}{{27c}{48}{$\|u_1\|_{L_2}$\relax }{figure.caption.42}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-cranknicolson-consistent-c}{{c}{48}{$\|u_1\|_{L_2}$\relax }{figure.caption.42}{}}
+\newlabel{fig:results-3d-picard-1p0em02-cranknicolson-consistent-d}{{27d}{48}{$\|u_1\|_{G_2}$\relax }{figure.caption.42}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-cranknicolson-consistent-d}{{d}{48}{$\|u_1\|_{G_2}$\relax }{figure.caption.42}{}}
+\newlabel{fig:results-3d-picard-1p0em02-cranknicolson-consistent-e}{{27e}{48}{$\|u_2\|_{L_2}$\relax }{figure.caption.42}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-cranknicolson-consistent-e}{{e}{48}{$\|u_2\|_{L_2}$\relax }{figure.caption.42}{}}
+\newlabel{fig:results-3d-picard-1p0em02-cranknicolson-consistent-f}{{27f}{48}{$\|u_2\|_{G_2}$\relax }{figure.caption.42}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-cranknicolson-consistent-f}{{f}{48}{$\|u_2\|_{G_2}$\relax }{figure.caption.42}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {27}{\ignorespaces 3D convergence curves for \texttt  {\small  Picard}, $\Delta t=10^{-2}$, cN with cons. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-picard-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{48}{figure.caption.42}\protected@file@percent }
+\newlabel{fig:results-3d-picard-1p0em02-cranknicolson-consistent}{{27}{48}{3D convergence curves for \code {Picard}, $\Delta t=10^{-2}$, cN with cons. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-picard-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.42}{}}
+\newlabel{fig:results-3d-picard-1p0em02-cranknicolson-lumped-a}{{28a}{49}{$\|V_m\|_{L_2}$\relax }{figure.caption.43}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-cranknicolson-lumped-a}{{a}{49}{$\|V_m\|_{L_2}$\relax }{figure.caption.43}{}}
+\newlabel{fig:results-3d-picard-1p0em02-cranknicolson-lumped-b}{{28b}{49}{$\|V_m\|_{G_2}$\relax }{figure.caption.43}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-cranknicolson-lumped-b}{{b}{49}{$\|V_m\|_{G_2}$\relax }{figure.caption.43}{}}
+\newlabel{fig:results-3d-picard-1p0em02-cranknicolson-lumped-c}{{28c}{49}{$\|u_1\|_{L_2}$\relax }{figure.caption.43}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-cranknicolson-lumped-c}{{c}{49}{$\|u_1\|_{L_2}$\relax }{figure.caption.43}{}}
+\newlabel{fig:results-3d-picard-1p0em02-cranknicolson-lumped-d}{{28d}{49}{$\|u_1\|_{G_2}$\relax }{figure.caption.43}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-cranknicolson-lumped-d}{{d}{49}{$\|u_1\|_{G_2}$\relax }{figure.caption.43}{}}
+\newlabel{fig:results-3d-picard-1p0em02-cranknicolson-lumped-e}{{28e}{49}{$\|u_2\|_{L_2}$\relax }{figure.caption.43}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-cranknicolson-lumped-e}{{e}{49}{$\|u_2\|_{L_2}$\relax }{figure.caption.43}{}}
+\newlabel{fig:results-3d-picard-1p0em02-cranknicolson-lumped-f}{{28f}{49}{$\|u_2\|_{G_2}$\relax }{figure.caption.43}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em02-cranknicolson-lumped-f}{{f}{49}{$\|u_2\|_{G_2}$\relax }{figure.caption.43}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {28}{\ignorespaces 3D convergence curves for \texttt  {\small  Picard}, $\Delta t=10^{-2}$, cN with lump. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-picard-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{49}{figure.caption.43}\protected@file@percent }
+\newlabel{fig:results-3d-picard-1p0em02-cranknicolson-lumped}{{28}{49}{3D convergence curves for \code {Picard}, $\Delta t=10^{-2}$, cN with lump. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-picard-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.43}{}}
+\gdef \LT@ix {\LT@entry 
+    {1}{14.4179pt}\LT@entry 
+    {1}{16.35292pt}\LT@entry 
+    {1}{27.14973pt}\LT@entry 
+    {3}{21.73312pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{27.51076pt}\LT@entry 
+    {1}{40.4747pt}}
+\@writefile{toc}{\contentsline {paragraph}{$\Delta t=10^{-3}$}{50}{section*.44}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {9}{\ignorespaces 3D manufactured results for \texttt  {\small  Picard} with $\Delta t=10^{-3}$. The first six convergence columns are log--log fits over meshes $N=10$--$30$; the next six columns are fits over $N=20$--$30$. The time column is the sum of the reported wall-clock total over all mesh runs in the row, and the memory column is the sum of the reported peak resident memory in MB over the same mesh runs. The corresponding convergence figures are Figs.\nobreakspace  {}\ref  {fig:results-3d-picard-1p0em03-backwardeuler-consistent}, \ref  {fig:results-3d-picard-1p0em03-backwardeuler-lumped}, \ref  {fig:results-3d-picard-1p0em03-cranknicolson-consistent}, \ref  {fig:results-3d-picard-1p0em03-cranknicolson-lumped}.\relax }}{50}{table.9}\protected@file@percent }
+\newlabel{tab:results-3d-picard-1p0em03}{{9}{50}{3D manufactured results for \code {Picard} with $\Delta t=10^{-3}$. The first six convergence columns are log--log fits over meshes $N=10$--$30$; the next six columns are fits over $N=20$--$30$. The time column is the sum of the reported wall-clock total over all mesh runs in the row, and the memory column is the sum of the reported peak resident memory in MB over the same mesh runs. The corresponding convergence figures are Figs.~\ref {fig:results-3d-picard-1p0em03-backwardeuler-consistent}, \ref {fig:results-3d-picard-1p0em03-backwardeuler-lumped}, \ref {fig:results-3d-picard-1p0em03-cranknicolson-consistent}, \ref {fig:results-3d-picard-1p0em03-cranknicolson-lumped}.\relax }{table.9}{}}
+\newlabel{fig:results-3d-picard-1p0em03-backwardeuler-consistent-a}{{29a}{51}{$\|V_m\|_{L_2}$\relax }{figure.caption.45}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-backwardeuler-consistent-a}{{a}{51}{$\|V_m\|_{L_2}$\relax }{figure.caption.45}{}}
+\newlabel{fig:results-3d-picard-1p0em03-backwardeuler-consistent-b}{{29b}{51}{$\|V_m\|_{G_2}$\relax }{figure.caption.45}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-backwardeuler-consistent-b}{{b}{51}{$\|V_m\|_{G_2}$\relax }{figure.caption.45}{}}
+\newlabel{fig:results-3d-picard-1p0em03-backwardeuler-consistent-c}{{29c}{51}{$\|u_1\|_{L_2}$\relax }{figure.caption.45}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-backwardeuler-consistent-c}{{c}{51}{$\|u_1\|_{L_2}$\relax }{figure.caption.45}{}}
+\newlabel{fig:results-3d-picard-1p0em03-backwardeuler-consistent-d}{{29d}{51}{$\|u_1\|_{G_2}$\relax }{figure.caption.45}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-backwardeuler-consistent-d}{{d}{51}{$\|u_1\|_{G_2}$\relax }{figure.caption.45}{}}
+\newlabel{fig:results-3d-picard-1p0em03-backwardeuler-consistent-e}{{29e}{51}{$\|u_2\|_{L_2}$\relax }{figure.caption.45}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-backwardeuler-consistent-e}{{e}{51}{$\|u_2\|_{L_2}$\relax }{figure.caption.45}{}}
+\newlabel{fig:results-3d-picard-1p0em03-backwardeuler-consistent-f}{{29f}{51}{$\|u_2\|_{G_2}$\relax }{figure.caption.45}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-backwardeuler-consistent-f}{{f}{51}{$\|u_2\|_{G_2}$\relax }{figure.caption.45}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {29}{\ignorespaces 3D convergence curves for \texttt  {\small  Picard}, $\Delta t=10^{-3}$, bE with cons. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-picard-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{51}{figure.caption.45}\protected@file@percent }
+\newlabel{fig:results-3d-picard-1p0em03-backwardeuler-consistent}{{29}{51}{3D convergence curves for \code {Picard}, $\Delta t=10^{-3}$, bE with cons. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-picard-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.45}{}}
+\newlabel{fig:results-3d-picard-1p0em03-backwardeuler-lumped-a}{{30a}{52}{$\|V_m\|_{L_2}$\relax }{figure.caption.46}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-backwardeuler-lumped-a}{{a}{52}{$\|V_m\|_{L_2}$\relax }{figure.caption.46}{}}
+\newlabel{fig:results-3d-picard-1p0em03-backwardeuler-lumped-b}{{30b}{52}{$\|V_m\|_{G_2}$\relax }{figure.caption.46}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-backwardeuler-lumped-b}{{b}{52}{$\|V_m\|_{G_2}$\relax }{figure.caption.46}{}}
+\newlabel{fig:results-3d-picard-1p0em03-backwardeuler-lumped-c}{{30c}{52}{$\|u_1\|_{L_2}$\relax }{figure.caption.46}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-backwardeuler-lumped-c}{{c}{52}{$\|u_1\|_{L_2}$\relax }{figure.caption.46}{}}
+\newlabel{fig:results-3d-picard-1p0em03-backwardeuler-lumped-d}{{30d}{52}{$\|u_1\|_{G_2}$\relax }{figure.caption.46}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-backwardeuler-lumped-d}{{d}{52}{$\|u_1\|_{G_2}$\relax }{figure.caption.46}{}}
+\newlabel{fig:results-3d-picard-1p0em03-backwardeuler-lumped-e}{{30e}{52}{$\|u_2\|_{L_2}$\relax }{figure.caption.46}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-backwardeuler-lumped-e}{{e}{52}{$\|u_2\|_{L_2}$\relax }{figure.caption.46}{}}
+\newlabel{fig:results-3d-picard-1p0em03-backwardeuler-lumped-f}{{30f}{52}{$\|u_2\|_{G_2}$\relax }{figure.caption.46}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-backwardeuler-lumped-f}{{f}{52}{$\|u_2\|_{G_2}$\relax }{figure.caption.46}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {30}{\ignorespaces 3D convergence curves for \texttt  {\small  Picard}, $\Delta t=10^{-3}$, bE with lump. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-picard-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{52}{figure.caption.46}\protected@file@percent }
+\newlabel{fig:results-3d-picard-1p0em03-backwardeuler-lumped}{{30}{52}{3D convergence curves for \code {Picard}, $\Delta t=10^{-3}$, bE with lump. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-picard-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.46}{}}
+\newlabel{fig:results-3d-picard-1p0em03-cranknicolson-consistent-a}{{31a}{53}{$\|V_m\|_{L_2}$\relax }{figure.caption.47}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-cranknicolson-consistent-a}{{a}{53}{$\|V_m\|_{L_2}$\relax }{figure.caption.47}{}}
+\newlabel{fig:results-3d-picard-1p0em03-cranknicolson-consistent-b}{{31b}{53}{$\|V_m\|_{G_2}$\relax }{figure.caption.47}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-cranknicolson-consistent-b}{{b}{53}{$\|V_m\|_{G_2}$\relax }{figure.caption.47}{}}
+\newlabel{fig:results-3d-picard-1p0em03-cranknicolson-consistent-c}{{31c}{53}{$\|u_1\|_{L_2}$\relax }{figure.caption.47}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-cranknicolson-consistent-c}{{c}{53}{$\|u_1\|_{L_2}$\relax }{figure.caption.47}{}}
+\newlabel{fig:results-3d-picard-1p0em03-cranknicolson-consistent-d}{{31d}{53}{$\|u_1\|_{G_2}$\relax }{figure.caption.47}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-cranknicolson-consistent-d}{{d}{53}{$\|u_1\|_{G_2}$\relax }{figure.caption.47}{}}
+\newlabel{fig:results-3d-picard-1p0em03-cranknicolson-consistent-e}{{31e}{53}{$\|u_2\|_{L_2}$\relax }{figure.caption.47}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-cranknicolson-consistent-e}{{e}{53}{$\|u_2\|_{L_2}$\relax }{figure.caption.47}{}}
+\newlabel{fig:results-3d-picard-1p0em03-cranknicolson-consistent-f}{{31f}{53}{$\|u_2\|_{G_2}$\relax }{figure.caption.47}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-cranknicolson-consistent-f}{{f}{53}{$\|u_2\|_{G_2}$\relax }{figure.caption.47}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {31}{\ignorespaces 3D convergence curves for \texttt  {\small  Picard}, $\Delta t=10^{-3}$, cN with cons. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-picard-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{53}{figure.caption.47}\protected@file@percent }
+\newlabel{fig:results-3d-picard-1p0em03-cranknicolson-consistent}{{31}{53}{3D convergence curves for \code {Picard}, $\Delta t=10^{-3}$, cN with cons. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-picard-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.47}{}}
+\newlabel{fig:results-3d-picard-1p0em03-cranknicolson-lumped-a}{{32a}{54}{$\|V_m\|_{L_2}$\relax }{figure.caption.48}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-cranknicolson-lumped-a}{{a}{54}{$\|V_m\|_{L_2}$\relax }{figure.caption.48}{}}
+\newlabel{fig:results-3d-picard-1p0em03-cranknicolson-lumped-b}{{32b}{54}{$\|V_m\|_{G_2}$\relax }{figure.caption.48}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-cranknicolson-lumped-b}{{b}{54}{$\|V_m\|_{G_2}$\relax }{figure.caption.48}{}}
+\newlabel{fig:results-3d-picard-1p0em03-cranknicolson-lumped-c}{{32c}{54}{$\|u_1\|_{L_2}$\relax }{figure.caption.48}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-cranknicolson-lumped-c}{{c}{54}{$\|u_1\|_{L_2}$\relax }{figure.caption.48}{}}
+\newlabel{fig:results-3d-picard-1p0em03-cranknicolson-lumped-d}{{32d}{54}{$\|u_1\|_{G_2}$\relax }{figure.caption.48}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-cranknicolson-lumped-d}{{d}{54}{$\|u_1\|_{G_2}$\relax }{figure.caption.48}{}}
+\newlabel{fig:results-3d-picard-1p0em03-cranknicolson-lumped-e}{{32e}{54}{$\|u_2\|_{L_2}$\relax }{figure.caption.48}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-cranknicolson-lumped-e}{{e}{54}{$\|u_2\|_{L_2}$\relax }{figure.caption.48}{}}
+\newlabel{fig:results-3d-picard-1p0em03-cranknicolson-lumped-f}{{32f}{54}{$\|u_2\|_{G_2}$\relax }{figure.caption.48}{}}
+\newlabel{sub@fig:results-3d-picard-1p0em03-cranknicolson-lumped-f}{{f}{54}{$\|u_2\|_{G_2}$\relax }{figure.caption.48}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {32}{\ignorespaces 3D convergence curves for \texttt  {\small  Picard}, $\Delta t=10^{-3}$, cN with lump. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-picard-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{54}{figure.caption.48}\protected@file@percent }
+\newlabel{fig:results-3d-picard-1p0em03-cranknicolson-lumped}{{32}{54}{3D convergence curves for \code {Picard}, $\Delta t=10^{-3}$, cN with lump. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-picard-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.48}{}}
+\gdef \LT@x {\LT@entry 
+    {1}{14.4179pt}\LT@entry 
+    {1}{16.35292pt}\LT@entry 
+    {1}{27.14973pt}\LT@entry 
+    {3}{21.73312pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{23.84415pt}\LT@entry 
+    {1}{40.4747pt}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {10.3.2}\texttt  {\small  diagonalIion}}{55}{subsubsection.10.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{$\Delta t=10^{-2}$}{55}{section*.49}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {10}{\ignorespaces 3D manufactured results for \texttt  {\small  diagonalIion} with $\Delta t=10^{-2}$. The first six convergence columns are log--log fits over meshes $N=10$--$30$; the next six columns are fits over $N=20$--$30$. The time column is the sum of the reported wall-clock total over all mesh runs in the row, and the memory column is the sum of the reported peak resident memory in MB over the same mesh runs. The corresponding convergence figures are Figs.\nobreakspace  {}\ref  {fig:results-3d-diagonaliion-1p0em02-backwardeuler-consistent}, \ref  {fig:results-3d-diagonaliion-1p0em02-backwardeuler-lumped}, \ref  {fig:results-3d-diagonaliion-1p0em02-cranknicolson-consistent}, \ref  {fig:results-3d-diagonaliion-1p0em02-cranknicolson-lumped}.\relax }}{55}{table.10}\protected@file@percent }
+\newlabel{tab:results-3d-diagonaliion-1p0em02}{{10}{55}{3D manufactured results for \code {diagonalIion} with $\Delta t=10^{-2}$. The first six convergence columns are log--log fits over meshes $N=10$--$30$; the next six columns are fits over $N=20$--$30$. The time column is the sum of the reported wall-clock total over all mesh runs in the row, and the memory column is the sum of the reported peak resident memory in MB over the same mesh runs. The corresponding convergence figures are Figs.~\ref {fig:results-3d-diagonaliion-1p0em02-backwardeuler-consistent}, \ref {fig:results-3d-diagonaliion-1p0em02-backwardeuler-lumped}, \ref {fig:results-3d-diagonaliion-1p0em02-cranknicolson-consistent}, \ref {fig:results-3d-diagonaliion-1p0em02-cranknicolson-lumped}.\relax }{table.10}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-backwardeuler-consistent-a}{{33a}{56}{$\|V_m\|_{L_2}$\relax }{figure.caption.50}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-backwardeuler-consistent-a}{{a}{56}{$\|V_m\|_{L_2}$\relax }{figure.caption.50}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-backwardeuler-consistent-b}{{33b}{56}{$\|V_m\|_{G_2}$\relax }{figure.caption.50}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-backwardeuler-consistent-b}{{b}{56}{$\|V_m\|_{G_2}$\relax }{figure.caption.50}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-backwardeuler-consistent-c}{{33c}{56}{$\|u_1\|_{L_2}$\relax }{figure.caption.50}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-backwardeuler-consistent-c}{{c}{56}{$\|u_1\|_{L_2}$\relax }{figure.caption.50}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-backwardeuler-consistent-d}{{33d}{56}{$\|u_1\|_{G_2}$\relax }{figure.caption.50}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-backwardeuler-consistent-d}{{d}{56}{$\|u_1\|_{G_2}$\relax }{figure.caption.50}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-backwardeuler-consistent-e}{{33e}{56}{$\|u_2\|_{L_2}$\relax }{figure.caption.50}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-backwardeuler-consistent-e}{{e}{56}{$\|u_2\|_{L_2}$\relax }{figure.caption.50}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-backwardeuler-consistent-f}{{33f}{56}{$\|u_2\|_{G_2}$\relax }{figure.caption.50}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-backwardeuler-consistent-f}{{f}{56}{$\|u_2\|_{G_2}$\relax }{figure.caption.50}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {33}{\ignorespaces 3D convergence curves for \texttt  {\small  diagonalIion}, $\Delta t=10^{-2}$, bE with cons. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-diagonaliion-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{56}{figure.caption.50}\protected@file@percent }
+\newlabel{fig:results-3d-diagonaliion-1p0em02-backwardeuler-consistent}{{33}{56}{3D convergence curves for \code {diagonalIion}, $\Delta t=10^{-2}$, bE with cons. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-diagonaliion-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.50}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-backwardeuler-lumped-a}{{34a}{57}{$\|V_m\|_{L_2}$\relax }{figure.caption.51}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-backwardeuler-lumped-a}{{a}{57}{$\|V_m\|_{L_2}$\relax }{figure.caption.51}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-backwardeuler-lumped-b}{{34b}{57}{$\|V_m\|_{G_2}$\relax }{figure.caption.51}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-backwardeuler-lumped-b}{{b}{57}{$\|V_m\|_{G_2}$\relax }{figure.caption.51}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-backwardeuler-lumped-c}{{34c}{57}{$\|u_1\|_{L_2}$\relax }{figure.caption.51}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-backwardeuler-lumped-c}{{c}{57}{$\|u_1\|_{L_2}$\relax }{figure.caption.51}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-backwardeuler-lumped-d}{{34d}{57}{$\|u_1\|_{G_2}$\relax }{figure.caption.51}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-backwardeuler-lumped-d}{{d}{57}{$\|u_1\|_{G_2}$\relax }{figure.caption.51}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-backwardeuler-lumped-e}{{34e}{57}{$\|u_2\|_{L_2}$\relax }{figure.caption.51}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-backwardeuler-lumped-e}{{e}{57}{$\|u_2\|_{L_2}$\relax }{figure.caption.51}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-backwardeuler-lumped-f}{{34f}{57}{$\|u_2\|_{G_2}$\relax }{figure.caption.51}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-backwardeuler-lumped-f}{{f}{57}{$\|u_2\|_{G_2}$\relax }{figure.caption.51}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {34}{\ignorespaces 3D convergence curves for \texttt  {\small  diagonalIion}, $\Delta t=10^{-2}$, bE with lump. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-diagonaliion-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{57}{figure.caption.51}\protected@file@percent }
+\newlabel{fig:results-3d-diagonaliion-1p0em02-backwardeuler-lumped}{{34}{57}{3D convergence curves for \code {diagonalIion}, $\Delta t=10^{-2}$, bE with lump. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-diagonaliion-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.51}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-cranknicolson-consistent-a}{{35a}{58}{$\|V_m\|_{L_2}$\relax }{figure.caption.52}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-cranknicolson-consistent-a}{{a}{58}{$\|V_m\|_{L_2}$\relax }{figure.caption.52}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-cranknicolson-consistent-b}{{35b}{58}{$\|V_m\|_{G_2}$\relax }{figure.caption.52}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-cranknicolson-consistent-b}{{b}{58}{$\|V_m\|_{G_2}$\relax }{figure.caption.52}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-cranknicolson-consistent-c}{{35c}{58}{$\|u_1\|_{L_2}$\relax }{figure.caption.52}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-cranknicolson-consistent-c}{{c}{58}{$\|u_1\|_{L_2}$\relax }{figure.caption.52}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-cranknicolson-consistent-d}{{35d}{58}{$\|u_1\|_{G_2}$\relax }{figure.caption.52}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-cranknicolson-consistent-d}{{d}{58}{$\|u_1\|_{G_2}$\relax }{figure.caption.52}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-cranknicolson-consistent-e}{{35e}{58}{$\|u_2\|_{L_2}$\relax }{figure.caption.52}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-cranknicolson-consistent-e}{{e}{58}{$\|u_2\|_{L_2}$\relax }{figure.caption.52}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-cranknicolson-consistent-f}{{35f}{58}{$\|u_2\|_{G_2}$\relax }{figure.caption.52}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-cranknicolson-consistent-f}{{f}{58}{$\|u_2\|_{G_2}$\relax }{figure.caption.52}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {35}{\ignorespaces 3D convergence curves for \texttt  {\small  diagonalIion}, $\Delta t=10^{-2}$, cN with cons. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-diagonaliion-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{58}{figure.caption.52}\protected@file@percent }
+\newlabel{fig:results-3d-diagonaliion-1p0em02-cranknicolson-consistent}{{35}{58}{3D convergence curves for \code {diagonalIion}, $\Delta t=10^{-2}$, cN with cons. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-diagonaliion-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.52}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-cranknicolson-lumped-a}{{36a}{59}{$\|V_m\|_{L_2}$\relax }{figure.caption.53}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-cranknicolson-lumped-a}{{a}{59}{$\|V_m\|_{L_2}$\relax }{figure.caption.53}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-cranknicolson-lumped-b}{{36b}{59}{$\|V_m\|_{G_2}$\relax }{figure.caption.53}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-cranknicolson-lumped-b}{{b}{59}{$\|V_m\|_{G_2}$\relax }{figure.caption.53}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-cranknicolson-lumped-c}{{36c}{59}{$\|u_1\|_{L_2}$\relax }{figure.caption.53}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-cranknicolson-lumped-c}{{c}{59}{$\|u_1\|_{L_2}$\relax }{figure.caption.53}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-cranknicolson-lumped-d}{{36d}{59}{$\|u_1\|_{G_2}$\relax }{figure.caption.53}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-cranknicolson-lumped-d}{{d}{59}{$\|u_1\|_{G_2}$\relax }{figure.caption.53}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-cranknicolson-lumped-e}{{36e}{59}{$\|u_2\|_{L_2}$\relax }{figure.caption.53}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-cranknicolson-lumped-e}{{e}{59}{$\|u_2\|_{L_2}$\relax }{figure.caption.53}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em02-cranknicolson-lumped-f}{{36f}{59}{$\|u_2\|_{G_2}$\relax }{figure.caption.53}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em02-cranknicolson-lumped-f}{{f}{59}{$\|u_2\|_{G_2}$\relax }{figure.caption.53}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {36}{\ignorespaces 3D convergence curves for \texttt  {\small  diagonalIion}, $\Delta t=10^{-2}$, cN with lump. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-diagonaliion-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{59}{figure.caption.53}\protected@file@percent }
+\newlabel{fig:results-3d-diagonaliion-1p0em02-cranknicolson-lumped}{{36}{59}{3D convergence curves for \code {diagonalIion}, $\Delta t=10^{-2}$, cN with lump. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-diagonaliion-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.53}{}}
+\gdef \LT@xi {\LT@entry 
+    {1}{14.4179pt}\LT@entry 
+    {1}{16.35292pt}\LT@entry 
+    {1}{27.14973pt}\LT@entry 
+    {3}{21.73312pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{27.51076pt}\LT@entry 
+    {1}{40.4747pt}}
+\@writefile{toc}{\contentsline {paragraph}{$\Delta t=10^{-3}$}{60}{section*.54}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {11}{\ignorespaces 3D manufactured results for \texttt  {\small  diagonalIion} with $\Delta t=10^{-3}$. The first six convergence columns are log--log fits over meshes $N=10$--$30$; the next six columns are fits over $N=20$--$30$. The time column is the sum of the reported wall-clock total over all mesh runs in the row, and the memory column is the sum of the reported peak resident memory in MB over the same mesh runs. The corresponding convergence figures are Figs.\nobreakspace  {}\ref  {fig:results-3d-diagonaliion-1p0em03-backwardeuler-consistent}, \ref  {fig:results-3d-diagonaliion-1p0em03-backwardeuler-lumped}, \ref  {fig:results-3d-diagonaliion-1p0em03-cranknicolson-consistent}, \ref  {fig:results-3d-diagonaliion-1p0em03-cranknicolson-lumped}.\relax }}{60}{table.11}\protected@file@percent }
+\newlabel{tab:results-3d-diagonaliion-1p0em03}{{11}{60}{3D manufactured results for \code {diagonalIion} with $\Delta t=10^{-3}$. The first six convergence columns are log--log fits over meshes $N=10$--$30$; the next six columns are fits over $N=20$--$30$. The time column is the sum of the reported wall-clock total over all mesh runs in the row, and the memory column is the sum of the reported peak resident memory in MB over the same mesh runs. The corresponding convergence figures are Figs.~\ref {fig:results-3d-diagonaliion-1p0em03-backwardeuler-consistent}, \ref {fig:results-3d-diagonaliion-1p0em03-backwardeuler-lumped}, \ref {fig:results-3d-diagonaliion-1p0em03-cranknicolson-consistent}, \ref {fig:results-3d-diagonaliion-1p0em03-cranknicolson-lumped}.\relax }{table.11}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-backwardeuler-consistent-a}{{37a}{61}{$\|V_m\|_{L_2}$\relax }{figure.caption.55}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-backwardeuler-consistent-a}{{a}{61}{$\|V_m\|_{L_2}$\relax }{figure.caption.55}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-backwardeuler-consistent-b}{{37b}{61}{$\|V_m\|_{G_2}$\relax }{figure.caption.55}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-backwardeuler-consistent-b}{{b}{61}{$\|V_m\|_{G_2}$\relax }{figure.caption.55}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-backwardeuler-consistent-c}{{37c}{61}{$\|u_1\|_{L_2}$\relax }{figure.caption.55}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-backwardeuler-consistent-c}{{c}{61}{$\|u_1\|_{L_2}$\relax }{figure.caption.55}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-backwardeuler-consistent-d}{{37d}{61}{$\|u_1\|_{G_2}$\relax }{figure.caption.55}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-backwardeuler-consistent-d}{{d}{61}{$\|u_1\|_{G_2}$\relax }{figure.caption.55}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-backwardeuler-consistent-e}{{37e}{61}{$\|u_2\|_{L_2}$\relax }{figure.caption.55}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-backwardeuler-consistent-e}{{e}{61}{$\|u_2\|_{L_2}$\relax }{figure.caption.55}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-backwardeuler-consistent-f}{{37f}{61}{$\|u_2\|_{G_2}$\relax }{figure.caption.55}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-backwardeuler-consistent-f}{{f}{61}{$\|u_2\|_{G_2}$\relax }{figure.caption.55}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {37}{\ignorespaces 3D convergence curves for \texttt  {\small  diagonalIion}, $\Delta t=10^{-3}$, bE with cons. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-diagonaliion-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{61}{figure.caption.55}\protected@file@percent }
+\newlabel{fig:results-3d-diagonaliion-1p0em03-backwardeuler-consistent}{{37}{61}{3D convergence curves for \code {diagonalIion}, $\Delta t=10^{-3}$, bE with cons. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-diagonaliion-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.55}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-backwardeuler-lumped-a}{{38a}{62}{$\|V_m\|_{L_2}$\relax }{figure.caption.56}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-backwardeuler-lumped-a}{{a}{62}{$\|V_m\|_{L_2}$\relax }{figure.caption.56}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-backwardeuler-lumped-b}{{38b}{62}{$\|V_m\|_{G_2}$\relax }{figure.caption.56}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-backwardeuler-lumped-b}{{b}{62}{$\|V_m\|_{G_2}$\relax }{figure.caption.56}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-backwardeuler-lumped-c}{{38c}{62}{$\|u_1\|_{L_2}$\relax }{figure.caption.56}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-backwardeuler-lumped-c}{{c}{62}{$\|u_1\|_{L_2}$\relax }{figure.caption.56}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-backwardeuler-lumped-d}{{38d}{62}{$\|u_1\|_{G_2}$\relax }{figure.caption.56}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-backwardeuler-lumped-d}{{d}{62}{$\|u_1\|_{G_2}$\relax }{figure.caption.56}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-backwardeuler-lumped-e}{{38e}{62}{$\|u_2\|_{L_2}$\relax }{figure.caption.56}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-backwardeuler-lumped-e}{{e}{62}{$\|u_2\|_{L_2}$\relax }{figure.caption.56}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-backwardeuler-lumped-f}{{38f}{62}{$\|u_2\|_{G_2}$\relax }{figure.caption.56}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-backwardeuler-lumped-f}{{f}{62}{$\|u_2\|_{G_2}$\relax }{figure.caption.56}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {38}{\ignorespaces 3D convergence curves for \texttt  {\small  diagonalIion}, $\Delta t=10^{-3}$, bE with lump. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-diagonaliion-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{62}{figure.caption.56}\protected@file@percent }
+\newlabel{fig:results-3d-diagonaliion-1p0em03-backwardeuler-lumped}{{38}{62}{3D convergence curves for \code {diagonalIion}, $\Delta t=10^{-3}$, bE with lump. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-diagonaliion-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.56}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-cranknicolson-consistent-a}{{39a}{63}{$\|V_m\|_{L_2}$\relax }{figure.caption.57}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-cranknicolson-consistent-a}{{a}{63}{$\|V_m\|_{L_2}$\relax }{figure.caption.57}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-cranknicolson-consistent-b}{{39b}{63}{$\|V_m\|_{G_2}$\relax }{figure.caption.57}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-cranknicolson-consistent-b}{{b}{63}{$\|V_m\|_{G_2}$\relax }{figure.caption.57}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-cranknicolson-consistent-c}{{39c}{63}{$\|u_1\|_{L_2}$\relax }{figure.caption.57}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-cranknicolson-consistent-c}{{c}{63}{$\|u_1\|_{L_2}$\relax }{figure.caption.57}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-cranknicolson-consistent-d}{{39d}{63}{$\|u_1\|_{G_2}$\relax }{figure.caption.57}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-cranknicolson-consistent-d}{{d}{63}{$\|u_1\|_{G_2}$\relax }{figure.caption.57}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-cranknicolson-consistent-e}{{39e}{63}{$\|u_2\|_{L_2}$\relax }{figure.caption.57}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-cranknicolson-consistent-e}{{e}{63}{$\|u_2\|_{L_2}$\relax }{figure.caption.57}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-cranknicolson-consistent-f}{{39f}{63}{$\|u_2\|_{G_2}$\relax }{figure.caption.57}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-cranknicolson-consistent-f}{{f}{63}{$\|u_2\|_{G_2}$\relax }{figure.caption.57}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {39}{\ignorespaces 3D convergence curves for \texttt  {\small  diagonalIion}, $\Delta t=10^{-3}$, cN with cons. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-diagonaliion-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{63}{figure.caption.57}\protected@file@percent }
+\newlabel{fig:results-3d-diagonaliion-1p0em03-cranknicolson-consistent}{{39}{63}{3D convergence curves for \code {diagonalIion}, $\Delta t=10^{-3}$, cN with cons. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-diagonaliion-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.57}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-cranknicolson-lumped-a}{{40a}{64}{$\|V_m\|_{L_2}$\relax }{figure.caption.58}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-cranknicolson-lumped-a}{{a}{64}{$\|V_m\|_{L_2}$\relax }{figure.caption.58}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-cranknicolson-lumped-b}{{40b}{64}{$\|V_m\|_{G_2}$\relax }{figure.caption.58}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-cranknicolson-lumped-b}{{b}{64}{$\|V_m\|_{G_2}$\relax }{figure.caption.58}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-cranknicolson-lumped-c}{{40c}{64}{$\|u_1\|_{L_2}$\relax }{figure.caption.58}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-cranknicolson-lumped-c}{{c}{64}{$\|u_1\|_{L_2}$\relax }{figure.caption.58}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-cranknicolson-lumped-d}{{40d}{64}{$\|u_1\|_{G_2}$\relax }{figure.caption.58}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-cranknicolson-lumped-d}{{d}{64}{$\|u_1\|_{G_2}$\relax }{figure.caption.58}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-cranknicolson-lumped-e}{{40e}{64}{$\|u_2\|_{L_2}$\relax }{figure.caption.58}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-cranknicolson-lumped-e}{{e}{64}{$\|u_2\|_{L_2}$\relax }{figure.caption.58}{}}
+\newlabel{fig:results-3d-diagonaliion-1p0em03-cranknicolson-lumped-f}{{40f}{64}{$\|u_2\|_{G_2}$\relax }{figure.caption.58}{}}
+\newlabel{sub@fig:results-3d-diagonaliion-1p0em03-cranknicolson-lumped-f}{{f}{64}{$\|u_2\|_{G_2}$\relax }{figure.caption.58}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {40}{\ignorespaces 3D convergence curves for \texttt  {\small  diagonalIion}, $\Delta t=10^{-3}$, cN with lump. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-diagonaliion-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{64}{figure.caption.58}\protected@file@percent }
+\newlabel{fig:results-3d-diagonaliion-1p0em03-cranknicolson-lumped}{{40}{64}{3D convergence curves for \code {diagonalIion}, $\Delta t=10^{-3}$, cN with lump. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-diagonaliion-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.58}{}}
+\gdef \LT@xii {\LT@entry 
+    {1}{14.4179pt}\LT@entry 
+    {1}{16.35292pt}\LT@entry 
+    {1}{27.14973pt}\LT@entry 
+    {3}{21.73312pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{23.84415pt}\LT@entry 
+    {1}{40.4747pt}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {10.3.3}\texttt  {\small  JFNK}}{65}{subsubsection.10.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{$\Delta t=10^{-2}$}{65}{section*.59}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {12}{\ignorespaces 3D manufactured results for \texttt  {\small  JFNK} with $\Delta t=10^{-2}$. The first six convergence columns are log--log fits over meshes $N=10$--$30$; the next six columns are fits over $N=20$--$30$. The time column is the sum of the reported wall-clock total over all mesh runs in the row, and the memory column is the sum of the reported peak resident memory in MB over the same mesh runs. The corresponding convergence figures are Figs.\nobreakspace  {}\ref  {fig:results-3d-jfnk-1p0em02-backwardeuler-consistent}, \ref  {fig:results-3d-jfnk-1p0em02-backwardeuler-lumped}, \ref  {fig:results-3d-jfnk-1p0em02-cranknicolson-consistent}, \ref  {fig:results-3d-jfnk-1p0em02-cranknicolson-lumped}.\relax }}{65}{table.12}\protected@file@percent }
+\newlabel{tab:results-3d-jfnk-1p0em02}{{12}{65}{3D manufactured results for \code {JFNK} with $\Delta t=10^{-2}$. The first six convergence columns are log--log fits over meshes $N=10$--$30$; the next six columns are fits over $N=20$--$30$. The time column is the sum of the reported wall-clock total over all mesh runs in the row, and the memory column is the sum of the reported peak resident memory in MB over the same mesh runs. The corresponding convergence figures are Figs.~\ref {fig:results-3d-jfnk-1p0em02-backwardeuler-consistent}, \ref {fig:results-3d-jfnk-1p0em02-backwardeuler-lumped}, \ref {fig:results-3d-jfnk-1p0em02-cranknicolson-consistent}, \ref {fig:results-3d-jfnk-1p0em02-cranknicolson-lumped}.\relax }{table.12}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-backwardeuler-consistent-a}{{41a}{66}{$\|V_m\|_{L_2}$\relax }{figure.caption.60}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-backwardeuler-consistent-a}{{a}{66}{$\|V_m\|_{L_2}$\relax }{figure.caption.60}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-backwardeuler-consistent-b}{{41b}{66}{$\|V_m\|_{G_2}$\relax }{figure.caption.60}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-backwardeuler-consistent-b}{{b}{66}{$\|V_m\|_{G_2}$\relax }{figure.caption.60}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-backwardeuler-consistent-c}{{41c}{66}{$\|u_1\|_{L_2}$\relax }{figure.caption.60}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-backwardeuler-consistent-c}{{c}{66}{$\|u_1\|_{L_2}$\relax }{figure.caption.60}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-backwardeuler-consistent-d}{{41d}{66}{$\|u_1\|_{G_2}$\relax }{figure.caption.60}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-backwardeuler-consistent-d}{{d}{66}{$\|u_1\|_{G_2}$\relax }{figure.caption.60}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-backwardeuler-consistent-e}{{41e}{66}{$\|u_2\|_{L_2}$\relax }{figure.caption.60}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-backwardeuler-consistent-e}{{e}{66}{$\|u_2\|_{L_2}$\relax }{figure.caption.60}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-backwardeuler-consistent-f}{{41f}{66}{$\|u_2\|_{G_2}$\relax }{figure.caption.60}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-backwardeuler-consistent-f}{{f}{66}{$\|u_2\|_{G_2}$\relax }{figure.caption.60}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {41}{\ignorespaces 3D convergence curves for \texttt  {\small  JFNK}, $\Delta t=10^{-2}$, bE with cons. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-jfnk-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{66}{figure.caption.60}\protected@file@percent }
+\newlabel{fig:results-3d-jfnk-1p0em02-backwardeuler-consistent}{{41}{66}{3D convergence curves for \code {JFNK}, $\Delta t=10^{-2}$, bE with cons. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-jfnk-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.60}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-backwardeuler-lumped-a}{{42a}{67}{$\|V_m\|_{L_2}$\relax }{figure.caption.61}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-backwardeuler-lumped-a}{{a}{67}{$\|V_m\|_{L_2}$\relax }{figure.caption.61}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-backwardeuler-lumped-b}{{42b}{67}{$\|V_m\|_{G_2}$\relax }{figure.caption.61}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-backwardeuler-lumped-b}{{b}{67}{$\|V_m\|_{G_2}$\relax }{figure.caption.61}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-backwardeuler-lumped-c}{{42c}{67}{$\|u_1\|_{L_2}$\relax }{figure.caption.61}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-backwardeuler-lumped-c}{{c}{67}{$\|u_1\|_{L_2}$\relax }{figure.caption.61}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-backwardeuler-lumped-d}{{42d}{67}{$\|u_1\|_{G_2}$\relax }{figure.caption.61}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-backwardeuler-lumped-d}{{d}{67}{$\|u_1\|_{G_2}$\relax }{figure.caption.61}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-backwardeuler-lumped-e}{{42e}{67}{$\|u_2\|_{L_2}$\relax }{figure.caption.61}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-backwardeuler-lumped-e}{{e}{67}{$\|u_2\|_{L_2}$\relax }{figure.caption.61}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-backwardeuler-lumped-f}{{42f}{67}{$\|u_2\|_{G_2}$\relax }{figure.caption.61}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-backwardeuler-lumped-f}{{f}{67}{$\|u_2\|_{G_2}$\relax }{figure.caption.61}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {42}{\ignorespaces 3D convergence curves for \texttt  {\small  JFNK}, $\Delta t=10^{-2}$, bE with lump. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-jfnk-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{67}{figure.caption.61}\protected@file@percent }
+\newlabel{fig:results-3d-jfnk-1p0em02-backwardeuler-lumped}{{42}{67}{3D convergence curves for \code {JFNK}, $\Delta t=10^{-2}$, bE with lump. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-jfnk-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.61}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-cranknicolson-consistent-a}{{43a}{68}{$\|V_m\|_{L_2}$\relax }{figure.caption.62}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-cranknicolson-consistent-a}{{a}{68}{$\|V_m\|_{L_2}$\relax }{figure.caption.62}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-cranknicolson-consistent-b}{{43b}{68}{$\|V_m\|_{G_2}$\relax }{figure.caption.62}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-cranknicolson-consistent-b}{{b}{68}{$\|V_m\|_{G_2}$\relax }{figure.caption.62}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-cranknicolson-consistent-c}{{43c}{68}{$\|u_1\|_{L_2}$\relax }{figure.caption.62}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-cranknicolson-consistent-c}{{c}{68}{$\|u_1\|_{L_2}$\relax }{figure.caption.62}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-cranknicolson-consistent-d}{{43d}{68}{$\|u_1\|_{G_2}$\relax }{figure.caption.62}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-cranknicolson-consistent-d}{{d}{68}{$\|u_1\|_{G_2}$\relax }{figure.caption.62}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-cranknicolson-consistent-e}{{43e}{68}{$\|u_2\|_{L_2}$\relax }{figure.caption.62}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-cranknicolson-consistent-e}{{e}{68}{$\|u_2\|_{L_2}$\relax }{figure.caption.62}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-cranknicolson-consistent-f}{{43f}{68}{$\|u_2\|_{G_2}$\relax }{figure.caption.62}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-cranknicolson-consistent-f}{{f}{68}{$\|u_2\|_{G_2}$\relax }{figure.caption.62}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {43}{\ignorespaces 3D convergence curves for \texttt  {\small  JFNK}, $\Delta t=10^{-2}$, cN with cons. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-jfnk-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{68}{figure.caption.62}\protected@file@percent }
+\newlabel{fig:results-3d-jfnk-1p0em02-cranknicolson-consistent}{{43}{68}{3D convergence curves for \code {JFNK}, $\Delta t=10^{-2}$, cN with cons. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-jfnk-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.62}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-cranknicolson-lumped-a}{{44a}{69}{$\|V_m\|_{L_2}$\relax }{figure.caption.63}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-cranknicolson-lumped-a}{{a}{69}{$\|V_m\|_{L_2}$\relax }{figure.caption.63}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-cranknicolson-lumped-b}{{44b}{69}{$\|V_m\|_{G_2}$\relax }{figure.caption.63}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-cranknicolson-lumped-b}{{b}{69}{$\|V_m\|_{G_2}$\relax }{figure.caption.63}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-cranknicolson-lumped-c}{{44c}{69}{$\|u_1\|_{L_2}$\relax }{figure.caption.63}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-cranknicolson-lumped-c}{{c}{69}{$\|u_1\|_{L_2}$\relax }{figure.caption.63}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-cranknicolson-lumped-d}{{44d}{69}{$\|u_1\|_{G_2}$\relax }{figure.caption.63}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-cranknicolson-lumped-d}{{d}{69}{$\|u_1\|_{G_2}$\relax }{figure.caption.63}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-cranknicolson-lumped-e}{{44e}{69}{$\|u_2\|_{L_2}$\relax }{figure.caption.63}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-cranknicolson-lumped-e}{{e}{69}{$\|u_2\|_{L_2}$\relax }{figure.caption.63}{}}
+\newlabel{fig:results-3d-jfnk-1p0em02-cranknicolson-lumped-f}{{44f}{69}{$\|u_2\|_{G_2}$\relax }{figure.caption.63}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em02-cranknicolson-lumped-f}{{f}{69}{$\|u_2\|_{G_2}$\relax }{figure.caption.63}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {44}{\ignorespaces 3D convergence curves for \texttt  {\small  JFNK}, $\Delta t=10^{-2}$, cN with lump. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-jfnk-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{69}{figure.caption.63}\protected@file@percent }
+\newlabel{fig:results-3d-jfnk-1p0em02-cranknicolson-lumped}{{44}{69}{3D convergence curves for \code {JFNK}, $\Delta t=10^{-2}$, cN with lump. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-jfnk-1p0em02} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.63}{}}
+\gdef \LT@xiii {\LT@entry 
+    {1}{14.4179pt}\LT@entry 
+    {1}{16.35292pt}\LT@entry 
+    {1}{27.14973pt}\LT@entry 
+    {3}{21.73312pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{20.17754pt}\LT@entry 
+    {3}{27.51076pt}\LT@entry 
+    {1}{40.4747pt}}
+\@writefile{toc}{\contentsline {paragraph}{$\Delta t=10^{-3}$}{70}{section*.64}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {13}{\ignorespaces 3D manufactured results for \texttt  {\small  JFNK} with $\Delta t=10^{-3}$. The first six convergence columns are log--log fits over meshes $N=10$--$30$; the next six columns are fits over $N=20$--$30$. The time column is the sum of the reported wall-clock total over all mesh runs in the row, and the memory column is the sum of the reported peak resident memory in MB over the same mesh runs. The corresponding convergence figures are Figs.\nobreakspace  {}\ref  {fig:results-3d-jfnk-1p0em03-backwardeuler-consistent}, \ref  {fig:results-3d-jfnk-1p0em03-backwardeuler-lumped}, \ref  {fig:results-3d-jfnk-1p0em03-cranknicolson-consistent}, \ref  {fig:results-3d-jfnk-1p0em03-cranknicolson-lumped}.\relax }}{70}{table.13}\protected@file@percent }
+\newlabel{tab:results-3d-jfnk-1p0em03}{{13}{70}{3D manufactured results for \code {JFNK} with $\Delta t=10^{-3}$. The first six convergence columns are log--log fits over meshes $N=10$--$30$; the next six columns are fits over $N=20$--$30$. The time column is the sum of the reported wall-clock total over all mesh runs in the row, and the memory column is the sum of the reported peak resident memory in MB over the same mesh runs. The corresponding convergence figures are Figs.~\ref {fig:results-3d-jfnk-1p0em03-backwardeuler-consistent}, \ref {fig:results-3d-jfnk-1p0em03-backwardeuler-lumped}, \ref {fig:results-3d-jfnk-1p0em03-cranknicolson-consistent}, \ref {fig:results-3d-jfnk-1p0em03-cranknicolson-lumped}.\relax }{table.13}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-backwardeuler-consistent-a}{{45a}{71}{$\|V_m\|_{L_2}$\relax }{figure.caption.65}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-backwardeuler-consistent-a}{{a}{71}{$\|V_m\|_{L_2}$\relax }{figure.caption.65}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-backwardeuler-consistent-b}{{45b}{71}{$\|V_m\|_{G_2}$\relax }{figure.caption.65}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-backwardeuler-consistent-b}{{b}{71}{$\|V_m\|_{G_2}$\relax }{figure.caption.65}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-backwardeuler-consistent-c}{{45c}{71}{$\|u_1\|_{L_2}$\relax }{figure.caption.65}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-backwardeuler-consistent-c}{{c}{71}{$\|u_1\|_{L_2}$\relax }{figure.caption.65}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-backwardeuler-consistent-d}{{45d}{71}{$\|u_1\|_{G_2}$\relax }{figure.caption.65}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-backwardeuler-consistent-d}{{d}{71}{$\|u_1\|_{G_2}$\relax }{figure.caption.65}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-backwardeuler-consistent-e}{{45e}{71}{$\|u_2\|_{L_2}$\relax }{figure.caption.65}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-backwardeuler-consistent-e}{{e}{71}{$\|u_2\|_{L_2}$\relax }{figure.caption.65}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-backwardeuler-consistent-f}{{45f}{71}{$\|u_2\|_{G_2}$\relax }{figure.caption.65}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-backwardeuler-consistent-f}{{f}{71}{$\|u_2\|_{G_2}$\relax }{figure.caption.65}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {45}{\ignorespaces 3D convergence curves for \texttt  {\small  JFNK}, $\Delta t=10^{-3}$, bE with cons. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-jfnk-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{71}{figure.caption.65}\protected@file@percent }
+\newlabel{fig:results-3d-jfnk-1p0em03-backwardeuler-consistent}{{45}{71}{3D convergence curves for \code {JFNK}, $\Delta t=10^{-3}$, bE with cons. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-jfnk-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.65}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-backwardeuler-lumped-a}{{46a}{72}{$\|V_m\|_{L_2}$\relax }{figure.caption.66}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-backwardeuler-lumped-a}{{a}{72}{$\|V_m\|_{L_2}$\relax }{figure.caption.66}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-backwardeuler-lumped-b}{{46b}{72}{$\|V_m\|_{G_2}$\relax }{figure.caption.66}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-backwardeuler-lumped-b}{{b}{72}{$\|V_m\|_{G_2}$\relax }{figure.caption.66}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-backwardeuler-lumped-c}{{46c}{72}{$\|u_1\|_{L_2}$\relax }{figure.caption.66}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-backwardeuler-lumped-c}{{c}{72}{$\|u_1\|_{L_2}$\relax }{figure.caption.66}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-backwardeuler-lumped-d}{{46d}{72}{$\|u_1\|_{G_2}$\relax }{figure.caption.66}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-backwardeuler-lumped-d}{{d}{72}{$\|u_1\|_{G_2}$\relax }{figure.caption.66}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-backwardeuler-lumped-e}{{46e}{72}{$\|u_2\|_{L_2}$\relax }{figure.caption.66}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-backwardeuler-lumped-e}{{e}{72}{$\|u_2\|_{L_2}$\relax }{figure.caption.66}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-backwardeuler-lumped-f}{{46f}{72}{$\|u_2\|_{G_2}$\relax }{figure.caption.66}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-backwardeuler-lumped-f}{{f}{72}{$\|u_2\|_{G_2}$\relax }{figure.caption.66}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {46}{\ignorespaces 3D convergence curves for \texttt  {\small  JFNK}, $\Delta t=10^{-3}$, bE with lump. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-jfnk-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{72}{figure.caption.66}\protected@file@percent }
+\newlabel{fig:results-3d-jfnk-1p0em03-backwardeuler-lumped}{{46}{72}{3D convergence curves for \code {JFNK}, $\Delta t=10^{-3}$, bE with lump. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-jfnk-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.66}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-cranknicolson-consistent-a}{{47a}{73}{$\|V_m\|_{L_2}$\relax }{figure.caption.67}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-cranknicolson-consistent-a}{{a}{73}{$\|V_m\|_{L_2}$\relax }{figure.caption.67}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-cranknicolson-consistent-b}{{47b}{73}{$\|V_m\|_{G_2}$\relax }{figure.caption.67}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-cranknicolson-consistent-b}{{b}{73}{$\|V_m\|_{G_2}$\relax }{figure.caption.67}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-cranknicolson-consistent-c}{{47c}{73}{$\|u_1\|_{L_2}$\relax }{figure.caption.67}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-cranknicolson-consistent-c}{{c}{73}{$\|u_1\|_{L_2}$\relax }{figure.caption.67}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-cranknicolson-consistent-d}{{47d}{73}{$\|u_1\|_{G_2}$\relax }{figure.caption.67}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-cranknicolson-consistent-d}{{d}{73}{$\|u_1\|_{G_2}$\relax }{figure.caption.67}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-cranknicolson-consistent-e}{{47e}{73}{$\|u_2\|_{L_2}$\relax }{figure.caption.67}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-cranknicolson-consistent-e}{{e}{73}{$\|u_2\|_{L_2}$\relax }{figure.caption.67}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-cranknicolson-consistent-f}{{47f}{73}{$\|u_2\|_{G_2}$\relax }{figure.caption.67}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-cranknicolson-consistent-f}{{f}{73}{$\|u_2\|_{G_2}$\relax }{figure.caption.67}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {47}{\ignorespaces 3D convergence curves for \texttt  {\small  JFNK}, $\Delta t=10^{-3}$, cN with cons. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-jfnk-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{73}{figure.caption.67}\protected@file@percent }
+\newlabel{fig:results-3d-jfnk-1p0em03-cranknicolson-consistent}{{47}{73}{3D convergence curves for \code {JFNK}, $\Delta t=10^{-3}$, cN with cons. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-jfnk-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.67}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-cranknicolson-lumped-a}{{48a}{74}{$\|V_m\|_{L_2}$\relax }{figure.caption.68}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-cranknicolson-lumped-a}{{a}{74}{$\|V_m\|_{L_2}$\relax }{figure.caption.68}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-cranknicolson-lumped-b}{{48b}{74}{$\|V_m\|_{G_2}$\relax }{figure.caption.68}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-cranknicolson-lumped-b}{{b}{74}{$\|V_m\|_{G_2}$\relax }{figure.caption.68}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-cranknicolson-lumped-c}{{48c}{74}{$\|u_1\|_{L_2}$\relax }{figure.caption.68}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-cranknicolson-lumped-c}{{c}{74}{$\|u_1\|_{L_2}$\relax }{figure.caption.68}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-cranknicolson-lumped-d}{{48d}{74}{$\|u_1\|_{G_2}$\relax }{figure.caption.68}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-cranknicolson-lumped-d}{{d}{74}{$\|u_1\|_{G_2}$\relax }{figure.caption.68}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-cranknicolson-lumped-e}{{48e}{74}{$\|u_2\|_{L_2}$\relax }{figure.caption.68}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-cranknicolson-lumped-e}{{e}{74}{$\|u_2\|_{L_2}$\relax }{figure.caption.68}{}}
+\newlabel{fig:results-3d-jfnk-1p0em03-cranknicolson-lumped-f}{{48f}{74}{$\|u_2\|_{G_2}$\relax }{figure.caption.68}{}}
+\newlabel{sub@fig:results-3d-jfnk-1p0em03-cranknicolson-lumped-f}{{f}{74}{$\|u_2\|_{G_2}$\relax }{figure.caption.68}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {48}{\ignorespaces 3D convergence curves for \texttt  {\small  JFNK}, $\Delta t=10^{-3}$, cN with lump. mass. The six panels correspond to the six order columns in Table\nobreakspace  {}\ref  {tab:results-3d-jfnk-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }}{74}{figure.caption.68}\protected@file@percent }
+\newlabel{fig:results-3d-jfnk-1p0em03-cranknicolson-lumped}{{48}{74}{3D convergence curves for \code {JFNK}, $\Delta t=10^{-3}$, cN with lump. mass. The six panels correspond to the six order columns in Table~\ref {tab:results-3d-jfnk-1p0em03} for this scheme/mass block. The plot legends report the two fitted orders and the accumulated runtime/memory cost for each curve.\relax }{figure.caption.68}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {11}Notes}{75}{section.11}\protected@file@percent }
+\gdef \@abspage@last{75}

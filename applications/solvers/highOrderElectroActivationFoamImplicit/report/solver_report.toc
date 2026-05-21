@@ -1,37 +1,58 @@
-\contentsline {section}{\numberline {1}Notation}{2}{section.1}%
+\contentsline {section}{\numberline {1}Notation}{3}{section.1}%
 \contentsline {section}{\numberline {2}Governing equations}{3}{section.2}%
 \contentsline {subsection}{\numberline {2.1}Monodomain PDE}{3}{subsection.2.1}%
 \contentsline {subsection}{\numberline {2.2}Ionic ODE}{3}{subsection.2.2}%
-\contentsline {subsection}{\numberline {2.3}External stimulus}{3}{subsection.2.3}%
-\contentsline {section}{\numberline {3}Time discretisation: the $\theta $-scheme}{3}{section.3}%
+\contentsline {paragraph}{Units and sign convention.}{3}{section*.2}%
+\contentsline {subsection}{\numberline {2.3}External stimulus}{4}{subsection.2.3}%
+\contentsline {section}{\numberline {3}Time discretisation: the $\theta $-scheme}{4}{section.3}%
+\contentsline {paragraph}{Old-time source $\mathbf {s}^{n}$.}{4}{section*.3}%
 \contentsline {section}{\numberline {4}Spatial discretisation}{4}{section.4}%
 \contentsline {subsection}{\numberline {4.1}Standard orthogonal FV Laplacian}{4}{subsection.4.1}%
-\contentsline {subsection}{\numberline {4.2}High-order LRE diffusion}{4}{subsection.4.2}%
-\contentsline {subsection}{\numberline {4.3}Mass matrices}{4}{subsection.4.3}%
-\contentsline {paragraph}{Lumped.}{4}{section*.2}%
-\contentsline {paragraph}{Consistent high-order.}{4}{section*.3}%
-\contentsline {subsection}{\numberline {4.4}High-order reconstruction at ionic quadrature points}{4}{subsection.4.4}%
-\contentsline {section}{\numberline {5}Nonlinear solver}{4}{section.5}%
-\contentsline {subsection}{\numberline {5.1}Picard (default)}{4}{subsection.5.1}%
-\contentsline {subsection}{\numberline {5.2}Diagonal-Iion linearised Picard}{5}{subsection.5.2}%
-\contentsline {subsection}{\numberline {5.3}Convergence criteria}{5}{subsection.5.3}%
-\contentsline {subsection}{\numberline {5.4}Rollback on non-convergence}{5}{subsection.5.4}%
-\contentsline {section}{\numberline {6}Linear solver: Eigen back-end}{5}{section.6}%
-\contentsline {section}{\numberline {7}Ionic ODE integration}{5}{section.7}%
-\contentsline {section}{\numberline {8}TNNP numerical protection}{6}{section.8}%
-\contentsline {section}{\numberline {9}Activation tracking and benchmarks}{6}{section.9}%
-\contentsline {paragraph}{Activation time per cell.}{6}{section*.4}%
-\contentsline {paragraph}{Early termination on P8.}{6}{section*.5}%
-\contentsline {paragraph}{Diagonal sampling.}{6}{section*.6}%
-\contentsline {section}{\numberline {10}Solver flow chart}{6}{section.10}%
-\contentsline {section}{\numberline {11}Driver script: \texttt {run\_convergence.py}}{7}{section.11}%
-\contentsline {subsection}{\numberline {11.1}Geometry and parameter sweep}{7}{subsection.11.1}%
-\contentsline {subsection}{\numberline {11.2}Nonlinear and linear solver}{8}{subsection.11.2}%
-\contentsline {subsection}{\numberline {11.3}Inner ODE integrator (RKF45)}{8}{subsection.11.3}%
-\contentsline {subsection}{\numberline {11.4}Post-processing and run-control}{8}{subsection.11.4}%
-\contentsline {section}{\numberline {12}Niederer benchmark results}{9}{section.12}%
-\contentsline {subsection}{\numberline {12.1}Results for $\Delta t = 1.0\!\cdot \!10^{-3}$\nobreakspace {}s}{9}{subsection.12.1}%
-\contentsline {subsection}{\numberline {12.2}Results for $\Delta t = 1.0\!\cdot \!10^{-4}$\nobreakspace {}s}{10}{subsection.12.2}%
-\contentsline {subsection}{\numberline {12.3}Results for $\Delta t = 1.0\!\cdot \!10^{-5}$\nobreakspace {}s}{11}{subsection.12.3}%
-\contentsline {subsection}{\numberline {12.4}Results for $\Delta t = 1.0\!\cdot \!10^{-6}$\nobreakspace {}s}{13}{subsection.12.4}%
-\contentsline {section}{\numberline {A}Dimension table}{14}{appendix.A}%
+\contentsline {subsection}{\numberline {4.2}High-order LRE diffusion}{5}{subsection.4.2}%
+\contentsline {paragraph}{Boundary faces in the high-order branch.}{5}{section*.4}%
+\contentsline {subsection}{\numberline {4.3}Mass matrices}{5}{subsection.4.3}%
+\contentsline {paragraph}{Lumped.}{5}{section*.5}%
+\contentsline {paragraph}{Consistent high-order.}{5}{section*.6}%
+\contentsline {subsection}{\numberline {4.4}High-order reconstruction at ionic quadrature points}{5}{subsection.4.4}%
+\contentsline {section}{\numberline {5}Nonlinear solver}{5}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Picard iteration}{6}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Iteration budget and acceptance}{6}{subsection.5.2}%
+\contentsline {paragraph}{Consequence of \texttt {\small nonlinearIterations} $= 1$.}{6}{section*.7}%
+\contentsline {section}{\numberline {6}Linear solver: Eigen back-end}{6}{section.6}%
+\contentsline {section}{\numberline {7}Ionic ODE integration}{6}{section.7}%
+\contentsline {section}{\numberline {8}TNNP numerical protection}{7}{section.8}%
+\contentsline {subsection}{\numberline {8.1}Master switch and configuration}{7}{subsection.8.1}%
+\contentsline {subsection}{\numberline {8.2}Phases at which the guard fires}{7}{subsection.8.2}%
+\contentsline {subsection}{\numberline {8.3}Corrections and their order}{7}{subsection.8.3}%
+\contentsline {subsection}{\numberline {8.4}Interaction with the RKF45 step controller}{8}{subsection.8.4}%
+\contentsline {subsection}{\numberline {8.5}What the guard does not protect}{8}{subsection.8.5}%
+\contentsline {subsection}{\numberline {8.6}Logging and accounting}{9}{subsection.8.6}%
+\contentsline {subsection}{\numberline {8.7}Defaults vs.\ recommended settings}{9}{subsection.8.7}%
+\contentsline {section}{\numberline {9}Activation tracking and benchmarks}{9}{section.9}%
+\contentsline {paragraph}{Activation time per cell.}{9}{section*.8}%
+\contentsline {paragraph}{Early termination on P8.}{9}{section*.9}%
+\contentsline {paragraph}{Diagonal sampling.}{9}{section*.10}%
+\contentsline {section}{\numberline {10}Solver flow chart}{10}{section.10}%
+\contentsline {section}{\numberline {11}Driver script: \texttt {run\_convergence.py}}{10}{section.11}%
+\contentsline {subsection}{\numberline {11.1}Geometry and parameter sweep}{10}{subsection.11.1}%
+\contentsline {subsection}{\numberline {11.2}Nonlinear and linear solver}{11}{subsection.11.2}%
+\contentsline {subsection}{\numberline {11.3}Inner ODE integrator (RKF45)}{11}{subsection.11.3}%
+\contentsline {subsection}{\numberline {11.4}Post-processing and run-control}{11}{subsection.11.4}%
+\contentsline {section}{\numberline {12}2D Niederer-style benchmark --- in-house convergence study}{11}{section.12}%
+\contentsline {paragraph}{Scope and disclaimer.}{11}{section*.11}%
+\contentsline {subsection}{\numberline {12.1}Results for P8 activation}{12}{subsection.12.1}%
+\contentsline {subsection}{\numberline {12.2}Results for Wall-clock time}{12}{subsection.12.2}%
+\contentsline {subsection}{\numberline {12.3}Results for Peak RSS}{13}{subsection.12.3}%
+\contentsline {subsection}{\numberline {12.4}Discussion of the 2D results}{14}{subsection.12.4}%
+\contentsline {paragraph}{$h$-refinement at fixed $\Delta t$ (low order).}{14}{section*.12}%
+\contentsline {paragraph}{$\Delta t$-refinement at fixed $h$ (low order).}{14}{section*.13}%
+\contentsline {paragraph}{Effect of the LRE $p$-level on the source.}{14}{section*.14}%
+\contentsline {paragraph}{Effect of the LRE $p$-level on the diffusion.}{14}{section*.15}%
+\contentsline {paragraph}{Cost.}{14}{section*.16}%
+\contentsline {subsection}{\numberline {12.5}Conclusions on the 2D study}{14}{subsection.12.5}%
+\contentsline {section}{\numberline {13}3D Niederer-style benchmark}{15}{section.13}%
+\contentsline {subsection}{\numberline {13.1}P8 activation time at $\Delta t = 5\!\cdot \!10^{-5}$\nobreakspace {}s}{15}{subsection.13.1}%
+\contentsline {subsection}{\numberline {13.2}Wall-clock cost per configuration (minutes)}{15}{subsection.13.2}%
+\contentsline {subsection}{\numberline {13.3}Peak resident set size per configuration (MiB)}{16}{subsection.13.3}%
+\contentsline {subsection}{\numberline {13.4}Discussion of the 3D results}{16}{subsection.13.4}%
+\contentsline {section}{\numberline {A}Dimension table}{16}{appendix.A}%

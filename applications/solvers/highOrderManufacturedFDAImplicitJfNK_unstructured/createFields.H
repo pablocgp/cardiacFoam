@@ -617,6 +617,15 @@ forAll(includePatchInIionStencils, patchI)
 const dictionary& highOrderCoeffs =
     spatialIntegrationProperties.subDict("highOrderCoeffs");
 
+const scalar stabilisationAlpha
+(
+    max
+    (
+        highOrderCoeffs.lookupOrDefault<scalar>("stabilisationAlpha", 0.0),
+        scalar(0.0)
+    )
+);
+
 const dictionary lreCoeffsVm(highOrderCoeffs.subDict("LRECoeffs_Vm"));
 
 word IionCoeffsName("LRECoeffs_Iion");

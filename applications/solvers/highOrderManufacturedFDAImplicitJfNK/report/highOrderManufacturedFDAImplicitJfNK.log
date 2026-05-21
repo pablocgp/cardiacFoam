@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2022/dev/Debian) (preloaded format=pdflatex 2026.1.30)  15 MAY 2026 18:23
+This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2022/dev/Debian) (preloaded format=pdflatex 2026.1.30)  21 MAY 2026 00:41
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -771,65 +771,65 @@ Underfull \hbox (badness 1221) in paragraph at lines 801--801
 eODERelTol\OT1/cmr/m/n/10.95 (+20) ,
  []
 
-[9] [10] (./tables/results_2D_all.tex [11]
-Overfull \hbox (19.57542pt too wide) in paragraph at lines 2--8
+[9] [10] [11] (./tables/results_2D_all.tex
+Overfull \hbox (19.57542pt too wide) in paragraph at lines 2--9
 \OT1/cmr/m/n/10.95 (-20) The ta-bles in this sub-sec-tion are gen-er-ated from 
 $\OT1/cmtt/m/n/10.95 /home / pablo / OpenFOAM / pablo-[]v2312 / run / tutorials
  _
  []
 
 LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10.95> not available
-(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 9.
+(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 10.
 LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10> not available
-(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 9.
+(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 10.
 (./tables/results_2D_Picard_dt_1p0em02.tex [12])
 <figures/implicit_2D_Picard_backwardEuler_consistent_Vm_L2_dt_1p0em02.pdf, id=3
-09, 618.31pt x 443.6575pt>
+29, 618.31pt x 443.6575pt>
 File: figures/implicit_2D_Picard_backwardEuler_consistent_Vm_L2_dt_1p0em02.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_consistent_Vm_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_consistent_Vm
-_L2_dt_1p0em02.pdf  used on input line 16.
+_L2_dt_1p0em02.pdf  used on input line 17.
 (pdftex.def)             Requested size: 229.07352pt x 164.36732pt.
 <figures/implicit_2D_Picard_backwardEuler_consistent_Vm_G2_dt_1p0em02.pdf, id=3
-10, 623.32875pt x 439.6425pt>
+30, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_consistent_Vm_G2_dt_1p0em02.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_consistent_Vm_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_consistent_Vm
-_G2_dt_1p0em02.pdf  used on input line 23.
+_G2_dt_1p0em02.pdf  used on input line 24.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_backwardEuler_consistent_u1_L2_dt_1p0em02.pdf, id=3
-11, 623.32875pt x 439.6425pt>
+31, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_consistent_u1_L2_dt_1p0em02.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_consistent_u1_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_consistent_u1
-_L2_dt_1p0em02.pdf  used on input line 30.
+_L2_dt_1p0em02.pdf  used on input line 31.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf, id=3
-12, 623.32875pt x 439.6425pt>
+32, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_consistent_u1
-_G2_dt_1p0em02.pdf  used on input line 37.
+_G2_dt_1p0em02.pdf  used on input line 38.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf, id=3
-13, 623.32875pt x 439.6425pt>
+33, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_consistent_u2
-_L2_dt_1p0em02.pdf  used on input line 44.
+_L2_dt_1p0em02.pdf  used on input line 45.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf, id=3
-14, 623.32875pt x 439.6425pt>
+34, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_consistent_u2
-_G2_dt_1p0em02.pdf  used on input line 51.
+_G2_dt_1p0em02.pdf  used on input line 52.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
  [13] [14 <./figures/implicit_2D_Picard_backwardEuler_consistent_Vm_L2_dt_1p0em
 02.pdf> <./figures/implicit_2D_Picard_backwardEuler_consistent_Vm_G2_dt_1p0em02
@@ -837,53 +837,53 @@ _G2_dt_1p0em02.pdf  used on input line 51.
 df> <./figures/implicit_2D_Picard_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf
 > <./figures/implicit_2D_Picard_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf> 
 <./figures/implicit_2D_Picard_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf>]
-<figures/implicit_2D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf, id=809, 
+<figures/implicit_2D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf, id=829, 
 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_lumped_Vm_L2_
-dt_1p0em02.pdf  used on input line 64.
+dt_1p0em02.pdf  used on input line 65.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf, id=810, 
+<figures/implicit_2D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf, id=830, 
 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_lumped_Vm_G2_
-dt_1p0em02.pdf  used on input line 71.
+dt_1p0em02.pdf  used on input line 72.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf, id=811, 
+<figures/implicit_2D_Picard_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf, id=831, 
 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_lumped_u1_L2_
-dt_1p0em02.pdf  used on input line 78.
+dt_1p0em02.pdf  used on input line 79.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf, id=812, 
+<figures/implicit_2D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf, id=832, 
 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_lumped_u1_G2_
-dt_1p0em02.pdf  used on input line 85.
+dt_1p0em02.pdf  used on input line 86.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf, id=813, 
+<figures/implicit_2D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf, id=833, 
 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_lumped_u2_L2_
-dt_1p0em02.pdf  used on input line 92.
+dt_1p0em02.pdf  used on input line 93.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf, id=814, 
+<figures/implicit_2D_Picard_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf, id=834, 
 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_lumped_u2_G2_
-dt_1p0em02.pdf  used on input line 99.
+dt_1p0em02.pdf  used on input line 100.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
  [15 <./figures/implicit_2D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf> <
 ./figures/implicit_2D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf> <./figu
@@ -892,52 +892,52 @@ plicit_2D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf> <./figures/implicit
 _2D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf> <./figures/implicit_2D_Pi
 card_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf>]
 <figures/implicit_2D_Picard_crankNicolson_consistent_Vm_L2_dt_1p0em02.pdf, id=1
-276, 623.32875pt x 439.6425pt>
+296, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_consistent_Vm_L2_dt_1p0em02.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_consistent_Vm_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_consistent_Vm
-_L2_dt_1p0em02.pdf  used on input line 112.
+_L2_dt_1p0em02.pdf  used on input line 113.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf, id=1
-277, 623.32875pt x 439.6425pt>
+297, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_consistent_Vm
-_G2_dt_1p0em02.pdf  used on input line 119.
+_G2_dt_1p0em02.pdf  used on input line 120.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf, id=1
-278, 623.32875pt x 439.6425pt>
+298, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_consistent_u1
-_L2_dt_1p0em02.pdf  used on input line 126.
+_L2_dt_1p0em02.pdf  used on input line 127.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf, id=1
-279, 623.32875pt x 439.6425pt>
+299, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_consistent_u1
-_G2_dt_1p0em02.pdf  used on input line 133.
+_G2_dt_1p0em02.pdf  used on input line 134.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf, id=1
-280, 623.32875pt x 439.6425pt>
+300, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_consistent_u2
-_L2_dt_1p0em02.pdf  used on input line 140.
+_L2_dt_1p0em02.pdf  used on input line 141.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf, id=1
-281, 623.32875pt x 439.6425pt>
+301, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_consistent_u2
-_G2_dt_1p0em02.pdf  used on input line 147.
+_G2_dt_1p0em02.pdf  used on input line 148.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
  [16 <./figures/implicit_2D_Picard_crankNicolson_consistent_Vm_L2_dt_1p0em02.pd
 f> <./figures/implicit_2D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf>
@@ -945,53 +945,53 @@ f> <./figures/implicit_2D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf>
 ./figures/implicit_2D_Picard_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf> <./
 figures/implicit_2D_Picard_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf> <./fi
 gures/implicit_2D_Picard_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf>]
-<figures/implicit_2D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf, id=1733,
+<figures/implicit_2D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf, id=1753,
  623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_lumped_Vm_L2_
-dt_1p0em02.pdf  used on input line 160.
+dt_1p0em02.pdf  used on input line 161.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf, id=1734,
+<figures/implicit_2D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf, id=1754,
  623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_lumped_Vm_G2_
-dt_1p0em02.pdf  used on input line 167.
+dt_1p0em02.pdf  used on input line 168.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf, id=1735,
+<figures/implicit_2D_Picard_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf, id=1755,
  623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_lumped_u1_L2_
-dt_1p0em02.pdf  used on input line 174.
+dt_1p0em02.pdf  used on input line 175.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf, id=1736,
+<figures/implicit_2D_Picard_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf, id=1756,
  623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_lumped_u1_G2_
-dt_1p0em02.pdf  used on input line 181.
+dt_1p0em02.pdf  used on input line 182.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf, id=1737,
+<figures/implicit_2D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf, id=1757,
  623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_lumped_u2_L2_
-dt_1p0em02.pdf  used on input line 188.
+dt_1p0em02.pdf  used on input line 189.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf, id=1738,
+<figures/implicit_2D_Picard_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf, id=1758,
  618.31pt x 443.6575pt>
 File: figures/implicit_2D_Picard_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_lumped_u2_G2_
-dt_1p0em02.pdf  used on input line 195.
+dt_1p0em02.pdf  used on input line 196.
 (pdftex.def)             Requested size: 229.07352pt x 164.36732pt.
  [17 <./figures/implicit_2D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf> <
 ./figures/implicit_2D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf> <./figu
@@ -1001,52 +1001,52 @@ _2D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf> <./figures/implicit_2D_Pi
 card_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf>]
 (./tables/results_2D_Picard_dt_1p0em03.tex)
 <figures/implicit_2D_Picard_backwardEuler_consistent_Vm_L2_dt_1p0em03.pdf, id=2
-180, 623.32875pt x 439.6425pt>
+200, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_consistent_Vm_L2_dt_1p0em03.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_consistent_Vm_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_consistent_Vm
-_L2_dt_1p0em03.pdf  used on input line 210.
+_L2_dt_1p0em03.pdf  used on input line 211.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf, id=2
-181, 623.32875pt x 439.6425pt>
+201, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_consistent_Vm
-_G2_dt_1p0em03.pdf  used on input line 217.
+_G2_dt_1p0em03.pdf  used on input line 218.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf, id=2
-182, 623.32875pt x 439.6425pt>
+202, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_consistent_u1
-_L2_dt_1p0em03.pdf  used on input line 224.
+_L2_dt_1p0em03.pdf  used on input line 225.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf, id=2
-183, 623.32875pt x 439.6425pt>
+203, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_consistent_u1
-_G2_dt_1p0em03.pdf  used on input line 231.
+_G2_dt_1p0em03.pdf  used on input line 232.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf, id=2
-184, 623.32875pt x 439.6425pt>
+204, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_consistent_u2
-_L2_dt_1p0em03.pdf  used on input line 238.
+_L2_dt_1p0em03.pdf  used on input line 239.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf, id=2
-185, 618.31pt x 443.6575pt>
+205, 618.31pt x 443.6575pt>
 File: figures/implicit_2D_Picard_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_consistent_u2
-_G2_dt_1p0em03.pdf  used on input line 245.
+_G2_dt_1p0em03.pdf  used on input line 246.
 (pdftex.def)             Requested size: 229.07352pt x 164.36732pt.
  [18
 
@@ -1058,53 +1058,53 @@ df> <./figures/implicit_2D_Picard_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf
 <./figures/implicit_2D_Picard_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf> <.
 /figures/implicit_2D_Picard_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf> <./f
 igures/implicit_2D_Picard_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf>]
-<figures/implicit_2D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf, id=2658,
+<figures/implicit_2D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf, id=2678,
  618.31pt x 443.6575pt>
 File: figures/implicit_2D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_lumped_Vm_L2_
-dt_1p0em03.pdf  used on input line 258.
+dt_1p0em03.pdf  used on input line 259.
 (pdftex.def)             Requested size: 229.07352pt x 164.36732pt.
-<figures/implicit_2D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf, id=2659,
+<figures/implicit_2D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf, id=2679,
  623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_lumped_Vm_G2_
-dt_1p0em03.pdf  used on input line 265.
+dt_1p0em03.pdf  used on input line 266.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf, id=2660,
+<figures/implicit_2D_Picard_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf, id=2680,
  623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_lumped_u1_L2_
-dt_1p0em03.pdf  used on input line 272.
+dt_1p0em03.pdf  used on input line 273.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf, id=2661,
+<figures/implicit_2D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf, id=2681,
  623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_lumped_u1_G2_
-dt_1p0em03.pdf  used on input line 279.
+dt_1p0em03.pdf  used on input line 280.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf, id=2662,
+<figures/implicit_2D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf, id=2682,
  623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_lumped_u2_L2_
-dt_1p0em03.pdf  used on input line 286.
+dt_1p0em03.pdf  used on input line 287.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf, id=2663,
+<figures/implicit_2D_Picard_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf, id=2683,
  618.31pt x 443.6575pt>
 File: figures/implicit_2D_Picard_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_backwardEuler_lumped_u2_G2_
-dt_1p0em03.pdf  used on input line 293.
+dt_1p0em03.pdf  used on input line 294.
 (pdftex.def)             Requested size: 229.07352pt x 164.36732pt.
  [20 <./figures/implicit_2D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf> <
 ./figures/implicit_2D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf> <./figu
@@ -1113,52 +1113,52 @@ plicit_2D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf> <./figures/implicit
 _2D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf> <./figures/implicit_2D_Pi
 card_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf>]
 <figures/implicit_2D_Picard_crankNicolson_consistent_Vm_L2_dt_1p0em03.pdf, id=3
-124, 623.32875pt x 439.6425pt>
+144, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_consistent_Vm_L2_dt_1p0em03.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_consistent_Vm_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_consistent_Vm
-_L2_dt_1p0em03.pdf  used on input line 306.
+_L2_dt_1p0em03.pdf  used on input line 307.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf, id=3
-125, 623.32875pt x 439.6425pt>
+145, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_consistent_Vm
-_G2_dt_1p0em03.pdf  used on input line 313.
+_G2_dt_1p0em03.pdf  used on input line 314.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf, id=3
-126, 623.32875pt x 439.6425pt>
+146, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_consistent_u1
-_L2_dt_1p0em03.pdf  used on input line 320.
+_L2_dt_1p0em03.pdf  used on input line 321.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf, id=3
-127, 623.32875pt x 439.6425pt>
+147, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_consistent_u1
-_G2_dt_1p0em03.pdf  used on input line 327.
+_G2_dt_1p0em03.pdf  used on input line 328.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf, id=3
-128, 623.32875pt x 439.6425pt>
+148, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_consistent_u2
-_L2_dt_1p0em03.pdf  used on input line 334.
+_L2_dt_1p0em03.pdf  used on input line 335.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_Picard_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf, id=3
-129, 623.32875pt x 439.6425pt>
+149, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf 
 Graphic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_consistent_u2
-_G2_dt_1p0em03.pdf  used on input line 341.
+_G2_dt_1p0em03.pdf  used on input line 342.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
  [21 <./figures/implicit_2D_Picard_crankNicolson_consistent_Vm_L2_dt_1p0em03.pd
 f> <./figures/implicit_2D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf>
@@ -1166,53 +1166,53 @@ f> <./figures/implicit_2D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf>
 ./figures/implicit_2D_Picard_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf> <./
 figures/implicit_2D_Picard_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf> <./fi
 gures/implicit_2D_Picard_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf>]
-<figures/implicit_2D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf, id=3581,
+<figures/implicit_2D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf, id=3601,
  623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_lumped_Vm_L2_
-dt_1p0em03.pdf  used on input line 354.
+dt_1p0em03.pdf  used on input line 355.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf, id=3582,
+<figures/implicit_2D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf, id=3602,
  623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_lumped_Vm_G2_
-dt_1p0em03.pdf  used on input line 361.
+dt_1p0em03.pdf  used on input line 362.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf, id=3583,
+<figures/implicit_2D_Picard_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf, id=3603,
  623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_lumped_u1_L2_
-dt_1p0em03.pdf  used on input line 368.
+dt_1p0em03.pdf  used on input line 369.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf, id=3584,
+<figures/implicit_2D_Picard_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf, id=3604,
  623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_lumped_u1_G2_
-dt_1p0em03.pdf  used on input line 375.
+dt_1p0em03.pdf  used on input line 376.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf, id=3585,
+<figures/implicit_2D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf, id=3605,
  623.32875pt x 439.6425pt>
 File: figures/implicit_2D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_lumped_u2_L2_
-dt_1p0em03.pdf  used on input line 382.
+dt_1p0em03.pdf  used on input line 383.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_Picard_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf, id=3586,
+<figures/implicit_2D_Picard_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf, id=3606,
  618.31pt x 443.6575pt>
 File: figures/implicit_2D_Picard_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf Grap
 hic file (type pdf)
 <use figures/implicit_2D_Picard_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_Picard_crankNicolson_lumped_u2_G2_
-dt_1p0em03.pdf  used on input line 389.
+dt_1p0em03.pdf  used on input line 390.
 (pdftex.def)             Requested size: 229.07352pt x 164.36732pt.
  [22 <./figures/implicit_2D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf> <
 ./figures/implicit_2D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf> <./figu
@@ -1222,58 +1222,58 @@ _2D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf> <./figures/implicit_2D_Pi
 card_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf>]
 (./tables/results_2D_diagonalIion_dt_1p0em02.tex)
 <figures/implicit_2D_diagonalIion_backwardEuler_consistent_Vm_L2_dt_1p0em02.pdf
-, id=4028, 628.3475pt x 439.6425pt>
+, id=4048, 628.3475pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_consistent_Vm_L2_dt_1p0em0
 2.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_consistent_Vm_L2_dt_1p0em02
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_consist
-ent_Vm_L2_dt_1p0em02.pdf  used on input line 405.
+ent_Vm_L2_dt_1p0em02.pdf  used on input line 406.
 (pdftex.def)             Requested size: 229.07352pt x 160.27698pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_consistent_Vm_G2_dt_1p0em02.pdf
-, id=4029, 636.3775pt x 439.6425pt>
+, id=4049, 636.3775pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_consistent_Vm_G2_dt_1p0em0
 2.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_consistent_Vm_G2_dt_1p0em02
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_consist
-ent_Vm_G2_dt_1p0em02.pdf  used on input line 412.
+ent_Vm_G2_dt_1p0em02.pdf  used on input line 413.
 (pdftex.def)             Requested size: 229.07352pt x 158.25105pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_consistent_u1_L2_dt_1p0em02.pdf
-, id=4030, 627.34375pt x 439.6425pt>
+, id=4050, 627.34375pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_consistent_u1_L2_dt_1p0em0
 2.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_consistent_u1_L2_dt_1p0em02
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_consist
-ent_u1_L2_dt_1p0em02.pdf  used on input line 419.
+ent_u1_L2_dt_1p0em02.pdf  used on input line 420.
 (pdftex.def)             Requested size: 229.07352pt x 160.5319pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf
-, id=4031, 634.37pt x 439.6425pt>
+, id=4051, 634.37pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_consistent_u1_G2_dt_1p0em0
 2.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_consistent_u1_G2_dt_1p0em02
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_consist
-ent_u1_G2_dt_1p0em02.pdf  used on input line 426.
+ent_u1_G2_dt_1p0em02.pdf  used on input line 427.
 (pdftex.def)             Requested size: 229.07352pt x 158.75418pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf
-, id=4032, 627.34375pt x 439.6425pt>
+, id=4052, 627.34375pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_consistent_u2_L2_dt_1p0em0
 2.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_consistent_u2_L2_dt_1p0em02
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_consist
-ent_u2_L2_dt_1p0em02.pdf  used on input line 433.
+ent_u2_L2_dt_1p0em02.pdf  used on input line 434.
 (pdftex.def)             Requested size: 229.07352pt x 160.5319pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf
-, id=4033, 634.37pt x 439.6425pt>
+, id=4053, 634.37pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_consistent_u2_G2_dt_1p0em0
 2.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_consistent_u2_G2_dt_1p0em02
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_consist
-ent_u2_G2_dt_1p0em02.pdf  used on input line 440.
+ent_u2_G2_dt_1p0em02.pdf  used on input line 441.
 (pdftex.def)             Requested size: 229.07352pt x 158.75418pt.
  [23
 
@@ -1287,58 +1287,58 @@ u1_G2_dt_1p0em02.pdf> <./figures/implicit_2D_diagonalIion_backwardEuler_consist
 ent_u2_L2_dt_1p0em02.pdf> <./figures/implicit_2D_diagonalIion_backwardEuler_con
 sistent_u2_G2_dt_1p0em02.pdf>]
 <figures/implicit_2D_diagonalIion_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf, id
-=4505, 618.31pt x 443.6575pt>
+=4525, 618.31pt x 443.6575pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_lumped_Vm_L2_dt_1p0em02.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_lumped_
-Vm_L2_dt_1p0em02.pdf  used on input line 453.
+Vm_L2_dt_1p0em02.pdf  used on input line 454.
 (pdftex.def)             Requested size: 229.07352pt x 164.36732pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf, id
-=4506, 624.3325pt x 443.6575pt>
+=4526, 624.3325pt x 443.6575pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_lumped_Vm_G2_dt_1p0em02.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_lumped_
-Vm_G2_dt_1p0em02.pdf  used on input line 460.
+Vm_G2_dt_1p0em02.pdf  used on input line 461.
 (pdftex.def)             Requested size: 229.07352pt x 162.77646pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf, id
-=4507, 623.32875pt x 439.6425pt>
+=4527, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_lumped_u1_L2_dt_1p0em02.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_lumped_
-u1_L2_dt_1p0em02.pdf  used on input line 467.
+u1_L2_dt_1p0em02.pdf  used on input line 468.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf, id
-=4508, 622.325pt x 443.6575pt>
+=4528, 622.325pt x 443.6575pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_lumped_u1_G2_dt_1p0em02.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_lumped_
-u1_G2_dt_1p0em02.pdf  used on input line 474.
+u1_G2_dt_1p0em02.pdf  used on input line 475.
 (pdftex.def)             Requested size: 229.07352pt x 163.30449pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf, id
-=4509, 623.32875pt x 439.6425pt>
+=4529, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_lumped_u2_L2_dt_1p0em02.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_lumped_
-u2_L2_dt_1p0em02.pdf  used on input line 481.
+u2_L2_dt_1p0em02.pdf  used on input line 482.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf, id
-=4510, 625.33624pt x 439.6425pt>
+=4530, 625.33624pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_lumped_u2_G2_dt_1p0em02.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_lumped_
-u2_G2_dt_1p0em02.pdf  used on input line 488.
+u2_G2_dt_1p0em02.pdf  used on input line 489.
 (pdftex.def)             Requested size: 229.07352pt x 161.04845pt.
  [25 <./figures/implicit_2D_diagonalIion_backwardEuler_lumped_Vm_L2_dt_1p0em02.
 pdf> <./figures/implicit_2D_diagonalIion_backwardEuler_lumped_Vm_G2_dt_1p0em02.
@@ -1348,58 +1348,58 @@ pdf> <./figures/implicit_2D_diagonalIion_backwardEuler_lumped_u2_L2_dt_1p0em02.
 pdf> <./figures/implicit_2D_diagonalIion_backwardEuler_lumped_u2_G2_dt_1p0em02.
 pdf>]
 <figures/implicit_2D_diagonalIion_crankNicolson_consistent_Vm_L2_dt_1p0em02.pdf
-, id=4972, 628.3475pt x 439.6425pt>
+, id=4992, 628.3475pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_consistent_Vm_L2_dt_1p0em0
 2.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_consistent_Vm_L2_dt_1p0em02
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_consist
-ent_Vm_L2_dt_1p0em02.pdf  used on input line 501.
+ent_Vm_L2_dt_1p0em02.pdf  used on input line 502.
 (pdftex.def)             Requested size: 229.07352pt x 160.27698pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf
-, id=4973, 636.3775pt x 439.6425pt>
+, id=4993, 636.3775pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_consistent_Vm_G2_dt_1p0em0
 2.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_consistent_Vm_G2_dt_1p0em02
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_consist
-ent_Vm_G2_dt_1p0em02.pdf  used on input line 508.
+ent_Vm_G2_dt_1p0em02.pdf  used on input line 509.
 (pdftex.def)             Requested size: 229.07352pt x 158.25105pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf
-, id=4974, 627.34375pt x 439.6425pt>
+, id=4994, 627.34375pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_consistent_u1_L2_dt_1p0em0
 2.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_consistent_u1_L2_dt_1p0em02
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_consist
-ent_u1_L2_dt_1p0em02.pdf  used on input line 515.
+ent_u1_L2_dt_1p0em02.pdf  used on input line 516.
 (pdftex.def)             Requested size: 229.07352pt x 160.5319pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf
-, id=4975, 634.37pt x 439.6425pt>
+, id=4995, 634.37pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_consistent_u1_G2_dt_1p0em0
 2.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_consistent_u1_G2_dt_1p0em02
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_consist
-ent_u1_G2_dt_1p0em02.pdf  used on input line 522.
+ent_u1_G2_dt_1p0em02.pdf  used on input line 523.
 (pdftex.def)             Requested size: 229.07352pt x 158.75418pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf
-, id=4976, 627.34375pt x 439.6425pt>
+, id=4996, 627.34375pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_consistent_u2_L2_dt_1p0em0
 2.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_consistent_u2_L2_dt_1p0em02
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_consist
-ent_u2_L2_dt_1p0em02.pdf  used on input line 529.
+ent_u2_L2_dt_1p0em02.pdf  used on input line 530.
 (pdftex.def)             Requested size: 229.07352pt x 160.5319pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf
-, id=4977, 634.37pt x 439.6425pt>
+, id=4997, 634.37pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_consistent_u2_G2_dt_1p0em0
 2.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_consistent_u2_G2_dt_1p0em02
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_consist
-ent_u2_G2_dt_1p0em02.pdf  used on input line 536.
+ent_u2_G2_dt_1p0em02.pdf  used on input line 537.
 (pdftex.def)             Requested size: 229.07352pt x 158.75418pt.
  [26 <./figures/implicit_2D_diagonalIion_crankNicolson_consistent_Vm_L2_dt_1p0e
 m02.pdf> <./figures/implicit_2D_diagonalIion_crankNicolson_consistent_Vm_G2_dt_
@@ -1409,58 +1409,58 @@ _dt_1p0em02.pdf> <./figures/implicit_2D_diagonalIion_crankNicolson_consistent_u
 nt_u2_L2_dt_1p0em02.pdf> <./figures/implicit_2D_diagonalIion_crankNicolson_cons
 istent_u2_G2_dt_1p0em02.pdf>]
 <figures/implicit_2D_diagonalIion_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf, id
-=5429, 618.31pt x 443.6575pt>
+=5449, 618.31pt x 443.6575pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_lumped_Vm_L2_dt_1p0em02.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_lumped_
-Vm_L2_dt_1p0em02.pdf  used on input line 549.
+Vm_L2_dt_1p0em02.pdf  used on input line 550.
 (pdftex.def)             Requested size: 229.07352pt x 164.36732pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf, id
-=5430, 627.34375pt x 439.6425pt>
+=5450, 627.34375pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_lumped_Vm_G2_dt_1p0em02.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_lumped_
-Vm_G2_dt_1p0em02.pdf  used on input line 556.
+Vm_G2_dt_1p0em02.pdf  used on input line 557.
 (pdftex.def)             Requested size: 229.07352pt x 160.5319pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf, id
-=5431, 618.31pt x 443.6575pt>
+=5451, 618.31pt x 443.6575pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_lumped_u1_L2_dt_1p0em02.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_lumped_
-u1_L2_dt_1p0em02.pdf  used on input line 563.
+u1_L2_dt_1p0em02.pdf  used on input line 564.
 (pdftex.def)             Requested size: 229.07352pt x 164.36732pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf, id
-=5432, 622.325pt x 443.6575pt>
+=5452, 622.325pt x 443.6575pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_lumped_u1_G2_dt_1p0em02.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_lumped_
-u1_G2_dt_1p0em02.pdf  used on input line 570.
+u1_G2_dt_1p0em02.pdf  used on input line 571.
 (pdftex.def)             Requested size: 229.07352pt x 163.30449pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf, id
-=5433, 618.31pt x 443.6575pt>
+=5453, 618.31pt x 443.6575pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_lumped_u2_L2_dt_1p0em02.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_lumped_
-u2_L2_dt_1p0em02.pdf  used on input line 577.
+u2_L2_dt_1p0em02.pdf  used on input line 578.
 (pdftex.def)             Requested size: 229.07352pt x 164.36732pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf, id
-=5434, 622.325pt x 443.6575pt>
+=5454, 622.325pt x 443.6575pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_lumped_u2_G2_dt_1p0em02.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_lumped_
-u2_G2_dt_1p0em02.pdf  used on input line 584.
+u2_G2_dt_1p0em02.pdf  used on input line 585.
 (pdftex.def)             Requested size: 229.07352pt x 163.30449pt.
  [27 <./figures/implicit_2D_diagonalIion_crankNicolson_lumped_Vm_L2_dt_1p0em02.
 pdf> <./figures/implicit_2D_diagonalIion_crankNicolson_lumped_Vm_G2_dt_1p0em02.
@@ -1471,58 +1471,58 @@ pdf> <./figures/implicit_2D_diagonalIion_crankNicolson_lumped_u2_G2_dt_1p0em02.
 pdf>]
 (./tables/results_2D_diagonalIion_dt_1p0em03.tex)
 <figures/implicit_2D_diagonalIion_backwardEuler_consistent_Vm_L2_dt_1p0em03.pdf
-, id=5876, 628.3475pt x 439.6425pt>
+, id=5897, 628.3475pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_consistent_Vm_L2_dt_1p0em0
 3.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_consistent_Vm_L2_dt_1p0em03
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_consist
-ent_Vm_L2_dt_1p0em03.pdf  used on input line 599.
+ent_Vm_L2_dt_1p0em03.pdf  used on input line 600.
 (pdftex.def)             Requested size: 229.07352pt x 160.27698pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf
-, id=5877, 636.3775pt x 439.6425pt>
+, id=5898, 636.3775pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_consistent_Vm_G2_dt_1p0em0
 3.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_consistent_Vm_G2_dt_1p0em03
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_consist
-ent_Vm_G2_dt_1p0em03.pdf  used on input line 606.
+ent_Vm_G2_dt_1p0em03.pdf  used on input line 607.
 (pdftex.def)             Requested size: 229.07352pt x 158.25105pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf
-, id=5878, 627.34375pt x 439.6425pt>
+, id=5899, 627.34375pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_consistent_u1_L2_dt_1p0em0
 3.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_consistent_u1_L2_dt_1p0em03
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_consist
-ent_u1_L2_dt_1p0em03.pdf  used on input line 613.
+ent_u1_L2_dt_1p0em03.pdf  used on input line 614.
 (pdftex.def)             Requested size: 229.07352pt x 160.5319pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf
-, id=5879, 634.37pt x 439.6425pt>
+, id=5900, 634.37pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_consistent_u1_G2_dt_1p0em0
 3.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_consistent_u1_G2_dt_1p0em03
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_consist
-ent_u1_G2_dt_1p0em03.pdf  used on input line 620.
+ent_u1_G2_dt_1p0em03.pdf  used on input line 621.
 (pdftex.def)             Requested size: 229.07352pt x 158.75418pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf
-, id=5880, 627.34375pt x 439.6425pt>
+, id=5901, 627.34375pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_consistent_u2_L2_dt_1p0em0
 3.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_consistent_u2_L2_dt_1p0em03
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_consist
-ent_u2_L2_dt_1p0em03.pdf  used on input line 627.
+ent_u2_L2_dt_1p0em03.pdf  used on input line 628.
 (pdftex.def)             Requested size: 229.07352pt x 160.5319pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf
-, id=5881, 631.35875pt x 443.6575pt>
+, id=5902, 631.35875pt x 443.6575pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_consistent_u2_G2_dt_1p0em0
 3.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_consistent_u2_G2_dt_1p0em03
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_consist
-ent_u2_G2_dt_1p0em03.pdf  used on input line 634.
+ent_u2_G2_dt_1p0em03.pdf  used on input line 635.
 (pdftex.def)             Requested size: 229.07352pt x 160.96895pt.
  [28
 
@@ -1536,58 +1536,58 @@ u1_G2_dt_1p0em03.pdf> <./figures/implicit_2D_diagonalIion_backwardEuler_consist
 ent_u2_L2_dt_1p0em03.pdf> <./figures/implicit_2D_diagonalIion_backwardEuler_con
 sistent_u2_G2_dt_1p0em03.pdf>]
 <figures/implicit_2D_diagonalIion_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf, id
-=6353, 623.32875pt x 439.6425pt>
+=6373, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_lumped_Vm_L2_dt_1p0em03.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_lumped_
-Vm_L2_dt_1p0em03.pdf  used on input line 647.
+Vm_L2_dt_1p0em03.pdf  used on input line 648.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf, id
-=6354, 627.34375pt x 439.6425pt>
+=6374, 627.34375pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_lumped_Vm_G2_dt_1p0em03.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_lumped_
-Vm_G2_dt_1p0em03.pdf  used on input line 654.
+Vm_G2_dt_1p0em03.pdf  used on input line 655.
 (pdftex.def)             Requested size: 229.07352pt x 160.5319pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf, id
-=6355, 623.32875pt x 439.6425pt>
+=6375, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_lumped_u1_L2_dt_1p0em03.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_lumped_
-u1_L2_dt_1p0em03.pdf  used on input line 661.
+u1_L2_dt_1p0em03.pdf  used on input line 662.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf, id
-=6356, 622.325pt x 443.6575pt>
+=6376, 622.325pt x 443.6575pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_lumped_u1_G2_dt_1p0em03.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_lumped_
-u1_G2_dt_1p0em03.pdf  used on input line 668.
+u1_G2_dt_1p0em03.pdf  used on input line 669.
 (pdftex.def)             Requested size: 229.07352pt x 163.30449pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf, id
-=6357, 618.31pt x 443.6575pt>
+=6377, 618.31pt x 443.6575pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_lumped_u2_L2_dt_1p0em03.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_lumped_
-u2_L2_dt_1p0em03.pdf  used on input line 675.
+u2_L2_dt_1p0em03.pdf  used on input line 676.
 (pdftex.def)             Requested size: 229.07352pt x 164.36732pt.
 <figures/implicit_2D_diagonalIion_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf, id
-=6358, 625.33624pt x 439.6425pt>
+=6378, 625.33624pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_backwardEuler_lumped_u2_G2_dt_1p0em03.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_backwardEuler_lumped_
-u2_G2_dt_1p0em03.pdf  used on input line 682.
+u2_G2_dt_1p0em03.pdf  used on input line 683.
 (pdftex.def)             Requested size: 229.07352pt x 161.04845pt.
  [30 <./figures/implicit_2D_diagonalIion_backwardEuler_lumped_Vm_L2_dt_1p0em03.
 pdf> <./figures/implicit_2D_diagonalIion_backwardEuler_lumped_Vm_G2_dt_1p0em03.
@@ -1597,58 +1597,58 @@ pdf> <./figures/implicit_2D_diagonalIion_backwardEuler_lumped_u2_L2_dt_1p0em03.
 pdf> <./figures/implicit_2D_diagonalIion_backwardEuler_lumped_u2_G2_dt_1p0em03.
 pdf>]
 <figures/implicit_2D_diagonalIion_crankNicolson_consistent_Vm_L2_dt_1p0em03.pdf
-, id=6819, 628.3475pt x 439.6425pt>
+, id=6839, 628.3475pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_consistent_Vm_L2_dt_1p0em0
 3.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_consistent_Vm_L2_dt_1p0em03
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_consist
-ent_Vm_L2_dt_1p0em03.pdf  used on input line 695.
+ent_Vm_L2_dt_1p0em03.pdf  used on input line 696.
 (pdftex.def)             Requested size: 229.07352pt x 160.27698pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf
-, id=6820, 636.3775pt x 439.6425pt>
+, id=6840, 636.3775pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_consistent_Vm_G2_dt_1p0em0
 3.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_consistent_Vm_G2_dt_1p0em03
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_consist
-ent_Vm_G2_dt_1p0em03.pdf  used on input line 702.
+ent_Vm_G2_dt_1p0em03.pdf  used on input line 703.
 (pdftex.def)             Requested size: 229.07352pt x 158.25105pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf
-, id=6821, 627.34375pt x 439.6425pt>
+, id=6841, 627.34375pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_consistent_u1_L2_dt_1p0em0
 3.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_consistent_u1_L2_dt_1p0em03
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_consist
-ent_u1_L2_dt_1p0em03.pdf  used on input line 709.
+ent_u1_L2_dt_1p0em03.pdf  used on input line 710.
 (pdftex.def)             Requested size: 229.07352pt x 160.5319pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf
-, id=6822, 634.37pt x 439.6425pt>
+, id=6842, 634.37pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_consistent_u1_G2_dt_1p0em0
 3.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_consistent_u1_G2_dt_1p0em03
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_consist
-ent_u1_G2_dt_1p0em03.pdf  used on input line 716.
+ent_u1_G2_dt_1p0em03.pdf  used on input line 717.
 (pdftex.def)             Requested size: 229.07352pt x 158.75418pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf
-, id=6823, 627.34375pt x 439.6425pt>
+, id=6843, 627.34375pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_consistent_u2_L2_dt_1p0em0
 3.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_consistent_u2_L2_dt_1p0em03
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_consist
-ent_u2_L2_dt_1p0em03.pdf  used on input line 723.
+ent_u2_L2_dt_1p0em03.pdf  used on input line 724.
 (pdftex.def)             Requested size: 229.07352pt x 160.5319pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf
-, id=6824, 631.35875pt x 443.6575pt>
+, id=6844, 631.35875pt x 443.6575pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_consistent_u2_G2_dt_1p0em0
 3.pdf Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_consistent_u2_G2_dt_1p0em03
 .pdf>
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_consist
-ent_u2_G2_dt_1p0em03.pdf  used on input line 730.
+ent_u2_G2_dt_1p0em03.pdf  used on input line 731.
 (pdftex.def)             Requested size: 229.07352pt x 160.96895pt.
  [31 <./figures/implicit_2D_diagonalIion_crankNicolson_consistent_Vm_L2_dt_1p0e
 m03.pdf> <./figures/implicit_2D_diagonalIion_crankNicolson_consistent_Vm_G2_dt_
@@ -1658,58 +1658,58 @@ _dt_1p0em03.pdf> <./figures/implicit_2D_diagonalIion_crankNicolson_consistent_u
 nt_u2_L2_dt_1p0em03.pdf> <./figures/implicit_2D_diagonalIion_crankNicolson_cons
 istent_u2_G2_dt_1p0em03.pdf>]
 <figures/implicit_2D_diagonalIion_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf, id
-=7278, 623.32875pt x 439.6425pt>
+=7298, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_lumped_Vm_L2_dt_1p0em03.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_lumped_
-Vm_L2_dt_1p0em03.pdf  used on input line 743.
+Vm_L2_dt_1p0em03.pdf  used on input line 744.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf, id
-=7279, 627.34375pt x 439.6425pt>
+=7299, 627.34375pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_lumped_Vm_G2_dt_1p0em03.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_lumped_
-Vm_G2_dt_1p0em03.pdf  used on input line 750.
+Vm_G2_dt_1p0em03.pdf  used on input line 751.
 (pdftex.def)             Requested size: 229.07352pt x 160.5319pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf, id
-=7280, 618.31pt x 443.6575pt>
+=7300, 618.31pt x 443.6575pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_lumped_u1_L2_dt_1p0em03.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_lumped_
-u1_L2_dt_1p0em03.pdf  used on input line 757.
+u1_L2_dt_1p0em03.pdf  used on input line 758.
 (pdftex.def)             Requested size: 229.07352pt x 164.36732pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf, id
-=7281, 625.33624pt x 439.6425pt>
+=7301, 625.33624pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_lumped_u1_G2_dt_1p0em03.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_lumped_
-u1_G2_dt_1p0em03.pdf  used on input line 764.
+u1_G2_dt_1p0em03.pdf  used on input line 765.
 (pdftex.def)             Requested size: 229.07352pt x 161.04845pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf, id
-=7282, 623.32875pt x 439.6425pt>
+=7302, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_lumped_u2_L2_dt_1p0em03.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_lumped_
-u2_L2_dt_1p0em03.pdf  used on input line 771.
+u2_L2_dt_1p0em03.pdf  used on input line 772.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_diagonalIion_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf, id
-=7283, 625.33624pt x 439.6425pt>
+=7303, 625.33624pt x 439.6425pt>
 File: figures/implicit_2D_diagonalIion_crankNicolson_lumped_u2_G2_dt_1p0em03.pd
 f Graphic file (type pdf)
 <use figures/implicit_2D_diagonalIion_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf
 >
 Package pdftex.def Info: figures/implicit_2D_diagonalIion_crankNicolson_lumped_
-u2_G2_dt_1p0em03.pdf  used on input line 778.
+u2_G2_dt_1p0em03.pdf  used on input line 779.
 (pdftex.def)             Requested size: 229.07352pt x 161.04845pt.
  [32 <./figures/implicit_2D_diagonalIion_crankNicolson_lumped_Vm_L2_dt_1p0em03.
 pdf> <./figures/implicit_2D_diagonalIion_crankNicolson_lumped_Vm_G2_dt_1p0em03.
@@ -1719,53 +1719,53 @@ pdf> <./figures/implicit_2D_diagonalIion_crankNicolson_lumped_u2_L2_dt_1p0em03.
 pdf> <./figures/implicit_2D_diagonalIion_crankNicolson_lumped_u2_G2_dt_1p0em03.
 pdf>]
 (./tables/results_2D_JFNK_dt_1p0em02.tex)
-<figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_L2_dt_1p0em02.pdf, id=772
+<figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_L2_dt_1p0em02.pdf, id=774
 5, 618.31pt x 443.6575pt>
 File: figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_L2_dt_1p0em02.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_L
-2_dt_1p0em02.pdf  used on input line 794.
+2_dt_1p0em02.pdf  used on input line 795.
 (pdftex.def)             Requested size: 229.07352pt x 164.36732pt.
-<figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_G2_dt_1p0em02.pdf, id=772
+<figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_G2_dt_1p0em02.pdf, id=774
 6, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_G2_dt_1p0em02.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_G
-2_dt_1p0em02.pdf  used on input line 801.
+2_dt_1p0em02.pdf  used on input line 802.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_consistent_u1_L2_dt_1p0em02.pdf, id=772
+<figures/implicit_2D_JFNK_backwardEuler_consistent_u1_L2_dt_1p0em02.pdf, id=774
 7, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_consistent_u1_L2_dt_1p0em02.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_consistent_u1_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_consistent_u1_L
-2_dt_1p0em02.pdf  used on input line 808.
+2_dt_1p0em02.pdf  used on input line 809.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf, id=772
+<figures/implicit_2D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf, id=774
 8, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_consistent_u1_G
-2_dt_1p0em02.pdf  used on input line 815.
+2_dt_1p0em02.pdf  used on input line 816.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf, id=772
+<figures/implicit_2D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf, id=774
 9, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_consistent_u2_L
-2_dt_1p0em02.pdf  used on input line 822.
+2_dt_1p0em02.pdf  used on input line 823.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf, id=773
+<figures/implicit_2D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf, id=775
 0, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_consistent_u2_G
-2_dt_1p0em02.pdf  used on input line 829.
+2_dt_1p0em02.pdf  used on input line 830.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
  [33
 
@@ -1777,53 +1777,53 @@ Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_consistent_u2_G
 ures/implicit_2D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf> <./figures
 /implicit_2D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf> <./figures/imp
 licit_2D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf>]
-<figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf, id=8201, 6
+<figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf, id=8221, 6
 18.31pt x 443.6575pt>
 File: figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_L2_dt
-_1p0em02.pdf  used on input line 842.
+_1p0em02.pdf  used on input line 843.
 (pdftex.def)             Requested size: 229.07352pt x 164.36732pt.
-<figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf, id=8202, 6
+<figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf, id=8222, 6
 23.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_G2_dt
-_1p0em02.pdf  used on input line 849.
+_1p0em02.pdf  used on input line 850.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf, id=8203, 6
+<figures/implicit_2D_JFNK_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf, id=8223, 6
 23.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_lumped_u1_L2_dt
-_1p0em02.pdf  used on input line 856.
+_1p0em02.pdf  used on input line 857.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf, id=8204, 6
+<figures/implicit_2D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf, id=8224, 6
 23.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_lumped_u1_G2_dt
-_1p0em02.pdf  used on input line 863.
+_1p0em02.pdf  used on input line 864.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf, id=8205, 6
+<figures/implicit_2D_JFNK_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf, id=8225, 6
 23.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_lumped_u2_L2_dt
-_1p0em02.pdf  used on input line 870.
+_1p0em02.pdf  used on input line 871.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf, id=8206, 6
+<figures/implicit_2D_JFNK_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf, id=8226, 6
 23.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_lumped_u2_G2_dt
-_1p0em02.pdf  used on input line 877.
+_1p0em02.pdf  used on input line 878.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
  [35 <./figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf> <./
 figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf> <./figures/
@@ -1831,53 +1831,53 @@ implicit_2D_JFNK_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf> <./figures/implicit
 _2D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf> <./figures/implicit_2D_JFNK
 _backwardEuler_lumped_u2_L2_dt_1p0em02.pdf> <./figures/implicit_2D_JFNK_backwar
 dEuler_lumped_u2_G2_dt_1p0em02.pdf>]
-<figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_L2_dt_1p0em02.pdf, id=866
+<figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_L2_dt_1p0em02.pdf, id=868
 8, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_L2_dt_1p0em02.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_L
-2_dt_1p0em02.pdf  used on input line 890.
+2_dt_1p0em02.pdf  used on input line 891.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf, id=866
+<figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf, id=868
 9, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_G
-2_dt_1p0em02.pdf  used on input line 897.
+2_dt_1p0em02.pdf  used on input line 898.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf, id=867
+<figures/implicit_2D_JFNK_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf, id=869
 0, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_consistent_u1_L
-2_dt_1p0em02.pdf  used on input line 904.
+2_dt_1p0em02.pdf  used on input line 905.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf, id=867
+<figures/implicit_2D_JFNK_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf, id=869
 1, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_consistent_u1_G
-2_dt_1p0em02.pdf  used on input line 911.
+2_dt_1p0em02.pdf  used on input line 912.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf, id=867
+<figures/implicit_2D_JFNK_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf, id=869
 2, 618.31pt x 443.6575pt>
 File: figures/implicit_2D_JFNK_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_consistent_u2_L
-2_dt_1p0em02.pdf  used on input line 918.
+2_dt_1p0em02.pdf  used on input line 919.
 (pdftex.def)             Requested size: 229.07352pt x 164.36732pt.
-<figures/implicit_2D_JFNK_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf, id=867
+<figures/implicit_2D_JFNK_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf, id=869
 3, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_consistent_u2_G
-2_dt_1p0em02.pdf  used on input line 925.
+2_dt_1p0em02.pdf  used on input line 926.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
  [36 <./figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_L2_dt_1p0em02.pdf>
  <./figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf> <./
@@ -1885,53 +1885,53 @@ figures/implicit_2D_JFNK_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf> <./figu
 res/implicit_2D_JFNK_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf> <./figures/
 implicit_2D_JFNK_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf> <./figures/impl
 icit_2D_JFNK_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf>]
-<figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf, id=9125, 6
+<figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf, id=9145, 6
 23.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_L2_dt
-_1p0em02.pdf  used on input line 938.
+_1p0em02.pdf  used on input line 939.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf, id=9126, 6
+<figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf, id=9146, 6
 23.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_G2_dt
-_1p0em02.pdf  used on input line 945.
+_1p0em02.pdf  used on input line 946.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf, id=9127, 6
+<figures/implicit_2D_JFNK_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf, id=9147, 6
 18.31pt x 443.6575pt>
 File: figures/implicit_2D_JFNK_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_lumped_u1_L2_dt
-_1p0em02.pdf  used on input line 952.
+_1p0em02.pdf  used on input line 953.
 (pdftex.def)             Requested size: 229.07352pt x 164.36732pt.
-<figures/implicit_2D_JFNK_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf, id=9128, 6
+<figures/implicit_2D_JFNK_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf, id=9148, 6
 23.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_lumped_u1_G2_dt
-_1p0em02.pdf  used on input line 959.
+_1p0em02.pdf  used on input line 960.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf, id=9129, 6
+<figures/implicit_2D_JFNK_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf, id=9149, 6
 23.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_lumped_u2_L2_dt
-_1p0em02.pdf  used on input line 966.
+_1p0em02.pdf  used on input line 967.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf, id=9130, 6
+<figures/implicit_2D_JFNK_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf, id=9150, 6
 23.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_lumped_u2_G2_dt
-_1p0em02.pdf  used on input line 973.
+_1p0em02.pdf  used on input line 974.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
  [37 <./figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf> <./
 figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf> <./figures/
@@ -1939,53 +1939,53 @@ implicit_2D_JFNK_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf> <./figures/implicit
 _2D_JFNK_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf> <./figures/implicit_2D_JFNK
 _crankNicolson_lumped_u2_L2_dt_1p0em02.pdf> <./figures/implicit_2D_JFNK_crankNi
 colson_lumped_u2_G2_dt_1p0em02.pdf>] (./tables/results_2D_JFNK_dt_1p0em03.tex)
-<figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_L2_dt_1p0em03.pdf, id=957
+<figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_L2_dt_1p0em03.pdf, id=959
 3, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_L2_dt_1p0em03.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_L
-2_dt_1p0em03.pdf  used on input line 988.
+2_dt_1p0em03.pdf  used on input line 989.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf, id=957
+<figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf, id=959
 4, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_consistent_Vm_G
-2_dt_1p0em03.pdf  used on input line 995.
+2_dt_1p0em03.pdf  used on input line 996.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf, id=957
+<figures/implicit_2D_JFNK_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf, id=959
 5, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_consistent_u1_L
-2_dt_1p0em03.pdf  used on input line 1002.
+2_dt_1p0em03.pdf  used on input line 1003.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf, id=957
+<figures/implicit_2D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf, id=959
 6, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_consistent_u1_G
-2_dt_1p0em03.pdf  used on input line 1009.
+2_dt_1p0em03.pdf  used on input line 1010.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf, id=957
+<figures/implicit_2D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf, id=959
 7, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_consistent_u2_L
-2_dt_1p0em03.pdf  used on input line 1016.
+2_dt_1p0em03.pdf  used on input line 1017.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf, id=957
+<figures/implicit_2D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf, id=959
 8, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_consistent_u2_G
-2_dt_1p0em03.pdf  used on input line 1023.
+2_dt_1p0em03.pdf  used on input line 1024.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
  [38
 
@@ -1997,53 +1997,53 @@ Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_consistent_u2_G
 ures/implicit_2D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf> <./figures
 /implicit_2D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf> <./figures/imp
 licit_2D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf>]
-<figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf, id=10049, 
+<figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf, id=10069, 
 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_L2_dt
-_1p0em03.pdf  used on input line 1036.
+_1p0em03.pdf  used on input line 1037.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf, id=10050, 
+<figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf, id=10070, 
 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_G2_dt
-_1p0em03.pdf  used on input line 1043.
+_1p0em03.pdf  used on input line 1044.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf, id=10051, 
+<figures/implicit_2D_JFNK_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf, id=10071, 
 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_lumped_u1_L2_dt
-_1p0em03.pdf  used on input line 1050.
+_1p0em03.pdf  used on input line 1051.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf, id=10052, 
+<figures/implicit_2D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf, id=10072, 
 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_lumped_u1_G2_dt
-_1p0em03.pdf  used on input line 1057.
+_1p0em03.pdf  used on input line 1058.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf, id=10053, 
+<figures/implicit_2D_JFNK_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf, id=10073, 
 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_lumped_u2_L2_dt
-_1p0em03.pdf  used on input line 1064.
+_1p0em03.pdf  used on input line 1065.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf, id=10054, 
+<figures/implicit_2D_JFNK_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf, id=10074, 
 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_backwardEuler_lumped_u2_G2_dt
-_1p0em03.pdf  used on input line 1071.
+_1p0em03.pdf  used on input line 1072.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
  [40 <./figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf> <./
 figures/implicit_2D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf> <./figures/
@@ -2052,52 +2052,52 @@ _2D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf> <./figures/implicit_2D_JFNK
 _backwardEuler_lumped_u2_L2_dt_1p0em03.pdf> <./figures/implicit_2D_JFNK_backwar
 dEuler_lumped_u2_G2_dt_1p0em03.pdf>]
 <figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_L2_dt_1p0em03.pdf, id=105
-16, 623.32875pt x 439.6425pt>
+36, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_L2_dt_1p0em03.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_L
-2_dt_1p0em03.pdf  used on input line 1084.
+2_dt_1p0em03.pdf  used on input line 1085.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf, id=105
-17, 623.32875pt x 439.6425pt>
+37, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_G
-2_dt_1p0em03.pdf  used on input line 1091.
+2_dt_1p0em03.pdf  used on input line 1092.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_JFNK_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf, id=105
-18, 623.32875pt x 439.6425pt>
+38, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_consistent_u1_L
-2_dt_1p0em03.pdf  used on input line 1098.
+2_dt_1p0em03.pdf  used on input line 1099.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_JFNK_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf, id=105
-19, 623.32875pt x 439.6425pt>
+39, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_consistent_u1_G
-2_dt_1p0em03.pdf  used on input line 1105.
+2_dt_1p0em03.pdf  used on input line 1106.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_JFNK_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf, id=105
-20, 623.32875pt x 439.6425pt>
+40, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_consistent_u2_L
-2_dt_1p0em03.pdf  used on input line 1112.
+2_dt_1p0em03.pdf  used on input line 1113.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
 <figures/implicit_2D_JFNK_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf, id=105
-21, 623.32875pt x 439.6425pt>
+41, 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf Gr
 aphic file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_consistent_u2_G
-2_dt_1p0em03.pdf  used on input line 1119.
+2_dt_1p0em03.pdf  used on input line 1120.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
  [41 <./figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_L2_dt_1p0em03.pdf>
  <./figures/implicit_2D_JFNK_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf> <./
@@ -2105,53 +2105,53 @@ figures/implicit_2D_JFNK_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf> <./figu
 res/implicit_2D_JFNK_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf> <./figures/
 implicit_2D_JFNK_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf> <./figures/impl
 icit_2D_JFNK_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf>]
-<figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf, id=10973, 
+<figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf, id=10993, 
 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_L2_dt
-_1p0em03.pdf  used on input line 1132.
+_1p0em03.pdf  used on input line 1133.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf, id=10974, 
+<figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf, id=10994, 
 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_G2_dt
-_1p0em03.pdf  used on input line 1139.
+_1p0em03.pdf  used on input line 1140.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf, id=10975, 
+<figures/implicit_2D_JFNK_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf, id=10995, 
 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_lumped_u1_L2_dt
-_1p0em03.pdf  used on input line 1146.
+_1p0em03.pdf  used on input line 1147.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf, id=10976, 
+<figures/implicit_2D_JFNK_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf, id=10996, 
 618.31pt x 443.6575pt>
 File: figures/implicit_2D_JFNK_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_lumped_u1_G2_dt
-_1p0em03.pdf  used on input line 1153.
+_1p0em03.pdf  used on input line 1154.
 (pdftex.def)             Requested size: 229.07352pt x 164.36732pt.
-<figures/implicit_2D_JFNK_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf, id=10977, 
+<figures/implicit_2D_JFNK_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf, id=10997, 
 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_lumped_u2_L2_dt
-_1p0em03.pdf  used on input line 1160.
+_1p0em03.pdf  used on input line 1161.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
-<figures/implicit_2D_JFNK_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf, id=10978, 
+<figures/implicit_2D_JFNK_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf, id=10998, 
 623.32875pt x 439.6425pt>
 File: figures/implicit_2D_JFNK_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf Graphi
 c file (type pdf)
 <use figures/implicit_2D_JFNK_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf>
 Package pdftex.def Info: figures/implicit_2D_JFNK_crankNicolson_lumped_u2_G2_dt
-_1p0em03.pdf  used on input line 1167.
+_1p0em03.pdf  used on input line 1168.
 (pdftex.def)             Requested size: 229.07352pt x 161.5717pt.
  [42 <./figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf> <./
 figures/implicit_2D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf> <./figures/
@@ -2162,20 +2162,1406 @@ colson_lumped_u2_G2_dt_1p0em03.pdf>]) (./tables/results_2D_conclusions.tex [43
 
 
 
-]) [44]
-(./highOrderManufacturedFDAImplicitJfNK.aux)
+]) (./tables/results_3D_all.tex
+Overfull \hbox (0.92531pt too wide) in paragraph at lines 7--8
+[]$\OT1/cmtt/m/n/10.95 highOrderManufacturedFDAImplicitJfNK _ diagonalIion / re
+sults / example0 / 3D/$ \OT1/cmr/m/n/10.95 (-20) (and $\OT1/cmtt/m/n/10.95 _1$\
+OT1/cmr/m/n/10.95 (-20) ), 
+ []
+
+(./tables/results_3D_Picard_dt_1p0em02.tex [44])
+<figures/implicit_3D_Picard_backwardEuler_consistent_Vm_L2_dt_1p0em02.pdf, id=1
+1498, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_consistent_Vm_L2_dt_1p0em02.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_consistent_Vm_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_consistent_Vm
+_L2_dt_1p0em02.pdf  used on input line 23.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_consistent_Vm_G2_dt_1p0em02.pdf, id=1
+1499, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_consistent_Vm_G2_dt_1p0em02.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_consistent_Vm_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_consistent_Vm
+_G2_dt_1p0em02.pdf  used on input line 30.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_consistent_u1_L2_dt_1p0em02.pdf, id=1
+1500, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_consistent_u1_L2_dt_1p0em02.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_consistent_u1_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_consistent_u1
+_L2_dt_1p0em02.pdf  used on input line 37.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf, id=1
+1501, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_consistent_u1
+_G2_dt_1p0em02.pdf  used on input line 44.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf, id=1
+1502, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_consistent_u2
+_L2_dt_1p0em02.pdf  used on input line 51.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf, id=1
+1503, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_consistent_u2
+_G2_dt_1p0em02.pdf  used on input line 58.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+ [45] [46 <./figures/implicit_3D_Picard_backwardEuler_consistent_Vm_L2_dt_1p0em
+02.pdf> <./figures/implicit_3D_Picard_backwardEuler_consistent_Vm_G2_dt_1p0em02
+.pdf> <./figures/implicit_3D_Picard_backwardEuler_consistent_u1_L2_dt_1p0em02.p
+df> <./figures/implicit_3D_Picard_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf
+> <./figures/implicit_3D_Picard_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf> 
+<./figures/implicit_3D_Picard_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf>]
+<figures/implicit_3D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf, id=12022
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_lumped_Vm_L2_
+dt_1p0em02.pdf  used on input line 71.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf, id=12023
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_lumped_Vm_G2_
+dt_1p0em02.pdf  used on input line 78.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf, id=12024
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_lumped_u1_L2_
+dt_1p0em02.pdf  used on input line 85.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf, id=12025
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_lumped_u1_G2_
+dt_1p0em02.pdf  used on input line 92.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf, id=12026
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_lumped_u2_L2_
+dt_1p0em02.pdf  used on input line 99.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf, id=12027
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_lumped_u2_G2_
+dt_1p0em02.pdf  used on input line 106.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+ [47 <./figures/implicit_3D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf> <
+./figures/implicit_3D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf> <./figu
+res/implicit_3D_Picard_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf> <./figures/im
+plicit_3D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf> <./figures/implicit
+_3D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf> <./figures/implicit_3D_Pi
+card_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf>]
+<figures/implicit_3D_Picard_crankNicolson_consistent_Vm_L2_dt_1p0em02.pdf, id=1
+2541, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_consistent_Vm_L2_dt_1p0em02.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_consistent_Vm_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_consistent_Vm
+_L2_dt_1p0em02.pdf  used on input line 119.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf, id=1
+2542, 623.32875pt x 436.63126pt>
+File: figures/implicit_3D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_consistent_Vm
+_G2_dt_1p0em02.pdf  used on input line 126.
+(pdftex.def)             Requested size: 229.07352pt x 160.46506pt.
+<figures/implicit_3D_Picard_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf, id=1
+2543, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_consistent_u1
+_L2_dt_1p0em02.pdf  used on input line 133.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf, id=1
+2544, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_consistent_u1
+_G2_dt_1p0em02.pdf  used on input line 140.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf, id=1
+2545, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_consistent_u2
+_L2_dt_1p0em02.pdf  used on input line 147.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf, id=1
+2546, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_consistent_u2
+_G2_dt_1p0em02.pdf  used on input line 154.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+ [48 <./figures/implicit_3D_Picard_crankNicolson_consistent_Vm_L2_dt_1p0em02.pd
+f> <./figures/implicit_3D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf>
+ <./figures/implicit_3D_Picard_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf> <
+./figures/implicit_3D_Picard_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf> <./
+figures/implicit_3D_Picard_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf> <./fi
+gures/implicit_3D_Picard_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf>]
+<figures/implicit_3D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf, id=13061
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_lumped_Vm_L2_
+dt_1p0em02.pdf  used on input line 167.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf, id=13062
+, 623.32875pt x 436.63126pt>
+File: figures/implicit_3D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_lumped_Vm_G2_
+dt_1p0em02.pdf  used on input line 174.
+(pdftex.def)             Requested size: 229.07352pt x 160.46506pt.
+<figures/implicit_3D_Picard_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf, id=13063
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_lumped_u1_L2_
+dt_1p0em02.pdf  used on input line 181.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf, id=13064
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_lumped_u1_G2_
+dt_1p0em02.pdf  used on input line 188.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf, id=13065
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_lumped_u2_L2_
+dt_1p0em02.pdf  used on input line 195.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf, id=13066
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_lumped_u2_G2_
+dt_1p0em02.pdf  used on input line 202.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+ [49 <./figures/implicit_3D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf> <
+./figures/implicit_3D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf> <./figu
+res/implicit_3D_Picard_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf> <./figures/im
+plicit_3D_Picard_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf> <./figures/implicit
+_3D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf> <./figures/implicit_3D_Pi
+card_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf>]
+(./tables/results_3D_Picard_dt_1p0em03.tex)
+<figures/implicit_3D_Picard_backwardEuler_consistent_Vm_L2_dt_1p0em03.pdf, id=1
+3590, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_consistent_Vm_L2_dt_1p0em03.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_consistent_Vm_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_consistent_Vm
+_L2_dt_1p0em03.pdf  used on input line 217.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf, id=1
+3591, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_consistent_Vm
+_G2_dt_1p0em03.pdf  used on input line 224.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf, id=1
+3592, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_consistent_u1
+_L2_dt_1p0em03.pdf  used on input line 231.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf, id=1
+3593, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_consistent_u1
+_G2_dt_1p0em03.pdf  used on input line 238.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf, id=1
+3594, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_consistent_u2
+_L2_dt_1p0em03.pdf  used on input line 245.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf, id=1
+3595, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_consistent_u2
+_G2_dt_1p0em03.pdf  used on input line 252.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+ [50
+
+
+
+] [51 <./figures/implicit_3D_Picard_backwardEuler_consistent_Vm_L2_dt_1p0em03.p
+df> <./figures/implicit_3D_Picard_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf
+> <./figures/implicit_3D_Picard_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf> 
+<./figures/implicit_3D_Picard_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf> <.
+/figures/implicit_3D_Picard_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf> <./f
+igures/implicit_3D_Picard_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf>]
+<figures/implicit_3D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf, id=14120
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_lumped_Vm_L2_
+dt_1p0em03.pdf  used on input line 265.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf, id=14121
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_lumped_Vm_G2_
+dt_1p0em03.pdf  used on input line 272.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf, id=14122
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_lumped_u1_L2_
+dt_1p0em03.pdf  used on input line 279.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf, id=14123
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_lumped_u1_G2_
+dt_1p0em03.pdf  used on input line 286.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf, id=14124
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_lumped_u2_L2_
+dt_1p0em03.pdf  used on input line 293.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf, id=14125
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_backwardEuler_lumped_u2_G2_
+dt_1p0em03.pdf  used on input line 300.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+ [52 <./figures/implicit_3D_Picard_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf> <
+./figures/implicit_3D_Picard_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf> <./figu
+res/implicit_3D_Picard_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf> <./figures/im
+plicit_3D_Picard_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf> <./figures/implicit
+_3D_Picard_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf> <./figures/implicit_3D_Pi
+card_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf>]
+<figures/implicit_3D_Picard_crankNicolson_consistent_Vm_L2_dt_1p0em03.pdf, id=1
+4640, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_consistent_Vm_L2_dt_1p0em03.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_consistent_Vm_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_consistent_Vm
+_L2_dt_1p0em03.pdf  used on input line 313.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf, id=1
+4641, 623.32875pt x 436.63126pt>
+File: figures/implicit_3D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_consistent_Vm
+_G2_dt_1p0em03.pdf  used on input line 320.
+(pdftex.def)             Requested size: 229.07352pt x 160.46506pt.
+<figures/implicit_3D_Picard_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf, id=1
+4642, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_consistent_u1
+_L2_dt_1p0em03.pdf  used on input line 327.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf, id=1
+4643, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_consistent_u1
+_G2_dt_1p0em03.pdf  used on input line 334.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf, id=1
+4644, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_consistent_u2
+_L2_dt_1p0em03.pdf  used on input line 341.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf, id=1
+4645, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf 
+Graphic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_consistent_u2
+_G2_dt_1p0em03.pdf  used on input line 348.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+ [53 <./figures/implicit_3D_Picard_crankNicolson_consistent_Vm_L2_dt_1p0em03.pd
+f> <./figures/implicit_3D_Picard_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf>
+ <./figures/implicit_3D_Picard_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf> <
+./figures/implicit_3D_Picard_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf> <./
+figures/implicit_3D_Picard_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf> <./fi
+gures/implicit_3D_Picard_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf>]
+<figures/implicit_3D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf, id=15160
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_lumped_Vm_L2_
+dt_1p0em03.pdf  used on input line 361.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf, id=15161
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_lumped_Vm_G2_
+dt_1p0em03.pdf  used on input line 368.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf, id=15162
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_lumped_u1_L2_
+dt_1p0em03.pdf  used on input line 375.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf, id=15163
+, 623.32875pt x 436.63126pt>
+File: figures/implicit_3D_Picard_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_lumped_u1_G2_
+dt_1p0em03.pdf  used on input line 382.
+(pdftex.def)             Requested size: 229.07352pt x 160.46506pt.
+<figures/implicit_3D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf, id=15164
+, 618.31pt x 441.65pt>
+File: figures/implicit_3D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_lumped_u2_L2_
+dt_1p0em03.pdf  used on input line 389.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_Picard_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf, id=15165
+, 623.32875pt x 436.63126pt>
+File: figures/implicit_3D_Picard_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf Grap
+hic file (type pdf)
+<use figures/implicit_3D_Picard_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_Picard_crankNicolson_lumped_u2_G2_
+dt_1p0em03.pdf  used on input line 396.
+(pdftex.def)             Requested size: 229.07352pt x 160.46506pt.
+ [54 <./figures/implicit_3D_Picard_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf> <
+./figures/implicit_3D_Picard_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf> <./figu
+res/implicit_3D_Picard_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf> <./figures/im
+plicit_3D_Picard_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf> <./figures/implicit
+_3D_Picard_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf> <./figures/implicit_3D_Pi
+card_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf>]
+(./tables/results_3D_diagonalIion_dt_1p0em02.tex)
+<figures/implicit_3D_diagonalIion_backwardEuler_consistent_Vm_L2_dt_1p0em02.pdf
+, id=15688, 628.3475pt x 436.63126pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_consistent_Vm_L2_dt_1p0em0
+2.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_consistent_Vm_L2_dt_1p0em02
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_consist
+ent_Vm_L2_dt_1p0em02.pdf  used on input line 412.
+(pdftex.def)             Requested size: 229.07352pt x 159.1792pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_consistent_Vm_G2_dt_1p0em02.pdf
+, id=15689, 633.36626pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_consistent_Vm_G2_dt_1p0em0
+2.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_consistent_Vm_G2_dt_1p0em02
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_consist
+ent_Vm_G2_dt_1p0em02.pdf  used on input line 419.
+(pdftex.def)             Requested size: 229.07352pt x 159.73517pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_consistent_u1_L2_dt_1p0em02.pdf
+, id=15690, 624.3325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_consistent_u1_L2_dt_1p0em0
+2.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_consistent_u1_L2_dt_1p0em02
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_consist
+ent_u1_L2_dt_1p0em02.pdf  used on input line 426.
+(pdftex.def)             Requested size: 229.07352pt x 162.03992pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf
+, id=15691, 634.37pt x 436.63126pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_consistent_u1_G2_dt_1p0em0
+2.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_consistent_u1_G2_dt_1p0em02
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_consist
+ent_u1_G2_dt_1p0em02.pdf  used on input line 433.
+(pdftex.def)             Requested size: 229.07352pt x 157.66682pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf
+, id=15692, 624.3325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_consistent_u2_L2_dt_1p0em0
+2.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_consistent_u2_L2_dt_1p0em02
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_consist
+ent_u2_L2_dt_1p0em02.pdf  used on input line 440.
+(pdftex.def)             Requested size: 229.07352pt x 162.03992pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf
+, id=15693, 631.35875pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_consistent_u2_G2_dt_1p0em0
+2.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_consistent_u2_G2_dt_1p0em02
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_consist
+ent_u2_G2_dt_1p0em02.pdf  used on input line 447.
+(pdftex.def)             Requested size: 229.07352pt x 160.24059pt.
+ [55
+
+
+
+] [56 <./figures/implicit_3D_diagonalIion_backwardEuler_consistent_Vm_L2_dt_1p0
+em02.pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_consistent_Vm_G2_dt
+_1p0em02.pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_consistent_u1_L
+2_dt_1p0em02.pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_consistent_
+u1_G2_dt_1p0em02.pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_consist
+ent_u2_L2_dt_1p0em02.pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_con
+sistent_u2_G2_dt_1p0em02.pdf>]
+<figures/implicit_3D_diagonalIion_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf, id
+=16209, 618.31pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_lumped_Vm_L2_dt_1p0em02.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_lumped_
+Vm_L2_dt_1p0em02.pdf  used on input line 460.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf, id
+=16210, 624.3325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_lumped_Vm_G2_dt_1p0em02.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_lumped_
+Vm_G2_dt_1p0em02.pdf  used on input line 467.
+(pdftex.def)             Requested size: 229.07352pt x 162.03992pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf, id
+=16211, 618.31pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_lumped_u1_L2_dt_1p0em02.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_lumped_
+u1_L2_dt_1p0em02.pdf  used on input line 474.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf, id
+=16212, 622.325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_lumped_u1_G2_dt_1p0em02.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_lumped_
+u1_G2_dt_1p0em02.pdf  used on input line 481.
+(pdftex.def)             Requested size: 229.07352pt x 162.56555pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf, id
+=16213, 618.31pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_lumped_u2_L2_dt_1p0em02.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_lumped_
+u2_L2_dt_1p0em02.pdf  used on input line 488.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf, id
+=16214, 622.325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_lumped_u2_G2_dt_1p0em02.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_lumped_
+u2_G2_dt_1p0em02.pdf  used on input line 495.
+(pdftex.def)             Requested size: 229.07352pt x 162.56555pt.
+ [57 <./figures/implicit_3D_diagonalIion_backwardEuler_lumped_Vm_L2_dt_1p0em02.
+pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_lumped_Vm_G2_dt_1p0em02.
+pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_lumped_u1_L2_dt_1p0em02.
+pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_lumped_u1_G2_dt_1p0em02.
+pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_lumped_u2_L2_dt_1p0em02.
+pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_lumped_u2_G2_dt_1p0em02.
+pdf>]
+<figures/implicit_3D_diagonalIion_crankNicolson_consistent_Vm_L2_dt_1p0em02.pdf
+, id=16719, 628.3475pt x 436.63126pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_consistent_Vm_L2_dt_1p0em0
+2.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_consistent_Vm_L2_dt_1p0em02
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_consist
+ent_Vm_L2_dt_1p0em02.pdf  used on input line 508.
+(pdftex.def)             Requested size: 229.07352pt x 159.1792pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf
+, id=16720, 633.36626pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_consistent_Vm_G2_dt_1p0em0
+2.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_consistent_Vm_G2_dt_1p0em02
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_consist
+ent_Vm_G2_dt_1p0em02.pdf  used on input line 515.
+(pdftex.def)             Requested size: 229.07352pt x 159.73517pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf
+, id=16721, 627.34375pt x 436.63126pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_consistent_u1_L2_dt_1p0em0
+2.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_consistent_u1_L2_dt_1p0em02
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_consist
+ent_u1_L2_dt_1p0em02.pdf  used on input line 522.
+(pdftex.def)             Requested size: 229.07352pt x 159.43237pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf
+, id=16722, 634.37pt x 436.63126pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_consistent_u1_G2_dt_1p0em0
+2.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_consistent_u1_G2_dt_1p0em02
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_consist
+ent_u1_G2_dt_1p0em02.pdf  used on input line 529.
+(pdftex.def)             Requested size: 229.07352pt x 157.66682pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf
+, id=16723, 624.3325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_consistent_u2_L2_dt_1p0em0
+2.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_consistent_u2_L2_dt_1p0em02
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_consist
+ent_u2_L2_dt_1p0em02.pdf  used on input line 536.
+(pdftex.def)             Requested size: 229.07352pt x 162.03992pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf
+, id=16724, 631.35875pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_consistent_u2_G2_dt_1p0em0
+2.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_consistent_u2_G2_dt_1p0em02
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_consist
+ent_u2_G2_dt_1p0em02.pdf  used on input line 543.
+(pdftex.def)             Requested size: 229.07352pt x 160.24059pt.
+ [58 <./figures/implicit_3D_diagonalIion_crankNicolson_consistent_Vm_L2_dt_1p0e
+m02.pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_consistent_Vm_G2_dt_
+1p0em02.pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_consistent_u1_L2
+_dt_1p0em02.pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_consistent_u
+1_G2_dt_1p0em02.pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_consiste
+nt_u2_L2_dt_1p0em02.pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_cons
+istent_u2_G2_dt_1p0em02.pdf>]
+<figures/implicit_3D_diagonalIion_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf, id
+=17239, 618.31pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_lumped_Vm_L2_dt_1p0em02.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_lumped_
+Vm_L2_dt_1p0em02.pdf  used on input line 556.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf, id
+=17240, 624.3325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_lumped_Vm_G2_dt_1p0em02.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_lumped_
+Vm_G2_dt_1p0em02.pdf  used on input line 563.
+(pdftex.def)             Requested size: 229.07352pt x 162.03992pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf, id
+=17241, 618.31pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_lumped_u1_L2_dt_1p0em02.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_lumped_
+u1_L2_dt_1p0em02.pdf  used on input line 570.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf, id
+=17242, 622.325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_lumped_u1_G2_dt_1p0em02.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_lumped_
+u1_G2_dt_1p0em02.pdf  used on input line 577.
+(pdftex.def)             Requested size: 229.07352pt x 162.56555pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf, id
+=17243, 618.31pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_lumped_u2_L2_dt_1p0em02.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_lumped_
+u2_L2_dt_1p0em02.pdf  used on input line 584.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf, id
+=17244, 622.325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_lumped_u2_G2_dt_1p0em02.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_lumped_
+u2_G2_dt_1p0em02.pdf  used on input line 591.
+(pdftex.def)             Requested size: 229.07352pt x 162.56555pt.
+ [59 <./figures/implicit_3D_diagonalIion_crankNicolson_lumped_Vm_L2_dt_1p0em02.
+pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_lumped_Vm_G2_dt_1p0em02.
+pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_lumped_u1_L2_dt_1p0em02.
+pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_lumped_u1_G2_dt_1p0em02.
+pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_lumped_u2_L2_dt_1p0em02.
+pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_lumped_u2_G2_dt_1p0em02.
+pdf>]
+(./tables/results_3D_diagonalIion_dt_1p0em03.tex)
+<figures/implicit_3D_diagonalIion_backwardEuler_consistent_Vm_L2_dt_1p0em03.pdf
+, id=17766, 628.3475pt x 436.63126pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_consistent_Vm_L2_dt_1p0em0
+3.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_consistent_Vm_L2_dt_1p0em03
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_consist
+ent_Vm_L2_dt_1p0em03.pdf  used on input line 606.
+(pdftex.def)             Requested size: 229.07352pt x 159.1792pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf
+, id=17767, 633.36626pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_consistent_Vm_G2_dt_1p0em0
+3.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_consistent_Vm_G2_dt_1p0em03
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_consist
+ent_Vm_G2_dt_1p0em03.pdf  used on input line 613.
+(pdftex.def)             Requested size: 229.07352pt x 159.73517pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf
+, id=17768, 627.34375pt x 436.63126pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_consistent_u1_L2_dt_1p0em0
+3.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_consistent_u1_L2_dt_1p0em03
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_consist
+ent_u1_L2_dt_1p0em03.pdf  used on input line 620.
+(pdftex.def)             Requested size: 229.07352pt x 159.43237pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf
+, id=17769, 631.35875pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_consistent_u1_G2_dt_1p0em0
+3.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_consistent_u1_G2_dt_1p0em03
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_consist
+ent_u1_G2_dt_1p0em03.pdf  used on input line 627.
+(pdftex.def)             Requested size: 229.07352pt x 160.24059pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf
+, id=17770, 624.3325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_consistent_u2_L2_dt_1p0em0
+3.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_consistent_u2_L2_dt_1p0em03
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_consist
+ent_u2_L2_dt_1p0em03.pdf  used on input line 634.
+(pdftex.def)             Requested size: 229.07352pt x 162.03992pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf
+, id=17771, 631.35875pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_consistent_u2_G2_dt_1p0em0
+3.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_consistent_u2_G2_dt_1p0em03
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_consist
+ent_u2_G2_dt_1p0em03.pdf  used on input line 641.
+(pdftex.def)             Requested size: 229.07352pt x 160.24059pt.
+ [60
+
+
+
+] [61 <./figures/implicit_3D_diagonalIion_backwardEuler_consistent_Vm_L2_dt_1p0
+em03.pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_consistent_Vm_G2_dt
+_1p0em03.pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_consistent_u1_L
+2_dt_1p0em03.pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_consistent_
+u1_G2_dt_1p0em03.pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_consist
+ent_u2_L2_dt_1p0em03.pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_con
+sistent_u2_G2_dt_1p0em03.pdf>]
+<figures/implicit_3D_diagonalIion_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf, id
+=18287, 618.31pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_lumped_Vm_L2_dt_1p0em03.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_lumped_
+Vm_L2_dt_1p0em03.pdf  used on input line 654.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf, id
+=18288, 624.3325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_lumped_Vm_G2_dt_1p0em03.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_lumped_
+Vm_G2_dt_1p0em03.pdf  used on input line 661.
+(pdftex.def)             Requested size: 229.07352pt x 162.03992pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf, id
+=18289, 618.31pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_lumped_u1_L2_dt_1p0em03.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_lumped_
+u1_L2_dt_1p0em03.pdf  used on input line 668.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf, id
+=18290, 622.325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_lumped_u1_G2_dt_1p0em03.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_lumped_
+u1_G2_dt_1p0em03.pdf  used on input line 675.
+(pdftex.def)             Requested size: 229.07352pt x 162.56555pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf, id
+=18291, 618.31pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_lumped_u2_L2_dt_1p0em03.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_lumped_
+u2_L2_dt_1p0em03.pdf  used on input line 682.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_diagonalIion_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf, id
+=18292, 622.325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_backwardEuler_lumped_u2_G2_dt_1p0em03.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_backwardEuler_lumped_
+u2_G2_dt_1p0em03.pdf  used on input line 689.
+(pdftex.def)             Requested size: 229.07352pt x 162.56555pt.
+ [62 <./figures/implicit_3D_diagonalIion_backwardEuler_lumped_Vm_L2_dt_1p0em03.
+pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_lumped_Vm_G2_dt_1p0em03.
+pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_lumped_u1_L2_dt_1p0em03.
+pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_lumped_u1_G2_dt_1p0em03.
+pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_lumped_u2_L2_dt_1p0em03.
+pdf> <./figures/implicit_3D_diagonalIion_backwardEuler_lumped_u2_G2_dt_1p0em03.
+pdf>]
+<figures/implicit_3D_diagonalIion_crankNicolson_consistent_Vm_L2_dt_1p0em03.pdf
+, id=18797, 628.3475pt x 436.63126pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_consistent_Vm_L2_dt_1p0em0
+3.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_consistent_Vm_L2_dt_1p0em03
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_consist
+ent_Vm_L2_dt_1p0em03.pdf  used on input line 702.
+(pdftex.def)             Requested size: 229.07352pt x 159.1792pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf
+, id=18798, 636.3775pt x 436.63126pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_consistent_Vm_G2_dt_1p0em0
+3.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_consistent_Vm_G2_dt_1p0em03
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_consist
+ent_Vm_G2_dt_1p0em03.pdf  used on input line 709.
+(pdftex.def)             Requested size: 229.07352pt x 157.16714pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf
+, id=18799, 624.3325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_consistent_u1_L2_dt_1p0em0
+3.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_consistent_u1_L2_dt_1p0em03
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_consist
+ent_u1_L2_dt_1p0em03.pdf  used on input line 716.
+(pdftex.def)             Requested size: 229.07352pt x 162.03992pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf
+, id=18800, 631.35875pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_consistent_u1_G2_dt_1p0em0
+3.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_consistent_u1_G2_dt_1p0em03
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_consist
+ent_u1_G2_dt_1p0em03.pdf  used on input line 723.
+(pdftex.def)             Requested size: 229.07352pt x 160.24059pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf
+, id=18801, 624.3325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_consistent_u2_L2_dt_1p0em0
+3.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_consistent_u2_L2_dt_1p0em03
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_consist
+ent_u2_L2_dt_1p0em03.pdf  used on input line 730.
+(pdftex.def)             Requested size: 229.07352pt x 162.03992pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf
+, id=18802, 634.37pt x 436.63126pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_consistent_u2_G2_dt_1p0em0
+3.pdf Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_consistent_u2_G2_dt_1p0em03
+.pdf>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_consist
+ent_u2_G2_dt_1p0em03.pdf  used on input line 737.
+(pdftex.def)             Requested size: 229.07352pt x 157.66682pt.
+ [63 <./figures/implicit_3D_diagonalIion_crankNicolson_consistent_Vm_L2_dt_1p0e
+m03.pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_consistent_Vm_G2_dt_
+1p0em03.pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_consistent_u1_L2
+_dt_1p0em03.pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_consistent_u
+1_G2_dt_1p0em03.pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_consiste
+nt_u2_L2_dt_1p0em03.pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_cons
+istent_u2_G2_dt_1p0em03.pdf>]
+<figures/implicit_3D_diagonalIion_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf, id
+=19317, 618.31pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_lumped_Vm_L2_dt_1p0em03.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_lumped_
+Vm_L2_dt_1p0em03.pdf  used on input line 750.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf, id
+=19318, 624.3325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_lumped_Vm_G2_dt_1p0em03.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_lumped_
+Vm_G2_dt_1p0em03.pdf  used on input line 757.
+(pdftex.def)             Requested size: 229.07352pt x 162.03992pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf, id
+=19319, 618.31pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_lumped_u1_L2_dt_1p0em03.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_lumped_
+u1_L2_dt_1p0em03.pdf  used on input line 764.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf, id
+=19320, 622.325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_lumped_u1_G2_dt_1p0em03.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_lumped_
+u1_G2_dt_1p0em03.pdf  used on input line 771.
+(pdftex.def)             Requested size: 229.07352pt x 162.56555pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf, id
+=19321, 618.31pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_lumped_u2_L2_dt_1p0em03.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_lumped_
+u2_L2_dt_1p0em03.pdf  used on input line 778.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_diagonalIion_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf, id
+=19322, 622.325pt x 441.65pt>
+File: figures/implicit_3D_diagonalIion_crankNicolson_lumped_u2_G2_dt_1p0em03.pd
+f Graphic file (type pdf)
+<use figures/implicit_3D_diagonalIion_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf
+>
+Package pdftex.def Info: figures/implicit_3D_diagonalIion_crankNicolson_lumped_
+u2_G2_dt_1p0em03.pdf  used on input line 785.
+(pdftex.def)             Requested size: 229.07352pt x 162.56555pt.
+ [64 <./figures/implicit_3D_diagonalIion_crankNicolson_lumped_Vm_L2_dt_1p0em03.
+pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_lumped_Vm_G2_dt_1p0em03.
+pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_lumped_u1_L2_dt_1p0em03.
+pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_lumped_u1_G2_dt_1p0em03.
+pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_lumped_u2_L2_dt_1p0em03.
+pdf> <./figures/implicit_3D_diagonalIion_crankNicolson_lumped_u2_G2_dt_1p0em03.
+pdf>]
+(./tables/results_3D_JFNK_dt_1p0em02.tex)
+<figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_L2_dt_1p0em02.pdf, id=198
+45, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_L2_dt_1p0em02.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_L
+2_dt_1p0em02.pdf  used on input line 801.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_G2_dt_1p0em02.pdf, id=198
+46, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_G2_dt_1p0em02.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_G
+2_dt_1p0em02.pdf  used on input line 808.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_backwardEuler_consistent_u1_L2_dt_1p0em02.pdf, id=198
+47, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_consistent_u1_L2_dt_1p0em02.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_consistent_u1_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_consistent_u1_L
+2_dt_1p0em02.pdf  used on input line 815.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf, id=198
+48, 623.32875pt x 436.63126pt>
+File: figures/implicit_3D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_consistent_u1_G
+2_dt_1p0em02.pdf  used on input line 822.
+(pdftex.def)             Requested size: 229.07352pt x 160.46506pt.
+<figures/implicit_3D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf, id=198
+49, 623.32875pt x 436.63126pt>
+File: figures/implicit_3D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_consistent_u2_L
+2_dt_1p0em02.pdf  used on input line 829.
+(pdftex.def)             Requested size: 229.07352pt x 160.46506pt.
+<figures/implicit_3D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf, id=198
+50, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_consistent_u2_G
+2_dt_1p0em02.pdf  used on input line 836.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+ [65
+
+
+
+] [66 <./figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_L2_dt_1p0em02.pdf
+> <./figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_G2_dt_1p0em02.pdf> <.
+/figures/implicit_3D_JFNK_backwardEuler_consistent_u1_L2_dt_1p0em02.pdf> <./fig
+ures/implicit_3D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em02.pdf> <./figures
+/implicit_3D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em02.pdf> <./figures/imp
+licit_3D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em02.pdf>]
+<figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf, id=20375, 
+623.32875pt x 436.63126pt>
+File: figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_L2_dt
+_1p0em02.pdf  used on input line 849.
+(pdftex.def)             Requested size: 229.07352pt x 160.46506pt.
+<figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf, id=20376, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_G2_dt
+_1p0em02.pdf  used on input line 856.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf, id=20377, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_lumped_u1_L2_dt
+_1p0em02.pdf  used on input line 863.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf, id=20378, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_lumped_u1_G2_dt
+_1p0em02.pdf  used on input line 870.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf, id=20379, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_lumped_u2_L2_dt
+_1p0em02.pdf  used on input line 877.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf, id=20380, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_lumped_u2_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_lumped_u2_G2_dt
+_1p0em02.pdf  used on input line 884.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+ [67 <./figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em02.pdf> <./
+figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em02.pdf> <./figures/
+implicit_3D_JFNK_backwardEuler_lumped_u1_L2_dt_1p0em02.pdf> <./figures/implicit
+_3D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em02.pdf> <./figures/implicit_3D_JFNK
+_backwardEuler_lumped_u2_L2_dt_1p0em02.pdf> <./figures/implicit_3D_JFNK_backwar
+dEuler_lumped_u2_G2_dt_1p0em02.pdf>]
+<figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_L2_dt_1p0em02.pdf, id=208
+96, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_L2_dt_1p0em02.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_L
+2_dt_1p0em02.pdf  used on input line 897.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf, id=208
+97, 623.32875pt x 436.63126pt>
+File: figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_G
+2_dt_1p0em02.pdf  used on input line 904.
+(pdftex.def)             Requested size: 229.07352pt x 160.46506pt.
+<figures/implicit_3D_JFNK_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf, id=208
+98, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_consistent_u1_L
+2_dt_1p0em02.pdf  used on input line 911.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf, id=208
+99, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_consistent_u1_G
+2_dt_1p0em02.pdf  used on input line 918.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf, id=209
+00, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_consistent_u2_L
+2_dt_1p0em02.pdf  used on input line 925.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf, id=209
+01, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_consistent_u2_G
+2_dt_1p0em02.pdf  used on input line 932.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+ [68 <./figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_L2_dt_1p0em02.pdf>
+ <./figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_G2_dt_1p0em02.pdf> <./
+figures/implicit_3D_JFNK_crankNicolson_consistent_u1_L2_dt_1p0em02.pdf> <./figu
+res/implicit_3D_JFNK_crankNicolson_consistent_u1_G2_dt_1p0em02.pdf> <./figures/
+implicit_3D_JFNK_crankNicolson_consistent_u2_L2_dt_1p0em02.pdf> <./figures/impl
+icit_3D_JFNK_crankNicolson_consistent_u2_G2_dt_1p0em02.pdf>]
+<figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf, id=21416, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_L2_dt
+_1p0em02.pdf  used on input line 945.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf, id=21417, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_G2_dt
+_1p0em02.pdf  used on input line 952.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf, id=21418, 
+623.32875pt x 436.63126pt>
+File: figures/implicit_3D_JFNK_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_lumped_u1_L2_dt
+_1p0em02.pdf  used on input line 959.
+(pdftex.def)             Requested size: 229.07352pt x 160.46506pt.
+<figures/implicit_3D_JFNK_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf, id=21419, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_lumped_u1_G2_dt
+_1p0em02.pdf  used on input line 966.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf, id=21420, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_lumped_u2_L2_dt
+_1p0em02.pdf  used on input line 973.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf, id=21421, 
+623.32875pt x 436.63126pt>
+File: figures/implicit_3D_JFNK_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_lumped_u2_G2_dt_1p0em02.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_lumped_u2_G2_dt
+_1p0em02.pdf  used on input line 980.
+(pdftex.def)             Requested size: 229.07352pt x 160.46506pt.
+ [69 <./figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em02.pdf> <./
+figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em02.pdf> <./figures/
+implicit_3D_JFNK_crankNicolson_lumped_u1_L2_dt_1p0em02.pdf> <./figures/implicit
+_3D_JFNK_crankNicolson_lumped_u1_G2_dt_1p0em02.pdf> <./figures/implicit_3D_JFNK
+_crankNicolson_lumped_u2_L2_dt_1p0em02.pdf> <./figures/implicit_3D_JFNK_crankNi
+colson_lumped_u2_G2_dt_1p0em02.pdf>] (./tables/results_3D_JFNK_dt_1p0em03.tex)
+<figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_L2_dt_1p0em03.pdf, id=219
+44, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_L2_dt_1p0em03.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_L
+2_dt_1p0em03.pdf  used on input line 995.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf, id=219
+45, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_G
+2_dt_1p0em03.pdf  used on input line 1002.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf, id=219
+46, 623.32875pt x 436.63126pt>
+File: figures/implicit_3D_JFNK_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_consistent_u1_L
+2_dt_1p0em03.pdf  used on input line 1009.
+(pdftex.def)             Requested size: 229.07352pt x 160.46506pt.
+<figures/implicit_3D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf, id=219
+47, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_consistent_u1_G
+2_dt_1p0em03.pdf  used on input line 1016.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf, id=219
+48, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_consistent_u2_L
+2_dt_1p0em03.pdf  used on input line 1023.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf, id=219
+49, 623.32875pt x 436.63126pt>
+File: figures/implicit_3D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_consistent_u2_G
+2_dt_1p0em03.pdf  used on input line 1030.
+(pdftex.def)             Requested size: 229.07352pt x 160.46506pt.
+ [70
+
+
+
+] [71 <./figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_L2_dt_1p0em03.pdf
+> <./figures/implicit_3D_JFNK_backwardEuler_consistent_Vm_G2_dt_1p0em03.pdf> <.
+/figures/implicit_3D_JFNK_backwardEuler_consistent_u1_L2_dt_1p0em03.pdf> <./fig
+ures/implicit_3D_JFNK_backwardEuler_consistent_u1_G2_dt_1p0em03.pdf> <./figures
+/implicit_3D_JFNK_backwardEuler_consistent_u2_L2_dt_1p0em03.pdf> <./figures/imp
+licit_3D_JFNK_backwardEuler_consistent_u2_G2_dt_1p0em03.pdf>]
+<figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf, id=22474, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_L2_dt
+_1p0em03.pdf  used on input line 1043.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf, id=22475, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_G2_dt
+_1p0em03.pdf  used on input line 1050.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf, id=22476, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_lumped_u1_L2_dt
+_1p0em03.pdf  used on input line 1057.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf, id=22477, 
+623.32875pt x 436.63126pt>
+File: figures/implicit_3D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_lumped_u1_G2_dt
+_1p0em03.pdf  used on input line 1064.
+(pdftex.def)             Requested size: 229.07352pt x 160.46506pt.
+<figures/implicit_3D_JFNK_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf, id=22478, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_lumped_u2_L2_dt
+_1p0em03.pdf  used on input line 1071.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf, id=22479, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_backwardEuler_lumped_u2_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_backwardEuler_lumped_u2_G2_dt
+_1p0em03.pdf  used on input line 1078.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+ [72 <./figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_L2_dt_1p0em03.pdf> <./
+figures/implicit_3D_JFNK_backwardEuler_lumped_Vm_G2_dt_1p0em03.pdf> <./figures/
+implicit_3D_JFNK_backwardEuler_lumped_u1_L2_dt_1p0em03.pdf> <./figures/implicit
+_3D_JFNK_backwardEuler_lumped_u1_G2_dt_1p0em03.pdf> <./figures/implicit_3D_JFNK
+_backwardEuler_lumped_u2_L2_dt_1p0em03.pdf> <./figures/implicit_3D_JFNK_backwar
+dEuler_lumped_u2_G2_dt_1p0em03.pdf>]
+<figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_L2_dt_1p0em03.pdf, id=229
+94, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_L2_dt_1p0em03.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_L
+2_dt_1p0em03.pdf  used on input line 1091.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf, id=229
+95, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_G
+2_dt_1p0em03.pdf  used on input line 1098.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf, id=229
+96, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_consistent_u1_L
+2_dt_1p0em03.pdf  used on input line 1105.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf, id=229
+97, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_consistent_u1_G
+2_dt_1p0em03.pdf  used on input line 1112.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf, id=229
+98, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_consistent_u2_L
+2_dt_1p0em03.pdf  used on input line 1119.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf, id=229
+99, 618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf Gr
+aphic file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_consistent_u2_G
+2_dt_1p0em03.pdf  used on input line 1126.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+ [73 <./figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_L2_dt_1p0em03.pdf>
+ <./figures/implicit_3D_JFNK_crankNicolson_consistent_Vm_G2_dt_1p0em03.pdf> <./
+figures/implicit_3D_JFNK_crankNicolson_consistent_u1_L2_dt_1p0em03.pdf> <./figu
+res/implicit_3D_JFNK_crankNicolson_consistent_u1_G2_dt_1p0em03.pdf> <./figures/
+implicit_3D_JFNK_crankNicolson_consistent_u2_L2_dt_1p0em03.pdf> <./figures/impl
+icit_3D_JFNK_crankNicolson_consistent_u2_G2_dt_1p0em03.pdf>]
+<figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf, id=23514, 
+623.32875pt x 436.63126pt>
+File: figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_L2_dt
+_1p0em03.pdf  used on input line 1139.
+(pdftex.def)             Requested size: 229.07352pt x 160.46506pt.
+<figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf, id=23515, 
+623.32875pt x 436.63126pt>
+File: figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_G2_dt
+_1p0em03.pdf  used on input line 1146.
+(pdftex.def)             Requested size: 229.07352pt x 160.46506pt.
+<figures/implicit_3D_JFNK_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf, id=23516, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_lumped_u1_L2_dt
+_1p0em03.pdf  used on input line 1153.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf, id=23517, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_lumped_u1_G2_dt
+_1p0em03.pdf  used on input line 1160.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf, id=23518, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_lumped_u2_L2_dt
+_1p0em03.pdf  used on input line 1167.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+<figures/implicit_3D_JFNK_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf, id=23519, 
+618.31pt x 441.65pt>
+File: figures/implicit_3D_JFNK_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf Graphi
+c file (type pdf)
+<use figures/implicit_3D_JFNK_crankNicolson_lumped_u2_G2_dt_1p0em03.pdf>
+Package pdftex.def Info: figures/implicit_3D_JFNK_crankNicolson_lumped_u2_G2_dt
+_1p0em03.pdf  used on input line 1174.
+(pdftex.def)             Requested size: 229.07352pt x 163.62358pt.
+ [74 <./figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_L2_dt_1p0em03.pdf> <./
+figures/implicit_3D_JFNK_crankNicolson_lumped_Vm_G2_dt_1p0em03.pdf> <./figures/
+implicit_3D_JFNK_crankNicolson_lumped_u1_L2_dt_1p0em03.pdf> <./figures/implicit
+_3D_JFNK_crankNicolson_lumped_u1_G2_dt_1p0em03.pdf> <./figures/implicit_3D_JFNK
+_crankNicolson_lumped_u2_L2_dt_1p0em03.pdf> <./figures/implicit_3D_JFNK_crankNi
+colson_lumped_u2_G2_dt_1p0em03.pdf>]) [75
+
+
+
+] (./highOrderManufacturedFDAImplicitJfNK.aux)
 Package rerunfilecheck Info: File `highOrderManufacturedFDAImplicitJfNK.out' ha
 s not changed.
-(rerunfilecheck)             Checksum: 5A9738B21FC2E3500B67A1AF00F98A02;5640.
+(rerunfilecheck)             Checksum: C8FC1CB7B4942FA3B456A75C51058EEC;6216.
  ) 
 Here is how much of TeX's memory you used:
- 22174 strings out of 478287
- 479640 string characters out of 5849289
- 807091 words of memory out of 5000000
- 39580 multiletter control sequences out of 15000+600000
+ 23616 strings out of 478287
+ 579207 string characters out of 5849289
+ 842216 words of memory out of 5000000
+ 40786 multiletter control sequences out of 15000+600000
  489150 words of font info for 181 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 70i,11n,79p,1033b,891s stack positions out of 5000i,500n,10000p,200000b,80000s
+ 70i,11n,79p,1033b,892s stack positions out of 5000i,500n,10000p,200000b,80000s
 {/usr/share/texmf/fonts/enc/dvips/cm-super/cm-super-ts1.enc}</usr/share/texli
 ve/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/share/texlive/tex
 mf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/share/texlive/texmf-dis
@@ -2199,11 +3585,11 @@ fb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb></us
 r/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt10.pfb></usr/shar
 e/texlive/texmf-dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb></usr/share
 /texmf/fonts/type1/public/cm-super/sfrm1095.pfb>
-Output written on highOrderManufacturedFDAImplicitJfNK.pdf (44 pages, 7512402 b
-ytes).
+Output written on highOrderManufacturedFDAImplicitJfNK.pdf (75 pages, 10409622 
+bytes).
 PDF statistics:
- 11605 PDF objects out of 12825 (max. 8388607)
- 10751 compressed objects within 108 object streams
- 176 named destinations out of 1000 (max. 500000)
- 56777 words of extra memory for PDF output out of 61914 (max. 10000000)
+ 24197 PDF objects out of 26593 (max. 8388607)
+ 22570 compressed objects within 226 object streams
+ 247 named destinations out of 1000 (max. 500000)
+ 57529 words of extra memory for PDF output out of 61914 (max. 10000000)
 

@@ -18,45 +18,65 @@
 \providecommand\HyField@AuxAddToCoFields[2]{}
 \citation{ttp2004}
 \citation{niederer2012}
-\@writefile{toc}{\contentsline {section}{\numberline {1}Notation}{2}{section.1}\protected@file@percent }
 \citation{ttp2004}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Notation}{3}{section.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {2}Governing equations}{3}{section.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Monodomain PDE}{3}{subsection.2.1}\protected@file@percent }
 \newlabel{eq:monodomain}{{1}{3}{Monodomain PDE}{equation.2.1}{}}
 \newlabel{eq:semi-discrete}{{2}{3}{Monodomain PDE}{equation.2.2}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Ionic ODE}{3}{subsection.2.2}\protected@file@percent }
 \newlabel{eq:tnnp}{{3}{3}{Ionic ODE}{equation.2.3}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}External stimulus}{3}{subsection.2.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {3}Time discretisation: the $\theta $-scheme}{3}{section.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Units and sign convention.}{3}{section*.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}External stimulus}{4}{subsection.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Time discretisation: the $\theta $-scheme}{4}{section.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Old-time source $\mathbf  {s}^{n}$.}{4}{section*.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {4}Spatial discretisation}{4}{section.4}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Standard orthogonal FV Laplacian}{4}{subsection.4.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}High-order LRE diffusion}{4}{subsection.4.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Mass matrices}{4}{subsection.4.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Lumped.}{4}{section*.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Consistent high-order.}{4}{section*.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}High-order reconstruction at ionic quadrature points}{4}{subsection.4.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {5}Nonlinear solver}{4}{section.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Picard (default)}{4}{subsection.5.1}\protected@file@percent }
+\newlabel{sec:stdFV}{{4.1}{4}{Standard orthogonal FV Laplacian}{subsection.4.1}{}}
+\citation{cardiff2018s4f}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}High-order LRE diffusion}{5}{subsection.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Boundary faces in the high-order branch.}{5}{section*.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Mass matrices}{5}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Lumped.}{5}{section*.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Consistent high-order.}{5}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}High-order reconstruction at ionic quadrature points}{5}{subsection.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Nonlinear solver}{5}{section.5}\protected@file@percent }
+\newlabel{sec:nonlinear}{{5}{5}{Nonlinear solver}{section.5}{}}
 \citation{hairer2}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Diagonal-Iion linearised Picard}{5}{subsection.5.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Convergence criteria}{5}{subsection.5.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Rollback on non-convergence}{5}{subsection.5.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {6}Linear solver: Eigen back-end}{5}{section.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {7}Ionic ODE integration}{5}{section.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {8}TNNP numerical protection}{6}{section.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {9}Activation tracking and benchmarks}{6}{section.9}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Activation time per cell.}{6}{section*.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Early termination on P8.}{6}{section*.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Diagonal sampling.}{6}{section*.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {10}Solver flow chart}{6}{section.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Picard iteration}{6}{subsection.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Iteration budget and acceptance}{6}{subsection.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Consequence of \texttt  {\small  nonlinearIterations} $= 1$.}{6}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Linear solver: Eigen back-end}{6}{section.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Ionic ODE integration}{6}{section.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8}TNNP numerical protection}{7}{section.8}\protected@file@percent }
+\newlabel{sec:tnnpProtect}{{8}{7}{TNNP numerical protection}{section.8}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.1}Master switch and configuration}{7}{subsection.8.1}\protected@file@percent }
+\newlabel{sec:tnnp:knobs}{{8.1}{7}{Master switch and configuration}{subsection.8.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.2}Phases at which the guard fires}{7}{subsection.8.2}\protected@file@percent }
+\newlabel{sec:tnnp:phases}{{8.2}{7}{Phases at which the guard fires}{subsection.8.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.3}Corrections and their order}{7}{subsection.8.3}\protected@file@percent }
+\newlabel{sec:tnnp:steps}{{8.3}{7}{Corrections and their order}{subsection.8.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.4}Interaction with the RKF45 step controller}{8}{subsection.8.4}\protected@file@percent }
+\newlabel{sec:tnnp:rkf45}{{8.4}{8}{Interaction with the RKF45 step controller}{subsection.8.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.5}What the guard does not protect}{8}{subsection.8.5}\protected@file@percent }
+\newlabel{sec:tnnp:notProtected}{{8.5}{8}{What the guard does not protect}{subsection.8.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.6}Logging and accounting}{9}{subsection.8.6}\protected@file@percent }
+\newlabel{sec:tnnp:log}{{8.6}{9}{Logging and accounting}{subsection.8.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.7}Defaults vs.\ recommended settings}{9}{subsection.8.7}\protected@file@percent }
+\newlabel{sec:tnnp:settings}{{8.7}{9}{Defaults vs.\ recommended settings}{subsection.8.7}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9}Activation tracking and benchmarks}{9}{section.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Activation time per cell.}{9}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Early termination on P8.}{9}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Diagonal sampling.}{9}{section*.10}\protected@file@percent }
 \gdef \LT@i {\LT@entry 
     {1}{147.69621pt}\LT@entry 
     {1}{144.24788pt}\LT@entry 
     {1}{176.03403pt}}
-\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces High-level time-step loop of \texttt  {highOrderElectroActivationFoamImplicit}.}}{7}{algorithm.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {11}Driver script: \texttt  {run\_convergence.py}}{7}{section.11}\protected@file@percent }
-\newlabel{sec:driver}{{11}{7}{Driver script: \texttt {run\_convergence.py}}{section.11}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {11.1}Geometry and parameter sweep}{7}{subsection.11.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10}Solver flow chart}{10}{section.10}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces High-level time-step loop of \texttt  {highOrderElectroActivationFoamImplicit}.}}{10}{algorithm.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {11}Driver script: \texttt  {run\_convergence.py}}{10}{section.11}\protected@file@percent }
+\newlabel{sec:driver}{{11}{10}{Driver script: \texttt {run\_convergence.py}}{section.11}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.1}Geometry and parameter sweep}{10}{subsection.11.1}\protected@file@percent }
 \gdef \LT@ii {\LT@entry 
     {1}{171.31346pt}\LT@entry 
     {1}{153.69621pt}\LT@entry 
@@ -69,125 +89,106 @@
     {1}{171.31346pt}\LT@entry 
     {1}{153.69621pt}\LT@entry 
     {1}{147.69621pt}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {11.2}Nonlinear and linear solver}{8}{subsection.11.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {11.3}Inner ODE integrator (RKF45)}{8}{subsection.11.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {11.4}Post-processing and run-control}{8}{subsection.11.4}\protected@file@percent }
+\citation{niederer2012}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.2}Nonlinear and linear solver}{11}{subsection.11.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.3}Inner ODE integrator (RKF45)}{11}{subsection.11.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.4}Post-processing and run-control}{11}{subsection.11.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {12}2D Niederer-style benchmark --- in-house convergence study}{11}{section.12}\protected@file@percent }
+\newlabel{sec:results}{{12}{11}{2D Niederer-style benchmark --- in-house convergence study}{section.12}{}}
+\@writefile{toc}{\contentsline {paragraph}{Scope and disclaimer.}{11}{section*.11}\protected@file@percent }
 \gdef \LT@v {\LT@entry 
-    {1}{26.64435pt}\LT@entry 
-    {1}{27.67212pt}\LT@entry 
+    {1}{46.94142pt}\LT@entry 
+    {1}{33.37766pt}\LT@entry 
+    {3}{37.69429pt}\LT@entry 
+    {3}{37.69429pt}\LT@entry 
+    {1}{33.06932pt}\LT@entry 
+    {3}{33.06932pt}\LT@entry 
+    {3}{33.06932pt}\LT@entry 
+    {1}{12.0pt}\LT@entry 
+    {1}{46.94142pt}\LT@entry 
+    {1}{33.37766pt}\LT@entry 
     {3}{37.69429pt}\LT@entry 
     {3}{37.69429pt}\LT@entry 
     {1}{33.06932pt}\LT@entry 
     {3}{33.06932pt}\LT@entry 
     {3}{33.06932pt}}
 \gdef \LT@vi {\LT@entry 
-    {1}{26.64435pt}\LT@entry 
-    {1}{27.67212pt}\LT@entry 
-    {3}{33.06932pt}\LT@entry 
-    {3}{33.06932pt}\LT@entry 
-    {3}{37.69429pt}\LT@entry 
-    {3}{37.69429pt}\LT@entry 
-    {3}{42.31926pt}}
-\@writefile{toc}{\contentsline {section}{\numberline {12}Niederer benchmark results}{9}{section.12}\protected@file@percent }
-\newlabel{sec:results}{{12}{9}{Niederer benchmark results}{section.12}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {12.1}Results for $\Delta t = 1.0\!\cdot \!10^{-3}$\nobreakspace  {}s}{9}{subsection.12.1}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {5}{P8 activation [ms] at $\Delta t = 1.0\!\cdot \!10^{-3}$\nobreakspace  {}s.}}{9}{table.5}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {6}{Wall-clock time [s] at $\Delta t = 1.0\!\cdot \!10^{-3}$\nobreakspace  {}s.}}{9}{table.6}\protected@file@percent }
+    {2}{46.94142pt}\LT@entry 
+    {1}{33.37766pt}\LT@entry 
+    {1}{23.81938pt}\LT@entry 
+    {1}{28.44435pt}\LT@entry 
+    {1}{33.06932pt}\LT@entry 
+    {3}{25.87492pt}\LT@entry 
+    {1}{28.44435pt}\LT@entry 
+    {1}{12.0pt}\LT@entry 
+    {2}{46.94142pt}\LT@entry 
+    {1}{33.37766pt}\LT@entry 
+    {1}{23.81938pt}\LT@entry 
+    {1}{28.44435pt}\LT@entry 
+    {1}{33.06932pt}\LT@entry 
+    {3}{25.87492pt}\LT@entry 
+    {3}{30.4999pt}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.1}Results for P8 activation}{12}{subsection.12.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5}{P8 activation [ms].}}{12}{table.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.2}Results for Wall-clock time}{12}{subsection.12.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6}{Wall-clock time [min].}}{12}{table.6}\protected@file@percent }
 \gdef \LT@vii {\LT@entry 
-    {1}{26.64435pt}\LT@entry 
-    {1}{27.67212pt}\LT@entry 
+    {1}{46.94142pt}\LT@entry 
+    {1}{33.37766pt}\LT@entry 
+    {3}{25.87492pt}\LT@entry 
+    {1}{28.44435pt}\LT@entry 
+    {1}{33.06932pt}\LT@entry 
+    {3}{25.87492pt}\LT@entry 
+    {3}{30.4999pt}\LT@entry 
+    {1}{12.0pt}\LT@entry 
+    {1}{46.94142pt}\LT@entry 
+    {1}{33.37766pt}\LT@entry 
     {3}{25.87492pt}\LT@entry 
     {1}{28.44435pt}\LT@entry 
     {1}{33.06932pt}\LT@entry 
     {3}{25.87492pt}\LT@entry 
     {3}{30.4999pt}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.3}Results for Peak RSS}{13}{subsection.12.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7}{Peak RSS [MiB].}}{13}{table.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.4}Discussion of the 2D results}{14}{subsection.12.4}\protected@file@percent }
+\newlabel{sec:results:discussion}{{12.4}{14}{Discussion of the 2D results}{subsection.12.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{$h$-refinement at fixed $\Delta t$ (low order).}{14}{section*.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{$\Delta t$-refinement at fixed $h$ (low order).}{14}{section*.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Effect of the LRE $p$-level on the source.}{14}{section*.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Effect of the LRE $p$-level on the diffusion.}{14}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Cost.}{14}{section*.16}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.5}Conclusions on the 2D study}{14}{subsection.12.5}\protected@file@percent }
+\newlabel{sec:results:conclusions}{{12.5}{14}{Conclusions on the 2D study}{subsection.12.5}{}}
 \gdef \LT@viii {\LT@entry 
     {1}{26.64435pt}\LT@entry 
     {1}{27.67212pt}\LT@entry 
     {3}{37.69429pt}\LT@entry 
     {3}{33.06932pt}\LT@entry 
-    {1}{33.06932pt}\LT@entry 
-    {3}{33.06932pt}\LT@entry 
     {3}{33.06932pt}}
-\@writefile{lot}{\contentsline {table}{\numberline {7}{Peak RSS [MiB] at $\Delta t = 1.0\!\cdot \!10^{-3}$\nobreakspace  {}s.}}{10}{table.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {12.2}Results for $\Delta t = 1.0\!\cdot \!10^{-4}$\nobreakspace  {}s}{10}{subsection.12.2}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {8}{P8 activation [ms] at $\Delta t = 1.0\!\cdot \!10^{-4}$\nobreakspace  {}s.}}{10}{table.8}\protected@file@percent }
 \gdef \LT@ix {\LT@entry 
     {1}{26.64435pt}\LT@entry 
     {1}{27.67212pt}\LT@entry 
-    {3}{33.06932pt}\LT@entry 
-    {3}{33.06932pt}\LT@entry 
-    {3}{37.69429pt}\LT@entry 
-    {3}{37.69429pt}\LT@entry 
-    {3}{42.31926pt}}
+    {3}{25.87492pt}\LT@entry 
+    {3}{25.87492pt}\LT@entry 
+    {3}{25.87492pt}}
+\@writefile{toc}{\contentsline {section}{\numberline {13}3D Niederer-style benchmark}{15}{section.13}\protected@file@percent }
+\newlabel{sec:results:3D}{{13}{15}{3D Niederer-style benchmark}{section.13}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {13.1}P8 activation time at $\Delta t = 5\!\cdot \!10^{-5}$\nobreakspace  {}s}{15}{subsection.13.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {8}{3D P8 activation time [ms]. Rows are LRE p-levels for Vm $\times $ Iion; columns are mesh sizes $\Delta x$ (mm). All runs use crankNicolson and the consistent mass matrix.}}{15}{table.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {13.2}Wall-clock cost per configuration (minutes)}{15}{subsection.13.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {9}{3D solver wall-clock time [min] (elapsed wall time reported by \texttt  {/usr/bin/time -v}, rounded to integer minutes).}}{15}{table.9}\protected@file@percent }
 \gdef \LT@x {\LT@entry 
     {1}{26.64435pt}\LT@entry 
     {1}{27.67212pt}\LT@entry 
-    {3}{25.87492pt}\LT@entry 
-    {1}{28.44435pt}\LT@entry 
-    {1}{33.06932pt}\LT@entry 
-    {3}{25.87492pt}\LT@entry 
+    {3}{30.4999pt}\LT@entry 
+    {3}{30.4999pt}\LT@entry 
     {3}{30.4999pt}}
-\gdef \LT@xi {\LT@entry 
-    {1}{26.64435pt}\LT@entry 
-    {1}{27.67212pt}\LT@entry 
-    {3}{37.69429pt}\LT@entry 
-    {3}{33.06932pt}\LT@entry 
-    {1}{33.06932pt}\LT@entry 
-    {3}{33.06932pt}\LT@entry 
-    {3}{33.06932pt}}
-\@writefile{lot}{\contentsline {table}{\numberline {9}{Wall-clock time [s] at $\Delta t = 1.0\!\cdot \!10^{-4}$\nobreakspace  {}s.}}{11}{table.9}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {10}{Peak RSS [MiB] at $\Delta t = 1.0\!\cdot \!10^{-4}$\nobreakspace  {}s.}}{11}{table.10}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {12.3}Results for $\Delta t = 1.0\!\cdot \!10^{-5}$\nobreakspace  {}s}{11}{subsection.12.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {11}{P8 activation [ms] at $\Delta t = 1.0\!\cdot \!10^{-5}$\nobreakspace  {}s.}}{11}{table.11}\protected@file@percent }
-\gdef \LT@xii {\LT@entry 
-    {1}{26.64435pt}\LT@entry 
-    {1}{27.67212pt}\LT@entry 
-    {3}{33.06932pt}\LT@entry 
-    {3}{37.69429pt}\LT@entry 
-    {3}{37.69429pt}\LT@entry 
-    {3}{37.69429pt}\LT@entry 
-    {3}{42.31926pt}}
-\gdef \LT@xiii {\LT@entry 
-    {1}{26.64435pt}\LT@entry 
-    {1}{27.67212pt}\LT@entry 
-    {3}{25.87492pt}\LT@entry 
-    {1}{28.44435pt}\LT@entry 
-    {1}{33.06932pt}\LT@entry 
-    {3}{25.87492pt}\LT@entry 
-    {3}{30.4999pt}}
-\@writefile{lot}{\contentsline {table}{\numberline {12}{Wall-clock time [s] at $\Delta t = 1.0\!\cdot \!10^{-5}$\nobreakspace  {}s.}}{12}{table.12}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {13}{Peak RSS [MiB] at $\Delta t = 1.0\!\cdot \!10^{-5}$\nobreakspace  {}s.}}{12}{table.13}\protected@file@percent }
-\gdef \LT@xiv {\LT@entry 
-    {1}{26.64435pt}\LT@entry 
-    {1}{27.67212pt}\LT@entry 
-    {3}{37.69429pt}\LT@entry 
-    {3}{33.06932pt}\LT@entry 
-    {1}{33.06932pt}\LT@entry 
-    {3}{33.06932pt}\LT@entry 
-    {3}{33.06932pt}}
-\gdef \LT@xv {\LT@entry 
-    {1}{26.64435pt}\LT@entry 
-    {1}{27.67212pt}\LT@entry 
-    {3}{37.69429pt}\LT@entry 
-    {3}{37.69429pt}\LT@entry 
-    {3}{42.31926pt}\LT@entry 
-    {3}{42.31926pt}\LT@entry 
-    {3}{46.94423pt}}
-\gdef \LT@xvi {\LT@entry 
-    {1}{26.64435pt}\LT@entry 
-    {1}{27.67212pt}\LT@entry 
-    {3}{25.87492pt}\LT@entry 
-    {1}{28.44435pt}\LT@entry 
-    {1}{33.06932pt}\LT@entry 
-    {3}{25.87492pt}\LT@entry 
-    {3}{30.4999pt}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {12.4}Results for $\Delta t = 1.0\!\cdot \!10^{-6}$\nobreakspace  {}s}{13}{subsection.12.4}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {14}{P8 activation [ms] at $\Delta t = 1.0\!\cdot \!10^{-6}$\nobreakspace  {}s.}}{13}{table.14}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {15}{Wall-clock time [s] at $\Delta t = 1.0\!\cdot \!10^{-6}$\nobreakspace  {}s.}}{13}{table.15}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {16}{Peak RSS [MiB] at $\Delta t = 1.0\!\cdot \!10^{-6}$\nobreakspace  {}s.}}{13}{table.16}\protected@file@percent }
 \bibcite{ttp2004}{1}
 \bibcite{niederer2012}{2}
 \bibcite{hairer2}{3}
-\@writefile{toc}{\contentsline {section}{\numberline {A}Dimension table}{14}{appendix.A}\protected@file@percent }
-\gdef \@abspage@last{14}
+\bibcite{cardiff2018s4f}{4}
+\@writefile{toc}{\contentsline {subsection}{\numberline {13.3}Peak resident set size per configuration (MiB)}{16}{subsection.13.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {10}{3D peak resident set size [MiB] (maximum physical RAM reported by \texttt  {/usr/bin/time -v}).}}{16}{table.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {13.4}Discussion of the 3D results}{16}{subsection.13.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {A}Dimension table}{16}{appendix.A}\protected@file@percent }
+\gdef \@abspage@last{16}

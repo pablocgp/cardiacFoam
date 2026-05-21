@@ -1092,6 +1092,231 @@ do not affect the PDE/ODE solve itself; they affect only stopping and
 post-processing of activation times.
 
 % ================================================================== %
+\section{Results}
+\label{sec:results}
+% ================================================================== %
+
+This section collects the current convergence results for the 2D and
+3D Niederer-style benchmarks, run with the three nonlinear strategies
+exposed by the solver (\code{Picard}, \code{diagonalIion}, \code{JFNK}).
+All runs use the Crank--Nicolson time scheme ($\theta = 1/2$), the
+consistent high-order mass matrix when LRE is enabled, the
+\code{RKF45} state ODE integrator, and a single requested
+$\Delta t_{\text{req}} = 10^{-4}$~s. Six LRE pairs $(\Vm,\Iion)$ are
+sampled: \code{NO}/\code{NO}, \code{NO}/\code{p1}, \code{NO}/\code{p3},
+\code{p3}/\code{NO}, \code{p3}/\code{p1}, \code{p3}/\code{p3}. Each
+table lists, for the metric in its caption, the value of every
+available run; \textsc{NC} marks combinations that have not been run
+yet. The 2D results live under
+\path{highOrderNiedererEtAl2012ImplicitJfNK[_diagonalIion|_Picard]/results/example0/2D/};
+the 3D results under the same trees but with the \path{3D/} suffix.
+Wall-clock time is the elapsed time reported by
+\texttt{/usr/bin/time -v}, rounded to integer minutes. Peak RSS is
+the maximum resident set size of the solver process, expressed in
+MiB ($\lfloor\text{kB}/1024\rfloor$).
+
+\subsection{2D Niederer-style benchmark}
+\label{sec:results:2D}
+
+The 2D case follows the 20$\times$8~mm planar reduction used by the
+explicit and non-JfNK implicit reports (single cell in $z$, planar
+fibres), exercised at mesh sizes
+$\Delta x\in\{0.5, 0.25, 0.125, 0.1\}$~mm; only the \code{Picard} sweep
+currently includes the finest mesh.
+
+\begin{center}\footnotesize
+\begin{longtable}{llrrrr}
+\caption{2D P8 activation time [ms] at $\Delta t = 10^{-4}$~s. Columns
+are mesh sizes $\Delta x$ in mm.}\\
+\toprule
+Vm & Iion & $0.5$ & $0.25$ & $0.125$ & $0.1$ \\
+\midrule\endfirsthead\toprule
+Vm & Iion & $0.5$ & $0.25$ & $0.125$ & $0.1$ \\
+\midrule\endhead
+\multicolumn{6}{l}{\textit{\code{Picard}}}\\
+NO & NO & 153.32 & 62.99 & 45.03 & 42.76 \\
+NO & p1 &  91.05 & 54.86 & 43.21 & 41.84 \\
+NO & p3 &  32.46 & 39.14 & 39.83 & NC    \\
+p3 & NO & 180.55 & 68.84 & 48.83 & NC    \\
+p3 & p1 &  68.92 & 58.81 & 46.33 & NC    \\
+p3 & p3 &  33.09 & 40.22 & 40.84 & NC    \\\hline
+\multicolumn{6}{l}{\textit{\code{diagonalIion}}}\\
+NO & NO & 153.16 & 62.86 & 44.92 & NC    \\
+NO & p1 &  90.92 & 54.74 & 43.08 & NC    \\
+NO & p3 &  32.37 & 38.97 & 39.66 & NC    \\
+p3 & NO & 180.42 & 68.71 & 48.67 & NC    \\
+p3 & p1 &  68.83 & 58.70 & 46.20 & NC    \\
+p3 & p3 &  33.00 & 40.03 & 40.65 & NC    \\\hline
+\multicolumn{6}{l}{\textit{\code{JFNK}}}\\
+NO & NO & 153.13 & 62.85 & 44.87 & NC    \\
+NO & p1 &  90.92 & 54.72 & NC    & NC    \\
+NO & p3 &  32.36 & 38.92 & 39.59 & NC    \\
+p3 & NO & 180.38 & 68.69 & NC    & NC    \\
+p3 & p1 &  68.83 & NC    & NC    & NC    \\
+p3 & p3 &  33.00 & NC    & NC    & NC    \\
+\bottomrule\end{longtable}\end{center}
+
+\begin{center}\footnotesize
+\begin{longtable}{llrrrr}
+\caption{2D solver wall-clock time [min] at $\Delta t = 10^{-4}$~s
+(rounded to integer minutes).}\\
+\toprule
+Vm & Iion & $0.5$ & $0.25$ & $0.125$ & $0.1$ \\
+\midrule\endfirsthead\toprule
+Vm & Iion & $0.5$ & $0.25$ & $0.125$ & $0.1$ \\
+\midrule\endhead
+\multicolumn{6}{l}{\textit{\code{Picard}}}\\
+NO & NO &  15 &  31 &  83 & 125 \\
+NO & p1 &  20 &  51 & 141 & 197 \\
+NO & p3 &  23 & 102 & 402 & NC  \\
+p3 & NO &  18 &  40 & 112 & NC  \\
+p3 & p1 &  20 &  60 & 176 & NC  \\
+p3 & p3 &  22 & 105 & 419 & NC  \\\hline
+\multicolumn{6}{l}{\textit{\code{diagonalIion}}}\\
+NO & NO &  18 &  31 &  81 & NC  \\
+NO & p1 &  22 &  52 & 147 & NC  \\
+NO & p3 &  29 & 131 & 533 & NC  \\
+p3 & NO &  21 &  38 & 107 & NC  \\
+p3 & p1 &  23 &  59 & 164 & NC  \\
+p3 & p3 &  28 & 133 & 549 & NC  \\\hline
+\multicolumn{6}{l}{\textit{\code{JFNK}}}\\
+NO & NO &  59 & 155 & 544 & NC  \\
+NO & p1 &  82 & 263 & NC  & NC  \\
+NO & p3 & 124 & 647 & 3407 & NC \\
+p3 & NO &  67 & 169 & NC  & NC  \\
+p3 & p1 &  87 & NC  & NC  & NC  \\
+p3 & p3 & 131 & NC  & NC  & NC  \\
+\bottomrule\end{longtable}\end{center}
+
+\begin{center}\footnotesize
+\begin{longtable}{llrrrr}
+\caption{2D peak resident set size [MiB] at $\Delta t = 10^{-4}$~s.}\\
+\toprule
+Vm & Iion & $0.5$ & $0.25$ & $0.125$ & $0.1$ \\
+\midrule\endfirsthead\toprule
+Vm & Iion & $0.5$ & $0.25$ & $0.125$ & $0.1$ \\
+\midrule\endhead
+\multicolumn{6}{l}{\textit{\code{Picard}}}\\
+NO & NO & 148 & 152 & 174 & 194 \\
+NO & p1 & 149 & 157 & 191 & 219 \\
+NO & p3 & 155 & 177 & 288 & NC  \\
+p3 & NO & 155 & 191 & 346 & NC  \\
+p3 & p1 & 156 & 194 & 358 & NC  \\
+p3 & p3 & 161 & 218 & 457 & NC  \\\hline
+\multicolumn{6}{l}{\textit{\code{diagonalIion}}}\\
+NO & NO & 148 & 153 & 176 & NC  \\
+NO & p1 & 149 & 158 & 194 & NC  \\
+NO & p3 & 155 & 181 & 296 & NC  \\
+p3 & NO & 155 & 191 & 347 & NC  \\
+p3 & p1 & 156 & 195 & 365 & NC  \\
+p3 & p3 & 161 & 218 & 457 & NC  \\\hline
+\multicolumn{6}{l}{\textit{\code{JFNK}}}\\
+NO & NO & 148 & 153 & 173 & NC  \\
+NO & p1 & 149 & 158 & NC  & NC  \\
+NO & p3 & 155 & 181 & 299 & NC  \\
+p3 & NO & 152 & 187 & NC  & NC  \\
+p3 & p1 & 153 & NC  & NC  & NC  \\
+p3 & p3 & 160 & NC  & NC  & NC  \\
+\bottomrule\end{longtable}\end{center}
+
+\paragraph{Discussion of the 2D results.}
+At fixed $(\Delta x, \Delta t, $LRE pair$)$ the three nonlinear
+strategies give activation times that agree to within $\sim 0.1$--$0.2$~ms;
+e.g.\ at $\Delta x = 0.125$~mm with $(\code{NO}, \code{NO})$ the values
+are $45.03/44.92/44.87$~ms for Picard, diagonalIion, JFNK respectively.
+The 2D nonlinear-coupling choice is therefore essentially \emph{free}
+from the accuracy standpoint here --- the relevant errors are spatial
+and temporal, not nonlinear-iteration errors. The three methods differ
+sharply in cost: JFNK is $\sim 3$--$6\times$ more expensive than
+Picard for the same case at $\Delta x = 0.5$~mm and grows faster than
+linearly with mesh size, because every Krylov matrix--vector product
+performs a full ODE re-evaluation
+($\Delta x = 0.125$, $(\code{NO},\code{p3})$: $402$~min for Picard,
+$533$~min for diagonalIion, $3407$~min --- $\sim 2.4$~days --- for
+JFNK). Peak RSS is dominated by the LRE stencil and is essentially
+method-independent; the JFNK column is slightly lower for some entries
+because the matrix-free shell avoids the diagonal correction and the
+explicit BiCGSTAB workspace.
+
+\subsection{3D Niederer-style benchmark}
+\label{sec:results:3D}
+
+The 3D sweep follows the published Niederer slab geometry
+($20\times 3\times 7$~mm, $40\times 6\times 14$ cells at
+$\Delta x = 0.5$~mm). At the time of writing only the
+\code{diagonalIion} and \code{Picard} sweeps include 3D runs, all at
+$\Delta x = 0.5$~mm. The \code{JFNK} 3D sweep has not yet been run.
+
+\begin{center}\footnotesize
+\begin{longtable}{llrr}
+\caption{3D P8 activation time [ms] at $\Delta x = 0.5$~mm,
+$\Delta t = 10^{-4}$~s. Columns are the available nonlinear methods.}\\
+\toprule
+Vm & Iion & \code{Picard} & \code{diagonalIion} \\
+\midrule\endfirsthead\toprule
+Vm & Iion & \code{Picard} & \code{diagonalIion} \\
+\midrule\endhead
+NO & NO & 136.67 & 136.61 \\
+NO & p1 &  33.50 &  33.39 \\
+NO & p3 &  30.59 &  30.51 \\
+p3 & NO & 149.13 & 149.06 \\
+p3 & p1 &  32.44 &  32.36 \\
+p3 & p3 &  29.63 & NC     \\
+\bottomrule\end{longtable}\end{center}
+
+\begin{center}\footnotesize
+\begin{longtable}{llrr}
+\caption{3D solver wall-clock time [min] at $\Delta x = 0.5$~mm,
+$\Delta t = 10^{-4}$~s.}\\
+\toprule
+Vm & Iion & \code{Picard} & \code{diagonalIion} \\
+\midrule\endfirsthead\toprule
+Vm & Iion & \code{Picard} & \code{diagonalIion} \\
+\midrule\endhead
+NO & NO &   80 &   82 \\
+NO & p1 &  168 &  229 \\
+NO & p3 & 1489 & 2159 \\
+p3 & NO &  163 &  143 \\
+p3 & p1 &  167 &  269 \\
+p3 & p3 & 1487 & NC   \\
+\bottomrule\end{longtable}\end{center}
+
+\begin{center}\footnotesize
+\begin{longtable}{llrr}
+\caption{3D peak resident set size [MiB] at $\Delta x = 0.5$~mm,
+$\Delta t = 10^{-4}$~s.}\\
+\toprule
+Vm & Iion & \code{Picard} & \code{diagonalIion} \\
+\midrule\endfirsthead\toprule
+Vm & Iion & \code{Picard} & \code{diagonalIion} \\
+\midrule\endhead
+NO & NO &  156 &  157 \\
+NO & p1 &  211 &  211 \\
+NO & p3 &  787 &  849 \\
+p3 & NO & 1123 & 1121 \\
+p3 & p1 & 1164 & 1162 \\
+p3 & p3 & 1565 & NC   \\
+\bottomrule\end{longtable}\end{center}
+
+\paragraph{Discussion of the 3D results.}
+On the coarse 3D slab ($\Delta x = 0.5$~mm), activating LRE on the
+ionic source alone changes the activation time from $\approx 136.7$~ms
+(\code{NO}/\code{NO}) to $\approx 33.5$~ms (\code{NO}/\code{p1}) and
+$\approx 30.6$~ms (\code{NO}/\code{p3}) --- the same qualitative
+high-order-on-source effect already seen in the 2D sweep and in the
+explicit/implicit Niederer reports. The fully high-order
+(\code{p3}/\code{p3}) reaches $29.63$~ms with Picard (the diagonalIion
+counterpart has not yet been completed). The two nonlinear methods
+again agree to better than $0.1$~ms for every entry where both are
+available; Picard is generally faster, with the most striking gap on
+the heaviest case (\code{NO}/\code{p3}: $1489$~min for Picard vs.\
+$2159$~min for diagonalIion). Peak RSS scales with the LRE stencil
+size and is essentially method-independent. The dataset is too thin
+in $\Delta x$ to draw quantitative conclusions about mesh convergence
+in 3D; the immediate gap to fill is the missing \code{p3}/\code{p3}
+diagonalIion entry and a JFNK 3D sweep at the same mesh.
+
+% ================================================================== %
 \appendix
 \section{Dimension table}
 % ================================================================== %

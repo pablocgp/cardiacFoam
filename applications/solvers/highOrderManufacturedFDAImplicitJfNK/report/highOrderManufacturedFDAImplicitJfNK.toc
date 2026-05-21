@@ -1,6 +1,6 @@
 \contentsline {section}{\numberline {1}Purpose and notation}{2}{section.1}%
-\contentsline {section}{\numberline {2}Governing equations}{2}{section.2}%
-\contentsline {subsection}{\numberline {2.1}Electrophysiology motivation}{2}{subsection.2.1}%
+\contentsline {section}{\numberline {2}Governing equations}{3}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Electrophysiology motivation}{3}{subsection.2.1}%
 \contentsline {subsection}{\numberline {2.2}Manufactured PDE--ODE system}{3}{subsection.2.2}%
 \contentsline {subsection}{\numberline {2.3}Exact solution and the role of $\beta $}{3}{subsection.2.3}%
 \contentsline {section}{\numberline {3}Spatial discretisation}{4}{section.3}%
@@ -41,4 +41,14 @@
 \contentsline {paragraph}{Mass matrix.}{43}{section*.36}%
 \contentsline {paragraph}{Matching the voltage and source/state orders.}{43}{section*.37}%
 \contentsline {paragraph}{Recommended 2D configuration.}{44}{section*.38}%
-\contentsline {section}{\numberline {11}Notes}{44}{section.11}%
+\contentsline {subsection}{\numberline {10.3}Three-dimensional manufactured problem}{44}{subsection.10.3}%
+\contentsline {subsubsection}{\numberline {10.3.1}\texttt {\small Picard}}{44}{subsubsection.10.3.1}%
+\contentsline {paragraph}{$\Delta t=10^{-2}$}{44}{section*.39}%
+\contentsline {paragraph}{$\Delta t=10^{-3}$}{50}{section*.44}%
+\contentsline {subsubsection}{\numberline {10.3.2}\texttt {\small diagonalIion}}{55}{subsubsection.10.3.2}%
+\contentsline {paragraph}{$\Delta t=10^{-2}$}{55}{section*.49}%
+\contentsline {paragraph}{$\Delta t=10^{-3}$}{60}{section*.54}%
+\contentsline {subsubsection}{\numberline {10.3.3}\texttt {\small JFNK}}{65}{subsubsection.10.3.3}%
+\contentsline {paragraph}{$\Delta t=10^{-2}$}{65}{section*.59}%
+\contentsline {paragraph}{$\Delta t=10^{-3}$}{70}{section*.64}%
+\contentsline {section}{\numberline {11}Notes}{75}{section.11}%

@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2022/dev/Debian) (preloaded format=pdflatex 2026.1.30)  13 MAY 2026 00:18
+This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2022/dev/Debian) (preloaded format=pdflatex 2026.1.30)  21 MAY 2026 00:47
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -372,7 +372,14 @@ Document Style algorithmicx 1.2 - a greatly improved `algorithmic' style
 \ALG@tmplength=\skip66
 )
 Document Style - pseudocode environments for use with the `algorithmicx' style
-) (/usr/share/texlive/texmf-dist/tex/latex/hyperref/hyperref.sty
+) (/usr/share/texlive/texmf-dist/tex/latex/multirow/multirow.sty
+Package: multirow 2021/03/15 v2.8 Span multiple rows of a table
+\multirow@colwidth=\skip67
+\multirow@cntb=\count319
+\multirow@dima=\skip68
+\bigstrutjot=\dimen193
+)
+(/usr/share/texlive/texmf-dist/tex/latex/hyperref/hyperref.sty
 Package: hyperref 2021-06-07 v7.00m Hypertext links for LaTeX
 
 (/usr/share/texlive/texmf-dist/tex/generic/kvsetkeys/kvsetkeys.sty
@@ -396,9 +403,9 @@ Package: auxhook 2019-12-17 v1.6 Hooks for auxiliary files (HO)
 (/usr/share/texlive/texmf-dist/tex/latex/kvoptions/kvoptions.sty
 Package: kvoptions 2020-10-07 v3.14 Key value format for package options (HO)
 )
-\@linkdim=\dimen193
-\Hy@linkcounter=\count319
-\Hy@pagecounter=\count320
+\@linkdim=\dimen194
+\Hy@linkcounter=\count320
+\Hy@pagecounter=\count321
 
 (/usr/share/texlive/texmf-dist/tex/latex/hyperref/pd1enc.def
 File: pd1enc.def 2021-06-07 v7.00m Hyperref: PDFDocEncoding definition (HO)
@@ -415,7 +422,7 @@ Package: intcalc 2019/12/15 v1.3 Expandable calculations with integers (HO)
 (/usr/share/texlive/texmf-dist/tex/generic/etexcmds/etexcmds.sty
 Package: etexcmds 2019/12/15 v1.7 Avoid name clashes with e-TeX commands (HO)
 )
-\Hy@SavedSpaceFactor=\count321
+\Hy@SavedSpaceFactor=\count322
 
 (/usr/share/texlive/texmf-dist/tex/latex/hyperref/puenc.def
 File: puenc.def 2021-06-07 v7.00m Hyperref: PDF Unicode definition (HO)
@@ -429,14 +436,14 @@ Package hyperref Info: Plain pages OFF on input line 4207.
 Package hyperref Info: Backreferencing OFF on input line 4212.
 Package hyperref Info: Implicit mode ON; LaTeX internals redefined.
 Package hyperref Info: Bookmarks ON on input line 4445.
-\c@Hy@tempcnt=\count322
+\c@Hy@tempcnt=\count323
 
 (/usr/share/texlive/texmf-dist/tex/latex/url/url.sty
 \Urlmuskip=\muskip17
 Package: url 2013/09/16  ver 3.4  Verb mode for urls, etc.
 )
 LaTeX Info: Redefining \url on input line 4804.
-\XeTeXLinkMargin=\dimen194
+\XeTeXLinkMargin=\dimen195
 
 (/usr/share/texlive/texmf-dist/tex/generic/bitset/bitset.sty
 Package: bitset 2019/12/09 v1.3 Handle bit-vector datatype (HO)
@@ -445,9 +452,9 @@ Package: bitset 2019/12/09 v1.3 Handle bit-vector datatype (HO)
 Package: bigintcalc 2019/12/15 v1.5 Expandable calculations on big integers (HO
 )
 ))
-\Fld@menulength=\count323
-\Field@Width=\dimen195
-\Fld@charsize=\dimen196
+\Fld@menulength=\count324
+\Field@Width=\dimen196
+\Fld@charsize=\dimen197
 Package hyperref Info: Hyper figures OFF on input line 6076.
 Package hyperref Info: Link nesting OFF on input line 6081.
 Package hyperref Info: Hyper index ON on input line 6084.
@@ -462,9 +469,9 @@ LaTeX Info: Redefining \pageref on input line 6150.
 Package: atbegshi-ltx 2021/01/10 v1.0c Emulation of the original atbegshi
 package with kernel methods
 )
-\Hy@abspage=\count324
-\c@Item=\count325
-\c@Hfootnote=\count326
+\Hy@abspage=\count325
+\c@Item=\count326
+\c@Hfootnote=\count327
 )
 Package hyperref Info: Driver (autodetected): hpdftex.
 
@@ -476,8 +483,8 @@ Package: atveryend-ltx 2020/08/19 v1.0a Emulation of the original atveryend pac
 kage
 with kernel methods
 )
-\Fld@listcount=\count327
-\c@bookmark@seq@number=\count328
+\Fld@listcount=\count328
+\c@bookmark@seq@number=\count329
 
 (/usr/share/texlive/texmf-dist/tex/latex/rerunfilecheck/rerunfilecheck.sty
 Package: rerunfilecheck 2019/12/05 v1.9 Rerun checks for auxiliary files (HO)
@@ -488,32 +495,32 @@ Package: uniquecounter 2019/12/15 v1.4 Provide unlimited unique counter (HO)
 Package uniquecounter Info: New unique counter `rerunfilecheck' on input line 2
 86.
 )
-\Hy@SectionHShift=\skip67
+\Hy@SectionHShift=\skip69
 )
 Package translations Info: No language package found. I am going to use `englis
-h' as default language. on input line 63.
+h' as default language. on input line 64.
 
 (./solver_report.aux)
 \openout1 = `solver_report.aux'.
 
-LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 63.
-LaTeX Font Info:    ... okay on input line 63.
-LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 63.
-LaTeX Font Info:    ... okay on input line 63.
-LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 63.
-LaTeX Font Info:    ... okay on input line 63.
-LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 63.
-LaTeX Font Info:    ... okay on input line 63.
-LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 63.
-LaTeX Font Info:    ... okay on input line 63.
-LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 63.
-LaTeX Font Info:    ... okay on input line 63.
-LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 63.
-LaTeX Font Info:    ... okay on input line 63.
-LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 63.
-LaTeX Font Info:    ... okay on input line 63.
-LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 63.
-LaTeX Font Info:    ... okay on input line 63.
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
+LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
+LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
 
 *geometry* driver: auto-detecting
 *geometry* detected driver: pdftex
@@ -563,21 +570,21 @@ File: graphics.cfg 2016/06/04 v1.11 sample graphics configuration
 )
 Package graphics Info: Driver file: pdftex.def on input line 107.
 )
-\Gin@req@height=\dimen197
-\Gin@req@width=\dimen198
+\Gin@req@height=\dimen198
+\Gin@req@width=\dimen199
 )
 (/usr/share/texlive/texmf-dist/tex/context/base/mkii/supp-pdf.mkii
 [Loading MPS to PDF converter (version 2006.09.02).]
-\scratchcounter=\count329
-\scratchdimen=\dimen199
+\scratchcounter=\count330
+\scratchdimen=\dimen256
 \scratchbox=\box74
-\nofMPsegments=\count330
-\nofMParguments=\count331
+\nofMPsegments=\count331
+\nofMParguments=\count332
 \everyMPshowfont=\toks31
-\MPscratchCnt=\count332
-\MPscratchDim=\dimen256
-\MPnumerator=\count333
-\makeMPintoPDFobject=\count334
+\MPscratchCnt=\count333
+\MPscratchDim=\dimen257
+\MPnumerator=\count334
+\makeMPintoPDFobject=\count335
 \everyMPtoPDFconversion=\toks32
 ) (/usr/share/texlive/texmf-dist/tex/latex/epstopdf-pkg/epstopdf-base.sty
 Package: epstopdf-base 2020-01-24 v2.11 Base part for package epstopdf
@@ -588,7 +595,7 @@ Package epstopdf-base Info: Redefining graphics rule for `.eps' on input line 4
 File: epstopdf-sys.cfg 2010/07/13 v1.3 Configuration of (r)epstopdf for TeX Liv
 e
 ))
-\c@lstlisting=\count335
+\c@lstlisting=\count336
 
 (/usr/share/texlive/texmf-dist/tex/latex/translations/translations-basic-dictio
 nary-english.trsl
@@ -596,19 +603,19 @@ File: translations-basic-dictionary-english.trsl (english translation file `tra
 nslations-basic-dictionary')
 )
 Package translations Info: loading dictionary `translations-basic-dictionary' f
-or `english'. on input line 63.
-LaTeX Info: Redefining \microtypecontext on input line 63.
-Package microtype Info: Applying patch `item' on input line 63.
-Package microtype Info: Applying patch `toc' on input line 63.
-Package microtype Info: Applying patch `eqnum' on input line 63.
-Package microtype Info: Applying patch `footnote' on input line 63.
+or `english'. on input line 64.
+LaTeX Info: Redefining \microtypecontext on input line 64.
+Package microtype Info: Applying patch `item' on input line 64.
+Package microtype Info: Applying patch `toc' on input line 64.
+Package microtype Info: Applying patch `eqnum' on input line 64.
+Package microtype Info: Applying patch `footnote' on input line 64.
 Package microtype Info: Generating PDF output.
 Package microtype Info: Character protrusion enabled (level 2).
 Package microtype Info: Using default protrusion set `alltext'.
 Package microtype Info: Automatic font expansion enabled (level 2),
 (microtype)             stretch: 20, shrink: 20, step: 1, non-selected.
 Package microtype Info: Using default expansion set `alltext-nott'.
-LaTeX Info: Redefining \showhyphens on input line 63.
+LaTeX Info: Redefining \showhyphens on input line 64.
 Package microtype Info: No adjustment of tracking.
 Package microtype Info: No adjustment of interword spacing.
 Package microtype Info: No adjustment of character kerning.
@@ -617,7 +624,7 @@ Package microtype Info: No adjustment of character kerning.
 File: mt-cmr.cfg 2013/05/19 v2.2 microtype config. file: Computer Modern Roman 
 (RS)
 )
-Package hyperref Info: Link coloring OFF on input line 63.
+Package hyperref Info: Link coloring OFF on input line 64.
 
 (/usr/share/texlive/texmf-dist/tex/latex/hyperref/nameref.sty
 Package: nameref 2021-04-02 v2.47 Cross-referencing by name of section
@@ -628,11 +635,11 @@ Package: refcount 2019/12/15 v3.6 Data extraction from label references (HO)
 (/usr/share/texlive/texmf-dist/tex/generic/gettitlestring/gettitlestring.sty
 Package: gettitlestring 2019/12/15 v1.6 Cleanup title references (HO)
 )
-\c@section@level=\count336
+\c@section@level=\count337
 )
-LaTeX Info: Redefining \ref on input line 63.
-LaTeX Info: Redefining \pageref on input line 63.
-LaTeX Info: Redefining \nameref on input line 63.
+LaTeX Info: Redefining \ref on input line 64.
+LaTeX Info: Redefining \pageref on input line 64.
+LaTeX Info: Redefining \nameref on input line 64.
 
 (./solver_report.out) (./solver_report.out)
 \@outlinefile=\write3
@@ -642,7 +649,7 @@ Package microtype Info: Loading generic protrusion settings for font family
 (microtype)             `cmtt' (encoding: OT1).
 (microtype)             For optimal results, create family-specific settings.
 (microtype)             See the microtype manual for details.
-LaTeX Font Info:    Trying to load font information for U+msa on input line 65.
+LaTeX Font Info:    Trying to load font information for U+msa on input line 66.
 
 
 (/usr/share/texlive/texmf-dist/tex/latex/amsfonts/umsa.fd
@@ -651,7 +658,7 @@ File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 (/usr/share/texlive/texmf-dist/tex/latex/microtype/mt-msa.cfg
 File: mt-msa.cfg 2006/02/04 v1.1 microtype config. file: AMS symbols (a) (RS)
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 65.
+LaTeX Font Info:    Trying to load font information for U+msb on input line 66.
 
 
 (/usr/share/texlive/texmf-dist/tex/latex/amsfonts/umsb.fd
@@ -660,17 +667,11 @@ File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 (/usr/share/texlive/texmf-dist/tex/latex/microtype/mt-msb.cfg
 File: mt-msb.cfg 2005/06/01 v1.0 microtype config. file: AMS symbols (b) (RS)
 )
-Overfull \hbox (113.08685pt too wide) in paragraph at lines 67--94
-[]\OT1/cmr/m/n/10 (-20) This re-port spec-i-fies the al-go-rithms im-ple-mented
- in the Open-FOAM solver \OT1/cmtt/m/n/10 highOrderElectroActivationFoamImplici
-t\OT1/cmr/m/n/10 (-20) .
- []
-
 (./solver_report.toc [1
 
 {/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map}]
 LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10.95> not available
-(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 27.
+(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 36.
 )
 \tf@toc=\write4
 \openout4 = `solver_report.toc'.
@@ -681,394 +682,271 @@ Package microtype Info: Loading generic protrusion settings for font family
 (microtype)             See the microtype manual for details.
 
 [2]
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 202.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\theta' on input line 202.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 202.
-
-[3] [4]
-Overfull \hbox (8.41211pt too wide) in paragraph at lines 390--393
-\OT1/cmr/m/n/10.95 (-20) plus $\OML/cmm/m/it/10.95 k \OT1/cmr/m/n/10.95 (-20) +
- 1 \OMS/cmsy/m/n/10.95 ^^U$ \OT1/cmtt/m/n/10 minNonlinearIterations\OT1/cmr/m/n
-/10.95 (-20) ; the last cri-te-rion is gated by \OT1/cmtt/m/n/10 nonlinearRequi
-reStatesConvergence\OT1/cmr/m/n/10.95 (-20) . 
+Overfull \hbox (14.92178pt too wide) in paragraph at lines 207--217
+\OT1/cmr/m/n/10.95 (-20) Equa-tion [] there-fore adds $\OMS/cmsy/m/n/10.95 ^^@ 
+[]$ \OT1/cmr/m/n/10.95 (-20) to the PDE source; the ex-ter-nal stim-u-lus \OT1/
+cmtt/m/n/10 externalStimulusCurrent
  []
 
-[5]
-Overfull \hbox (40.0659pt too wide) in paragraph at lines 501--506
+[3]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 233.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\theta' on input line 233.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 233.
+
+[4] [5]
+LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10> not available
+(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 418.
+ [6]
+Overfull \hbox (19.35065pt too wide) in paragraph at lines 521--528
+\OT1/cmr/m/n/10.95 (-20) ately and \OT1/cmr/m/it/10.95 (-20) none \OT1/cmr/m/n/
+10.95 (-20) of the sub-switches have any ef-fect; in par-tic-u-lar, \OT1/cmtt/m
+/n/10 TNNPClampGates \OT1/cmr/m/n/10.95 (-20) and \OT1/cmtt/m/n/10 TNNPClampVmF
+orRates
+ []
+
+
+Overfull \hbox (125.91264pt too wide) in paragraph at lines 537--553
+ [] 
+ []
+
+
+Overfull \hbox (58.79343pt too wide) in paragraph at lines 572--576
+[]\OT1/cmr/bx/n/10.95 (-20) Voltage clamp for rates \OT1/cmr/m/n/10.95 (-20) (i
+f \OT1/cmtt/m/n/10 TNNPClampVmForRates\OT1/cmr/m/n/10.95 (-20) ): $\OML/cmm/m/i
+t/10.95 V$ \OT1/cmr/m/n/10.95 (-20) is clamped to $[[]\OML/cmm/m/it/10.95 ; []\
+OT1/cmr/m/n/10.95 (-20) ]$.
+ []
+
+[7]
+Overfull \hbox (17.32912pt too wide) in paragraph at lines 587--593
+[]\OT1/cmr/bx/n/10.95 (-20) Gate clamp \OT1/cmr/m/n/10.95 (-20) (if \OT1/cmtt/m
+/n/10 TNNPClampGates\OT1/cmr/m/n/10.95 (-20) ): the twelve gat-ing vari-ables $
+\OML/cmm/m/it/10.95 Xr[]; Xr[]; Xs; m; h; j; d; f; fCa; s; r; g$
+ []
+
+[8]
+Overfull \hbox (40.0659pt too wide) in paragraph at lines 723--728
  []\OT1/cmr/bx/n/10.95 (-20) Early ter-mi-na-tion on P8.[] \OT1/cmr/m/n/10.95 (
 -20) When \OT1/cmtt/m/n/10 stopAfterPointActivation = true\OT1/cmr/m/n/10.95 (-
 20) , the cell near-est \OT1/cmtt/m/n/10 stopActivationPoint
  []
 
 
-Overfull \hbox (48.18112pt too wide) in paragraph at lines 501--506
+Overfull \hbox (48.18112pt too wide) in paragraph at lines 723--728
 \OT1/cmr/m/n/10.95 (-20) (P8 in the Niederer bench-mark) is mon-i-tored, and th
 e ef-fec-tive end time is set to $\OML/cmm/m/it/10.95 t[]\OT1/cmr/m/n/10.95 (-2
 0) +$ \OT1/cmtt/m/n/10 stopDelayAfterActivation\OT1/cmr/m/n/10.95 (-20) . 
  []
 
 
-Overfull \hbox (13.18317pt too wide) in paragraph at lines 507--511
+Overfull \hbox (13.18317pt too wide) in paragraph at lines 729--733
  []\OT1/cmr/bx/n/10.95 (-20) Diagonal sam-pling.[] \OT1/cmtt/m/n/10 sampleIDW \
 OT1/cmr/m/n/10.95 (-20) per-forms inverse-distance-weighted in-ter-po-la-tion a
 t \OT1/cmtt/m/n/10 nDiagonalSamples
  []
 
 Package hyperref Info: bookmark level for unknown algorithm defaults to 0 on in
-put line 522.
-[6]
+put line 744.
+[9]
 LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <14.4> not available
-(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 589.
+(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 790.
 
-Overfull \hbox (20.0008pt too wide) in paragraph at lines 605--605
+Overfull \hbox (20.0008pt too wide) in paragraph at lines 806--806
 []|\OT1/cmtt/m/n/10 timeIntegrationProperties.CFL| 
  []
 
 
-Underfull \hbox (badness 1939) in paragraph at lines 606--607
+Underfull \hbox (badness 1939) in paragraph at lines 807--808
 []|\OT1/cmr/m/n/10.95 (+20) Informational ref-er-ence; not en-
  []
 
 
-Overfull \hbox (93.50015pt too wide) in paragraph at lines 608--608
+Overfull \hbox (93.50015pt too wide) in paragraph at lines 809--809
 []|\OT1/cmtt/m/n/10 spatialIntegrationProperties.implicitScheme| 
  []
 
-LaTeX Font Info:    Trying to load font information for OMS+cmr on input line 6
-09.
+LaTeX Font Info:    Trying to load font information for OMS+cmr on input line 8
+10.
 (/usr/share/texlive/texmf-dist/tex/latex/base/omscmr.fd
 File: omscmr.fd 2019/12/16 v2.5j Standard LaTeX font definitions
 )
 LaTeX Font Info:    Font shape `OMS/cmr/m/n' in size <10.95> not available
-(Font)              Font shape `OMS/cmsy/m/n' tried instead on input line 609.
+(Font)              Font shape `OMS/cmsy/m/n' tried instead on input line 810.
 
-Overfull \hbox (72.50034pt too wide) in paragraph at lines 611--611
+Overfull \hbox (72.50034pt too wide) in paragraph at lines 812--812
 []|\OT1/cmtt/m/n/10 spatialIntegrationProperties.massMatrix| 
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 614--615
+Underfull \hbox (badness 10000) in paragraph at lines 815--816
 []|\OT1/cmtt/m/n/10 useHighOrder[]Vm \OT1/cmr/m/n/10.95 (+20) /
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 614--615
+Underfull \hbox (badness 10000) in paragraph at lines 815--816
 \OT1/cmtt/m/n/10 useHighOrder[]Iion \OT1/cmr/m/n/10.95 (+20) +
  []
 
 
-Underfull \hbox (badness 4096) in paragraph at lines 616--618
+Underfull \hbox (badness 4096) in paragraph at lines 817--819
 []|\OT1/cmr/m/n/10.95 (+20) Tuples \OT1/cmtt/m/n/10.95 (Vm-level, Iion-level)\O
 T1/cmr/m/n/10.95 (+20) ;
  []
 
 
-Overfull \hbox (35.75066pt too wide) in paragraph at lines 622--622
+Overfull \hbox (35.75066pt too wide) in paragraph at lines 820--820
 []|\OT1/cmtt/m/n/10 timeIntegrationProperties.solver| 
  []
 
-[7]
-Overfull \hbox (0.38994pt too wide) in alignment at lines 632--635
+
+Overfull \hbox (0.38994pt too wide) in alignment at lines 830--833
  [] [] [] 
  []
 
 
-Overfull \hbox (3.52502pt too wide) in paragraph at lines 638--638
-[]|\OT1/cmtt/m/n/10 IMPLICIT[]MIN[]NONLINEAR[]ITERATIONS| 
+Overfull \hbox (0.38994pt too wide) in alignment at lines 833--843
+ [] [] [] 
  []
 
-
-Overfull \hbox (19.27489pt too wide) in paragraph at lines 648--648
-[]|\OT1/cmtt/m/n/10 NONLINEAR[]REQUIRE[]STATES[]CONVERGENCE| 
- []
-
-
-Overfull \hbox (31.55228pt too wide) in paragraph at lines 649--649
-[]|\OT1/cmtt/m/n/10 nonlinearRequireStatesConvergence| 
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 653--655
-[]|\OT1/cmr/m/n/10.95 (+20) FD step for di-ag-o-
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 653--655
-\OT1/cmr/m/n/10.95 (+20) nal $\OML/cmm/m/it/10.95 @I[]=@V[]$ \OT1/cmr/m/n/10.95
- (+20) when
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 653--655
-\OT1/cmtt/m/n/10 nonlinearMethod =
- []
-
-
-Overfull \hbox (0.38994pt too wide) in alignment at lines 635--662
+[10]
+Overfull \hbox (0.38994pt too wide) in alignment at lines 846--849
  [] [] [] 
  []
 
 
-Overfull \hbox (0.38994pt too wide) in alignment at lines 665--668
- [] [] [] 
- []
-
-
-Overfull \hbox (26.30232pt too wide) in paragraph at lines 669--669
+Overfull \hbox (26.30232pt too wide) in paragraph at lines 850--850
 []|\OT1/cmtt/m/n/10 timeIntegrationProperties.absTol| 
  []
 
 
-Overfull \hbox (26.30232pt too wide) in paragraph at lines 671--671
+Overfull \hbox (26.30232pt too wide) in paragraph at lines 852--852
 []|\OT1/cmtt/m/n/10 timeIntegrationProperties.relTol| 
  []
 
 
-Overfull \hbox (0.38994pt too wide) in alignment at lines 668--677
+Overfull \hbox (0.38994pt too wide) in alignment at lines 849--858
  [] [] [] 
  []
 
 
-Overfull \hbox (0.38994pt too wide) in alignment at lines 680--683
+Overfull \hbox (0.38994pt too wide) in alignment at lines 861--864
  [] [] [] 
  []
 
 
-Overfull \hbox (0.38994pt too wide) in alignment at lines 683--698
+Overfull \hbox (0.38994pt too wide) in alignment at lines 864--877
  [] [] [] 
- []
-
-[8]
-Overfull \hbox (66.04259pt too wide) in paragraph at lines 709--711
-[]$\OT1/cmtt/m/n/10.95 /home / pablo / OpenFOAM / pablo-[]v2312 / run / tutoria
-ls _ electro / highOrderNiedererEtAl2012Implicit/$ 
- []
-
-
-Overfull \hbox (67.19232pt too wide) in paragraph at lines 711--713
-[]$\OT1/cmtt/m/n/10.95 /home / pablo / OpenFOAM / pablo-[]v2312 / run / tutoria
-ls _ electro / highOrderNiedererEtAl2012Implicit _
- []
-
-
-Overfull \hbox (67.19232pt too wide) in paragraph at lines 713--715
-[]$\OT1/cmtt/m/n/10.95 /home / pablo / OpenFOAM / pablo-[]v2312 / run / tutoria
-ls _ electro / highOrderNiedererEtAl2012Implicit _
- []
-
-
-Overfull \hbox (67.19232pt too wide) in paragraph at lines 715--716
-[]$\OT1/cmtt/m/n/10.95 /home / pablo / OpenFOAM / pablo-[]v2312 / run / tutoria
-ls _ electro / highOrderNiedererEtAl2012Implicit _
  []
 
 (./results_tables.tex
+Overfull \hbox (49.51529pt too wide) in alignment at lines 8--12
+ [] [] [] [] [] [] [] [] [] [] [] [] [] [] [] 
+ []
+
+
+Overfull \hbox (49.51529pt too wide) in alignment at lines 12--14
+ [] [] [] [] [] [] [] [] [] [] [] [] [] [] [] 
+ []
+
+
+Overfull \hbox (49.51529pt too wide) in alignment at lines 14--59
+ [] [] [] [] [] [] [] [] [] [] [] [] [] [] [] 
+ []
+
+[11] [12]) [13] [14]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 5.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\Delta' on input line 5.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\leavevmode@ifvmode' on input line 5.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                \kern -1.8254pt
-(hyperref)                removed on input line 5.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\cdot' on input line 5.
+(hyperref)                removing `math shift' on input line 1057.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\leavevmode@ifvmode' on input line 5.
+(hyperref)                removing `\Delta' on input line 1057.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                \kern -1.8254pt
-(hyperref)                removed on input line 5.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `superscript' on input line 5.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 5.
-
-[9]
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 82.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\Delta' on input line 82.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\leavevmode@ifvmode' on input line 82.
+(hyperref)                removing `\leavevmode@ifvmode' on input line 1057.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                \kern -1.8254pt
-(hyperref)                removed on input line 82.
+(hyperref)                removed on input line 1057.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\cdot' on input line 82.
+(hyperref)                removing `\cdot' on input line 1057.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\leavevmode@ifvmode' on input line 82.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                \kern -1.8254pt
-(hyperref)                removed on input line 82.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `superscript' on input line 82.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 82.
-
-[10]
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 159.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\Delta' on input line 159.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\leavevmode@ifvmode' on input line 159.
+(hyperref)                removing `\leavevmode@ifvmode' on input line 1057.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                \kern -1.8254pt
-(hyperref)                removed on input line 159.
+(hyperref)                removed on input line 1057.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\cdot' on input line 159.
+(hyperref)                removing `superscript' on input line 1057.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\leavevmode@ifvmode' on input line 159.
+(hyperref)                removing `math shift' on input line 1057.
 
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                \kern -1.8254pt
-(hyperref)                removed on input line 159.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `superscript' on input line 159.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 159.
-
-[11]
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 236.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\Delta' on input line 236.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\leavevmode@ifvmode' on input line 236.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                \kern -1.8254pt
-(hyperref)                removed on input line 236.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\cdot' on input line 236.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `\leavevmode@ifvmode' on input line 236.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                \kern -1.8254pt
-(hyperref)                removed on input line 236.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `superscript' on input line 236.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 236.
-
-[12] [13]) [14] (./solver_report.aux)
+[15] [16] (./solver_report.aux)
 Package rerunfilecheck Info: File `solver_report.out' has not changed.
-(rerunfilecheck)             Checksum: DEA912522B1E46922A8367688973DC84;5752.
+(rerunfilecheck)             Checksum: 7E531BF41F96D8B900C1C46C953DCF82;8560.
  ) 
 Here is how much of TeX's memory you used:
- 19366 strings out of 478287
- 351974 string characters out of 5849289
- 696471 words of memory out of 5000000
- 37049 multiletter control sequences out of 15000+600000
- 493658 words of font info for 187 fonts, out of 8000000 for 9000
+ 19578 strings out of 478287
+ 354743 string characters out of 5849289
+ 752418 words of memory out of 5000000
+ 37134 multiletter control sequences out of 15000+600000
+ 498017 words of font info for 239 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 71i,11n,89p,1010b,969s stack positions out of 5000i,500n,10000p,200000b,80000s
+ 71i,11n,89p,1010b,967s stack positions out of 5000i,500n,10000p,200000b,80000s
 {/usr/share/texmf/fonts/enc/dvips/cm-super/cm-super-ts1.enc}</usr/share/texli
 ve/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/share/texlive/tex
 mf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/share/texlive/texmf-dis
-t/fonts/type1/public/amsfonts/cm/cmcsc10.pfb></usr/share/texlive/texmf-dist/fon
-ts/type1/public/amsfonts/cm/cmex10.pfb></usr/share/texlive/texmf-dist/fonts/typ
-e1/public/amsfonts/cm/cmmi10.pfb></usr/share/texlive/texmf-dist/fonts/type1/pub
-lic/amsfonts/cm/cmmi12.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/am
-sfonts/cm/cmmi6.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/
-cm/cmmi7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi
-8.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi9.pfb><
-/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/sh
-are/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/share/tex
-live/texmf-dist/fonts/type1/public/amsfonts/cm/cmr17.pfb></usr/share/texlive/te
-xmf-dist/fonts/type1/public/amsfonts/cm/cmr6.pfb></usr/share/texlive/texmf-dist
-/fonts/type1/public/amsfonts/cm/cmr7.pfb></usr/share/texlive/texmf-dist/fonts/t
-ype1/public/amsfonts/cm/cmr8.pfb></usr/share/texlive/texmf-dist/fonts/type1/pub
-lic/amsfonts/cm/cmr9.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsf
-onts/cm/cmss10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/c
-m/cmsy10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy
-6.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb><
-/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy9.pfb></usr/sh
-are/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmti10.pfb></usr/share/te
-xlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt10.pfb></usr/share/texlive/
-texmf-dist/fonts/type1/public/amsfonts/cm/cmtt12.pfb></usr/share/texlive/texmf-
-dist/fonts/type1/public/amsfonts/cm/cmtt9.pfb></usr/share/texlive/texmf-dist/fo
-nts/type1/public/amsfonts/symbols/msbm10.pfb></usr/share/texmf/fonts/type1/publ
-ic/cm-super/sfrm1095.pfb>
-Output written on solver_report.pdf (14 pages, 375209 bytes).
+t/fonts/type1/public/amsfonts/cm/cmbx9.pfb></usr/share/texlive/texmf-dist/fonts
+/type1/public/amsfonts/cm/cmcsc10.pfb></usr/share/texlive/texmf-dist/fonts/type
+1/public/amsfonts/cm/cmex10.pfb></usr/share/texlive/texmf-dist/fonts/type1/publ
+ic/amsfonts/cm/cmmi10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/ams
+fonts/cm/cmmi12.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/
+cm/cmmi6.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi
+7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi8.pfb><
+/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi9.pfb></usr/sh
+are/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/share/tex
+live/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/share/texlive/te
+xmf-dist/fonts/type1/public/amsfonts/cm/cmr17.pfb></usr/share/texlive/texmf-dis
+t/fonts/type1/public/amsfonts/cm/cmr6.pfb></usr/share/texlive/texmf-dist/fonts/
+type1/public/amsfonts/cm/cmr8.pfb></usr/share/texlive/texmf-dist/fonts/type1/pu
+blic/amsfonts/cm/cmr9.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/ams
+fonts/cm/cmss10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/
+cm/cmss9.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy
+10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy6.pfb>
+</usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb></usr/s
+hare/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy9.pfb></usr/share/te
+xlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmti10.pfb></usr/share/texlive/
+texmf-dist/fonts/type1/public/amsfonts/cm/cmti8.pfb></usr/share/texlive/texmf-d
+ist/fonts/type1/public/amsfonts/cm/cmti9.pfb></usr/share/texlive/texmf-dist/fon
+ts/type1/public/amsfonts/cm/cmtt10.pfb></usr/share/texlive/texmf-dist/fonts/typ
+e1/public/amsfonts/cm/cmtt12.pfb></usr/share/texlive/texmf-dist/fonts/type1/pub
+lic/amsfonts/cm/cmtt9.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/ams
+fonts/symbols/msam10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsf
+onts/symbols/msbm10.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfrm1095.
+pfb>
+Output written on solver_report.pdf (16 pages, 446986 bytes).
 PDF statistics:
- 445 PDF objects out of 1000 (max. 8388607)
- 369 compressed objects within 4 object streams
- 93 named destinations out of 1000 (max. 500000)
- 69377 words of extra memory for PDF output out of 74296 (max. 10000000)
+ 559 PDF objects out of 1000 (max. 8388607)
+ 472 compressed objects within 5 object streams
+ 115 named destinations out of 1000 (max. 500000)
+ 75609 words of extra memory for PDF output out of 89155 (max. 10000000)
 

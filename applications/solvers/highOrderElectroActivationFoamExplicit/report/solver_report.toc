@@ -1,0 +1,65 @@
+\contentsline {section}{\numberline {1}Notation}{3}{section.1}%
+\contentsline {section}{\numberline {2}Governing equations}{3}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Monodomain PDE}{3}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Ionic ODE}{3}{subsection.2.2}%
+\contentsline {paragraph}{Units and sign convention.}{3}{section*.2}%
+\contentsline {subsection}{\numberline {2.3}External stimulus}{4}{subsection.2.3}%
+\contentsline {section}{\numberline {3}Time discretisation: forward Euler with parabolic CFL bound}{4}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Stable time step}{4}{subsection.3.1}%
+\contentsline {paragraph}{Implication.}{4}{section*.3}%
+\contentsline {section}{\numberline {4}Spatial discretisation}{5}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Standard orthogonal FV Laplacian}{5}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}High-order LRE diffusion}{5}{subsection.4.2}%
+\contentsline {paragraph}{Boundary faces in the high-order branch.}{5}{section*.4}%
+\contentsline {subsection}{\numberline {4.3}Ionic source quadrature}{5}{subsection.4.3}%
+\contentsline {section}{\numberline {5}Per-step operator splitting}{6}{section.5}%
+\contentsline {paragraph}{Order of accuracy in time.}{6}{section*.5}%
+\contentsline {paragraph}{Why two distinct ionic calls.}{6}{section*.6}%
+\contentsline {section}{\numberline {6}Ionic ODE integration}{6}{section.6}%
+\contentsline {section}{\numberline {7}TNNP numerical protection}{7}{section.7}%
+\contentsline {subsection}{\numberline {7.1}Master switch and configuration}{7}{subsection.7.1}%
+\contentsline {subsection}{\numberline {7.2}Phases at which the guard fires}{7}{subsection.7.2}%
+\contentsline {subsection}{\numberline {7.3}Corrections and their order}{7}{subsection.7.3}%
+\contentsline {subsection}{\numberline {7.4}Interaction with the RKF45 step controller}{8}{subsection.7.4}%
+\contentsline {subsection}{\numberline {7.5}What the guard does not protect}{8}{subsection.7.5}%
+\contentsline {subsection}{\numberline {7.6}Logging and accounting}{9}{subsection.7.6}%
+\contentsline {subsection}{\numberline {7.7}Defaults vs.\ recommended settings}{9}{subsection.7.7}%
+\contentsline {section}{\numberline {8}Activation tracking and benchmarks}{9}{section.8}%
+\contentsline {paragraph}{Activation time per cell.}{9}{section*.7}%
+\contentsline {paragraph}{Early termination on P8.}{9}{section*.8}%
+\contentsline {paragraph}{Diagonal sampling.}{9}{section*.9}%
+\contentsline {section}{\numberline {9}Driver script: \texttt {run\_convergence.py}}{10}{section.9}%
+\contentsline {subsection}{\numberline {9.1}Geometry and parameter sweep}{10}{subsection.9.1}%
+\contentsline {subsection}{\numberline {9.2}Inner ODE integrator (RKF45)}{10}{subsection.9.2}%
+\contentsline {subsection}{\numberline {9.3}Effective $\Delta t$ reported in result tables}{10}{subsection.9.3}%
+\contentsline {subsection}{\numberline {9.4}Post-processing and run-control}{10}{subsection.9.4}%
+\contentsline {section}{\numberline {10}Niederer-style benchmark results}{11}{section.10}%
+\contentsline {paragraph}{Scope and disclaimer.}{11}{section*.10}%
+\contentsline {paragraph}{Reading $\Delta t_{\text {req}}$ versus $\Delta t_{\text {CFL}}$.}{11}{section*.11}%
+\contentsline {subsection}{\numberline {10.1}2D Niederer-style sweep}{11}{subsection.10.1}%
+\contentsline {subsection}{\numberline {10.2}P8 activation time at the requested $\Delta t = 1.0\cdot 10^{-2}$\nobreakspace {}s}{11}{subsection.10.2}%
+\contentsline {subsection}{\numberline {10.3}Wall-clock cost per configuration (minutes)}{12}{subsection.10.3}%
+\contentsline {subsection}{\numberline {10.4}Peak resident set size per configuration (MiB)}{12}{subsection.10.4}%
+\contentsline {subsubsection}{\numberline {10.4.1}Discussion of the 2D results}{13}{subsubsection.10.4.1}%
+\contentsline {paragraph}{$h$-refinement at fixed configuration.}{13}{section*.12}%
+\contentsline {paragraph}{High-order on the source.}{13}{section*.13}%
+\contentsline {paragraph}{High-order on the diffusion alone.}{13}{section*.14}%
+\contentsline {paragraph}{Full HO at the finer meshes.}{13}{section*.15}%
+\contentsline {paragraph}{Cost.}{13}{section*.16}%
+\contentsline {subsection}{\numberline {10.5}3D Niederer-style sweep}{13}{subsection.10.5}%
+\contentsline {subsection}{\numberline {10.6}P8 activation time at the requested $\Delta t$}{14}{subsection.10.6}%
+\contentsline {subsection}{\numberline {10.7}Wall-clock cost per configuration (minutes)}{14}{subsection.10.7}%
+\contentsline {subsection}{\numberline {10.8}Peak resident set size per configuration (MiB)}{15}{subsection.10.8}%
+\contentsline {subsubsection}{\numberline {10.8.1}Discussion of the 3D results}{15}{subsubsection.10.8.1}%
+\contentsline {paragraph}{$\Delta t_{\text {req}}$ versus $\Delta t_{\text {CFL}}$.}{15}{section*.17}%
+\contentsline {paragraph}{Coarse-mesh sensitivity.}{15}{section*.18}%
+\contentsline {paragraph}{One mesh refinement.}{15}{section*.19}%
+\contentsline {paragraph}{Where the 2D and 3D values disagree.}{16}{section*.20}%
+\contentsline {subsection}{\numberline {10.9}Conclusions on the 2D/3D study}{16}{subsection.10.9}%
+\contentsline {section}{\numberline {A}Dimension table}{16}{appendix.A}%
+\contentsline {section}{\numberline {B}TNNP rate expressions (verbatim)}{16}{appendix.B}%
+\contentsline {paragraph}{Reversal potentials.}{17}{section*.21}%
+\contentsline {paragraph}{Total ionic current.}{17}{section*.22}%
+\contentsline {paragraph}{Individual currents.}{17}{section*.23}%
+\contentsline {paragraph}{Gate kinetics (selected; full set generated by the TNNP code generator).}{17}{section*.24}%
+\contentsline {paragraph}{Concentrations and SR fluxes.}{18}{section*.25}%

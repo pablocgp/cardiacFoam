@@ -43,6 +43,11 @@
 \contentsline {subsection}{\numberline {11.5}State ODE integrator}{14}{subsection.11.5}%
 \contentsline {subsection}{\numberline {11.6}LRE high-order parameters per p-level}{14}{subsection.11.6}%
 \contentsline {subsection}{\numberline {11.7}Diagnostics and run-control}{14}{subsection.11.7}%
-\contentsline {section}{\numberline {A}Dimension table}{15}{appendix.A}%
-\contentsline {section}{\numberline {B}File map}{15}{appendix.B}%
-\contentsline {section}{\numberline {C}Differences vs.\ the PETSc sibling}{15}{appendix.C}%
+\contentsline {section}{\numberline {12}Results}{15}{section.12}%
+\contentsline {subsection}{\numberline {12.1}2D Niederer-style benchmark}{15}{subsection.12.1}%
+\contentsline {paragraph}{Discussion of the 2D results.}{16}{section*.13}%
+\contentsline {subsection}{\numberline {12.2}3D Niederer-style benchmark}{17}{subsection.12.2}%
+\contentsline {paragraph}{Discussion of the 3D results.}{17}{section*.14}%
+\contentsline {section}{\numberline {A}Dimension table}{18}{appendix.A}%
+\contentsline {section}{\numberline {B}File map}{18}{appendix.B}%
+\contentsline {section}{\numberline {C}Differences vs.\ the PETSc sibling}{18}{appendix.C}%

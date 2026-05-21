@@ -15,6 +15,7 @@
 \usepackage{enumitem}
 \usepackage{algorithm}
 \usepackage{algpseudocode}
+\usepackage{multirow}
 \usepackage[hidelinks]{hyperref}
 
 % ------------------------------------------------------------------ %
@@ -55,7 +56,7 @@
 
 \title{Solver Specification:\\
        \texorpdfstring{\texttt{highOrderElectroActivationFoamImplicit}}{highOrderElectroActivationFoamImplicit}\\
-       \large A high-order, implicit Picard / diagonal-Iion linearised
+       \large A high-order, implicit Picard
        monodomain solver in OpenFOAM with an Eigen linear-algebra back-end}
 \author{Pablo}
 \date{\today}
@@ -64,33 +65,44 @@
 \maketitle
 
 \begin{abstract}
-This report specifies the algorithms implemented in the OpenFOAM solver
-\code{highOrderElectroActivationFoamImplicit}. The solver advances the
+This report specifies the algorithms implemented in the OpenFOAM solver:
+
+\begin{center}
+\code{highOrderElectroActivationFoamImplicit}.
+\end{center}
+
+The solver advances the
 monodomain equations of cardiac electrophysiology coupled to the
 ten Tusscher--Noble--Noble--Panfilov (TNNP, 2004) ionic cell model. The
 diffusion operator is discretised with the cell-centred finite-volume
-framework of OpenFOAM, optionally upgraded to a Local Radial-Extrapolation
+framework of OpenFOAM, optionally upgraded to a Local Regression Estimators
 (LRE) high-order reconstruction; the ionic source is evaluated either at
 cell centres or at LRE cell quadrature points; time integration follows a
 $\theta$-scheme (backward Euler or Crank--Nicolson); the resulting
 \emph{nonlinear} coupled system is solved with a fixed-point Picard
-iteration that optionally augments the diagonal of the implicit
-operator with a finite-difference approximation of
-$\partial \Iion/\partial \Vm$ (the \emph{diagonal-Iion} variant). The
-sparse linear system is factored or iteratively solved with Eigen
+iteration using a fixed number of nonlinear sweeps. In each sweep the
+ionic ODE is integrated at the current frozen voltage, the ionic source
+is placed on the right-hand side, and the voltage is updated by solving
+the unchanged implicit diffusion operator. The sparse linear system is
+factored or iteratively solved with Eigen
 (\code{SparseLU} or \code{BiCGSTAB+ILUT}); the per-cell ionic ODE uses
 OpenFOAM's adaptive RKF45 integrator with configurable tolerances; the
 TNNP cell model is wrapped in a phase-aware \code{protectState} guard
 that enforces physical bounds before every algebraic evaluation;
 activation times are recorded by linear interpolation across the first
 threshold crossing and benchmark points are sampled by inverse-distance
-weighting. All algorithmic parameters are exposed through the
+weighting. The report also discusses the limits of the single-sweep
+Picard regime used in the reported runs (where the ionic source is
+effectively lagged by one step and the temporal error is no longer
+controlled by $\theta$) and the assumptions, scope, and side-effects of
+the TNNP \code{protectState} guard, including its interaction with the
+RKF45 step controller. All algorithmic parameters are exposed through the
 \code{constant/spatialIntegrationProperties} and
 \code{constant/timeIntegrationProperties} dictionaries, and the
 companion Python driver \code{run\_convergence.py} generates these
 dictionaries from a single configuration file. Section~\ref{sec:results}
 collects measured P8 activation times, wall-clock cost and peak memory
-from four independent result trees of the Niederer 2012 benchmark.
+from four independent result trees of a 2D Niederer 2012 benchmark.
 \end{abstract}
 
 \tableofcontents
@@ -121,7 +133,6 @@ $N_{c}$ & Number of mesh cells & --- \\
 $\mathsf{V}^{n} \in \mathbb{R}^{N_{c}}$ & Vector of cell-averaged $\Vm$ at time $t^{n}$ & \si{\volt} \\
 $\Mmass, \Kstif, \Lop$ & Mass, stiffness, scaled diffusion matrix & --- \\
 $\Aimp, \Bimp$ & Implicit LHS / RHS operators of the $\theta$-scheme & --- \\
-$\omega$ & Picard / Newton damping factor & --- \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -184,6 +195,26 @@ where \code{tissue} selects \code{epicardialCells}, \code{mCells} or
 The total ionic current returned to the PDE is \code{Iion\_cm} of
 TNNP~\cite{ttp2004}.
 
+\paragraph{Units and sign convention.} The field \code{Iion\_cm}
+returned by the TNNP wrapper is the per-capacitance ionic current,
+\begin{equation*}
+  \code{Iion\_cm}
+   \;=\;
+   \frac{I_{\text{ion}}^{\text{(memb)}}}{C_{m}}
+   \;\equiv\;
+   \frac{1}{\chi C_{m}}\,
+   \bigl(\chi\, I_{\text{ion}}^{\text{(memb)}}\bigr),
+\end{equation*}
+expressed in V/s, with the electrophysiological convention
+\emph{outward (cation efflux) current positive}. Equation
+\eqref{eq:semi-discrete} therefore adds $-\,\code{Iion\_cm}$ to the
+PDE source; the external stimulus \code{externalStimulusCurrent} is
+stored in A/m$^{3}$ and divided by $\chi C_{m}$ inside the solver
+(see \code{createFields.H} and the source-vector assembly in the
+main solver loop). Throughout the rest of this report the symbol
+$\Iion$ is used as a shorthand for \code{Iion\_cm}; no further
+rescaling is applied between the cell model and the linear system.
+
 \subsection{External stimulus}
 
 \begin{equation}
@@ -243,11 +274,25 @@ $\Aimp$ and $\Bimp$ are rebuilt at every time step. When $\theta = 1$
 (BE) the explicit half of the diffusion vanishes and
 $\Bimp = \Mmass/\Delta t$.
 
+\paragraph{Old-time source $\mathbf{s}^{n}$.}
+The vector $\mathbf{s}^{n}$ used in the RHS is \emph{not} carried over
+verbatim from the previous step. At the start of each step the TNNP
+ODE is integrated once from $\mathbf{s}^{n}$ with $\Vm^{n}$ frozen,
+producing $\Iion^{n}$ and hence $\mathbf{s}^{n}$; this is the
+\emph{step-entry} solve. Subsequent Picard sweeps (Section
+\ref{sec:nonlinear}) only overwrite the new-time iterate
+$\mathbf{s}(\Iion(\mathsf{x}_{k}))$ and leave the step-entry
+$\mathbf{s}^{n}$ in place. Across time steps the consistency of
+$\mathbf{s}^{n}$ relies on the ionic state vector
+$\mathbf{s}_{\!j}^{n}$ accepted at the end of the previous step being
+the same one used to recompute $\Iion^{n}$ here.
+
 % ================================================================== %
 \section{Spatial discretisation}
 % ================================================================== %
 
 \subsection{Standard orthogonal FV Laplacian}
+\label{sec:stdFV}
 
 \code{assembleStandardOrthogonalStiffnessMatrix} produces the classical
 5/7-point Laplacian. Per internal face $f$,
@@ -279,13 +324,33 @@ quadrature with reconstructed gradients:
        \Bigr),
 \end{equation}
 with $\mathcal{S}_{f}$ the LRE face stencil and
-$\mathbf{g}_{f,q,j} = $~\code{QRGradFaceGPCoeffs}.
+$\mathbf{g}_{f,q,j} = $~\code{QRGradFaceGPCoeffs}~\cite{cardiff2018s4f}.
+
+\paragraph{Boundary faces in the high-order branch.}
+The face-quadrature integration above is applied only to
+\emph{internal} faces. Boundary faces are delegated to the standard-FV
+path described in \S\ref{sec:stdFV}: \code{zeroGradient} and
+\code{empty} patches contribute zero flux, and \code{fixedValue}
+patches contribute the one-sided owner-only stencil to $\Kstif$. The
+high-order LRE stencil is therefore strictly internal and the
+formal spatial order is expected to drop to that of the standard
+branch in the first layer of cells adjacent to a non-empty patch.
+Provided the activation front is interior to the domain (the case in
+the 2D benchmark used in Section~\ref{sec:results}) this near-boundary
+order drop is invisible to the reported activation-time metric.
 
 \subsection{Mass matrices}
 
 Two options selectable via \code{massMatrix}:
 \paragraph{Lumped.} \code{assembleDiagonalMassMatrix} writes
-$\Mmass = I$.
+$\Mmass = I$.\footnote{The identity is \emph{not} the FE-style row-sum
+lumped mass. It is the cell-averaged FV mass: the semi-discrete
+equation has already been divided by the cell volume $|\Omega_{i}|$,
+so the cell-average operator reduces to a scalar identity. The cell
+volumes are absorbed into $\Kstif$ (via the face-area factor
+$|\mathbf{S}_{f}|$) and into the source assembly. A reader coming from
+FE codes should not expect $\Mmass[i,i]$ to scale with $|\Omega_{i}|$
+here.}
 
 \paragraph{Consistent high-order.}
 \code{assembleConsistentMassMatrixHO} fills
@@ -314,13 +379,17 @@ contribution to the cell average is then
 
 % ================================================================== %
 \section{Nonlinear solver}
+\label{sec:nonlinear}
 % ================================================================== %
 
 The fully discrete equation is nonlinear in $\mathsf{V}^{n+1}$ through
-$\Iion(\mathsf{V}^{n+1}, \mathbf{s}^{n+1})$. Three closing strategies
-are implemented; \code{nonlinearMethod} selects between them.
+$\Iion(\mathsf{V}^{n+1}, \mathbf{s}^{n+1})$. The implemented closure is
+fixed-point Picard. The solver does not currently read a
+\code{nonlinearMethod} key and does not assemble a finite-difference
+diagonal approximation of $\partial\Iion/\partial\Vm$; the
+\code{nonlinearIterations} entry only sets the number of Picard sweeps.
 
-\subsection{Picard (default)}
+\subsection{Picard iteration}
 
 Given an iterate $\mathsf{x}_{k}$, the next iterate is the unique
 solution of the linear system
@@ -333,81 +402,41 @@ solution of the linear system
    \;+\;
    (1-\theta)\, \mathbf{s}^{n},
 \end{equation}
-followed by a damped update
-$\mathsf{x}_{k+1} = (1-\omega)\,\mathsf{x}_{k} + \omega\,\mathsf{x}_{k+1}^{\ast}$
-with $\omega = $~\code{nonlinearRelaxation}. The ionic ODE is
-re-integrated from $t^{n}$ to $t^{n+1}$ at every $k$ using
+followed by the assignment
+$\mathsf{x}_{k+1} = \mathsf{x}_{k+1}^{\ast}$. The ionic ODE is
+re-integrated from $t^{n}$ to $t^{n+1}$ at every sweep using
 $\mathsf{x}_{k}$ as the (frozen) input voltage.
 
-\subsection{Diagonal-Iion linearised Picard}
+\subsection{Iteration budget and acceptance}
 
-When \code{nonlinearMethod} is \code{diagonalIion}, \code{diagonal} or
-\code{localDiagonal}, the implicit operator is augmented by the diagonal
-of $\partial \Iion / \partial \Vm$ \emph{at the current iterate}, fed
-back to the implicit side:
-\begin{equation}
-  \bigl[\Aimp \,-\, \theta\, \mathrm{diag}(\partial \Iion/\partial\Vm)_{k}\bigr]
-   \, \mathsf{x}_{k+1}^{\ast}
-   \;=\;
-   \mathsf{r}\bigl(\Iion(\mathsf{x}_{k})\bigr)
-   \;-\;
-   \theta\, \mathrm{diag}(\partial \Iion/\partial\Vm)_{k}\, \mathsf{x}_{k},
-\end{equation}
-where the diagonal Jacobian entry is approximated by a one-sided
-finite difference,
-\begin{equation}
-  \frac{\partial \Iion}{\partial \Vm}\Bigg|_{i}
-   \;\approx\;
-   \frac{\Iion(\Vmsub{i} + \varepsilon) - \Iion(\Vmsub{i})}{\varepsilon},
-   \qquad
-   \varepsilon = \texttt{diagonalIionEpsilon}.
-\end{equation}
-This branch is strictly more accurate than plain Picard on stiff
-sources and at the same time strictly cheaper than a true Newton solve,
-because the off-diagonal coupling between cells is left to the implicit
-diffusion operator only.
+The outer loop performs \code{max(nonlinearIterations, 1)} Picard
+sweeps per time step. There are no residual-based nonlinear stopping
+criteria in the current implementation: after the last sweep, the last
+voltage iterate, ionic current, and ionic states are accepted.
 
-\subsection{Convergence criteria}
-
-The outer loop is allowed up to \code{nonlinearIterations} sweeps and
-declared converged when all of the following hold simultaneously:
-\begin{equation*}
-\begin{aligned}
-  \lVert \mathsf{F}(\mathsf{x}_{k}) \rVert_{2} / \lVert \mathsf{x}_{k} \rVert_{2}
-     &\;\le\; \texttt{nonlinearTolerance}, \\
-  \lVert \mathsf{V}_{k} - \mathsf{V}_{k-1} \rVert_{2} /
-     \lVert \mathsf{V}_{k} \rVert_{2}
-     &\;\le\; \texttt{nonlinearVmTolerance}, \\
-  \lVert \Iionsub{k} - \Iionsub{k-1} \rVert_{2} /
-     \lVert \Iionsub{k} \rVert_{2}
-     &\;\le\; \texttt{nonlinearIionTolerance}, \\
-  \text{(opt.)}\quad
-  \max_{i}\;
-  \lVert \mathbf{s}_{k}^{(i)} - \mathbf{s}_{k-1}^{(i)} \rVert_{2} /
-     \lVert \mathbf{s}_{k}^{(i)} \rVert_{2}
-     &\;\le\; \texttt{nonlinearStatesTolerance},
-\end{aligned}
-\end{equation*}
-plus $k+1 \ge $~\code{minNonlinearIterations}; the last criterion is
-gated by \code{nonlinearRequireStatesConvergence}.
-
-\subsection{Rollback on non-convergence}
-
-If the outer loop exhausts its budget without satisfying the
-convergence criteria, the user-controlled switch
-\code{nonlinearAcceptUnconverged} decides:
-\begin{itemize}[topsep=0pt]
-  \item \code{false} (default): restore $\Vm, \Iion, \mathbf{s}$ to
-        the values at $t^{n}$ and emit a warning;
-  \item \code{true}: accept the last iterate and continue.
-\end{itemize}
+\paragraph{Consequence of \code{nonlinearIterations} $= 1$.}
+All runs reported in Section~\ref{sec:results} use one Picard sweep
+per step. With $k=1$ the new-time source $\theta\,\mathbf{s}(\Iion
+(\mathsf{x}_{1}))$ is evaluated from the iterate
+$\mathsf{x}_{1} = \mathsf{V}^{n}$ (the loop entry value), and no
+correction is applied before the voltage is accepted. The scheme is
+then \emph{linearly implicit in $\Vm$ and explicitly lagged in
+$\Iion$}: diffusion is treated implicitly via $\Aimp$, but the
+reaction term is effectively first-order accurate in $\Delta t$,
+\emph{independently of $\theta$}. The temporal error therefore tracks
+the linearisation, not the formal order of the $\theta$-scheme; this
+is the dominant source of the $\Delta t$-sensitivity observed in
+Section~\ref{sec:results}. Restoring the $\theta = 1/2$ second-order
+behaviour requires at least one residual-converged Picard sweep, i.e.
+$k \ge 2$ in practice with a small stop tolerance on
+$\|\mathsf{x}_{k+1} - \mathsf{x}_{k}\|$.
 
 % ================================================================== %
 \section{Linear solver: Eigen back-end}
 % ================================================================== %
 
 The wrapper \code{solveSparseSystem} drives either of two Eigen sparse
-solvers on the (optionally diagonal-augmented) operator:
+solvers on the implicit operator:
 \begin{center}
 \begin{tabular}{@{}lll@{}}
 \toprule
@@ -420,9 +449,9 @@ solvers on the (optionally diagonal-augmented) operator:
 \end{center}
 
 Both share the \code{tolerance} and \code{maxIterations} dictionary
-keys (the former is ignored by \code{SparseLU}). The Picard branch
-typically uses \code{SparseLU} so the same factorisation is reused at
-every outer iteration of the same time step.
+keys (the former is ignored by \code{SparseLU}). The Picard loop solves
+with the same implicit operator \code{AImplicit}; no nonlinear diagonal
+correction is added to the left-hand side.
 
 % ================================================================== %
 \section{Ionic ODE integration}
@@ -449,13 +478,28 @@ Key & Meaning & Default \\
 
 % ================================================================== %
 \section{TNNP numerical protection}
+\label{sec:tnnpProtect}
 % ================================================================== %
 
-The master switch \code{TNNPNumericalProtection} (default \code{false})
-enables a guard \code{protectState(state, t, qp, phase)} invoked at
-every external entry into the TNNP kernel
-(\code{calculateCurrent}, \code{solveODE\_start}, \code{solveODE\_end},
-\code{derivatives}). Knobs:
+The TNNP 2004 cell model contains several mathematical features that
+become numerical traps when the state variables are driven outside
+their physiological window by the outer solver: gate variables that
+overshoot $[0,1]$ make the rate-balance equations stiff or unphysical;
+intracellular concentrations that touch zero force $\log(\cdot)$ /
+$\sqrt{\cdot}$ / $\mathrm{pow}(\cdot)$ to overflow; very large $|V|$
+saturates the $\exp(\cdot)$ tails of the $\alpha/\beta$ rate constants;
+and the $L$-type calcium current $i_{CaL}$ contains a removable
+singularity at $V=0$ (a $V/(\exp(V/RT)-1)$ factor). The TNNP wrapper
+provides a guard, \code{protectState(state, t, qp, phase)}, whose
+job is to keep the state vector inside that physiological window at
+the boundaries of every external call into the cell-model kernel. The
+guard is intentionally minimal: it does \emph{not} fix the cell model,
+it only prevents one bad time-step from cascading into NaN/Inf and
+corrupting the rest of the simulation.
+
+\subsection{Master switch and configuration}
+\label{sec:tnnp:knobs}
+
 \begin{center}
 \begin{tabular}{@{}lll@{}}
 \toprule
@@ -473,14 +517,192 @@ Key & Type & Default \\
 \bottomrule
 \end{tabular}
 \end{center}
-When enabled, the guards are: (1) reset non-finite $V$ to $-86.2$ mV;
-(2) clamp $V$ to $[\,$\code{TNNPVMinForRates},
-\code{TNNPVMaxForRates}$\,]$; (3) push $V$ off zero by
-\code{TNNPVoltageZeroEps} (avoids the $i_{CaL}$ removable singularity);
-(4) floor $K_{i}, Na_{i}, Ca_{i}, Ca_{SR}$ at
-\code{TNNPConcentrationFloor}; (5) clamp gating variables to $[0, 1]$.
-Corrections are accumulated by \code{(phase, variable, reason)} and
-emitted on exit to \code{TNNP\_numericalProtection\_summary.dat}.
+
+The master switch is \code{TNNPNumericalProtection}. When it is
+\code{false}, \code{protectState} returns immediately and \emph{none}
+of the sub-switches have any effect; in particular,
+\code{TNNPClampGates} and \code{TNNPClampVmForRates} default to
+\code{true} but are inert without the master switch. The default
+configuration is therefore \emph{all protection off}; production runs
+typically need to set \code{TNNPNumericalProtection true} explicitly.
+
+\subsection{Phases at which the guard fires}
+\label{sec:tnnp:phases}
+
+The wrapper invokes the guard at four phases, distinguished by a
+string tag passed to \code{protectState} (used only for logging /
+accounting; see \S\ref{sec:tnnp:log}):
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Phase tag & Call site & Acts on \\
+\midrule
+\code{calculateCurrent} & entry of \code{calculateCurrent}
+   & the state vector passed in for the algebraic
+     $\Iion$ evaluation \\
+\code{solveODE\_start}  & entry of \code{solveODE}
+   & the integrator's working state vector at $t^{n}$ \\
+\code{solveODE\_end}    & exit of \code{solveODE}
+   & the integrator's working state vector at $t^{n+1}$ \\
+\code{derivatives}      & inside \code{derivatives()}, every
+                          RKF45 sub-step
+   & a \emph{copy} of the state vector (does not mutate $y$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All four sites are gated by the single \code{TNNPNumericalProtection}
+flag. The \code{derivatives} site has one important asymmetry: it
+copies the integrator state and protects the copy, then feeds the copy
+into the rate kernel \code{TNNPcomputeRates}. The integrator's working
+vector $y$ is never modified mid-step, so the protection only changes
+the value of the rates RKF45 sees, not the state it integrates.
+
+\subsection{Corrections and their order}
+\label{sec:tnnp:steps}
+
+When fired, \code{protectState} applies the following corrections, in
+this order, to the (possibly copied) state vector:
+
+\begin{enumerate}
+\item \textbf{Non-finite $V$:} if \code{state[V]} is \code{NaN} or
+\code{Inf}, it is reset to $-86.2$~mV (TNNP resting potential, by
+construction inside $[\text{vmMin}, \text{vmMax}]$).
+\item \textbf{Voltage clamp for rates} (if \code{TNNPClampVmForRates}):
+$V$ is clamped to $[\code{TNNPVMinForRates},\code{TNNPVMaxForRates}]$.
+After step~1 this step is a no-op; it only fires when $V$ was finite
+but outside the rate window.
+\item \textbf{Avoid $i_{CaL}$ singularity:} if $|V| <
+\code{TNNPVoltageZeroEps}$, $V$ is pushed to $\pm\code{TNNPVoltageZeroEps}$
+(sign preserved). This removes the $V/(\exp(V/RT)-1)$ removable
+singularity in $i_{CaL}$ at the symbolic level. Steps~1--2 may have
+moved $V$ off zero already; this is the safety net for the case where
+$V$ is finite, inside the rate window, but right on zero.
+\item \textbf{Concentration floor:} each of
+$K_{i}, Na_{i}, Ca_{i}, Ca_{SR}$ is replaced by
+\code{TNNPConcentrationFloor} ($10^{-12}$ mM) if it is non-finite or
+below the floor. This prevents $\log(\cdot)$ and rational-exponent
+operations on near-zero concentrations from overflowing.
+\item \textbf{Gate clamp} (if \code{TNNPClampGates}): the twelve gating
+variables $Xr_{1}, Xr_{2}, Xs, m, h, j, d, f, fCa, s, r, g$ are
+clamped to $[0, 1]$ (with non-finite values pulled to $0$). This is
+the most frequent correction in practice because adaptive ODE
+sub-stepping can overshoot the bounds by $\mathcal{O}(\code{relTol})$
+between $t^{n}$ and $t^{n+1}$.
+\end{enumerate}
+
+Each step is idempotent and operates on the already-corrected state,
+so a single \code{protectState} call is enough — there is no inner
+fixed-point iteration. The ionic currents are computed from the
+corrected state after step~5.
+
+\subsection{Interaction with the RKF45 step controller}
+\label{sec:tnnp:rkf45}
+
+The \code{derivatives} call site introduces \emph{non-smoothness} in
+the right-hand side seen by RKF45: clamping is $C^{0}$ at best
+(piecewise linear in the offending component), and the gate clamp is
+a saturation that flattens the Jacobian once the gate touches its
+bound. The RKF45 embedded error estimator implicitly assumes
+$C^{q+1}$ smoothness of the RHS over the sub-step, so firing the
+guard inside \code{derivatives()} can inflate the local error
+estimate around clamp boundaries and trigger spurious sub-stepping.
+Because the integrator's working state $y$ is \emph{not} mutated
+(\S\ref{sec:tnnp:phases}), the practical effect is bounded: only the
+rates are perturbed, the state recovers as soon as the active gate
+leaves the clamp. Even so, a high count of \code{phase=derivatives}
+corrections in the summary file is a diagnostic signal that the cell
+ODE is being driven outside its valid regime — usually by a too-large
+$\Delta t$ or a transient in $\Vm$ that the diffusion solver could not
+follow. The recommended response is to investigate the upstream
+cause; the \code{derivatives}-phase protection is a safety net, not a
+correction mechanism.
+
+\subsection{What the guard does not protect}
+\label{sec:tnnp:notProtected}
+
+The five corrections above address NaN/Inf propagation, gate excursion
+outside $[0,1]$, the $V=0$ singularity of $i_{CaL}$, and concentration
+underflow. They do \emph{not} address the following remaining failure
+modes intrinsic to the TNNP cell model:
+
+\begin{itemize}[leftmargin=*]
+\item Removable singularities in the $\alpha/\beta$ rate expressions
+of $i_{Na}$ and $i_{Kr}$ (notably the $1/(\exp(\cdot)-1)$ factors at
+$V = -47.13$~mV and similar). These can be regularised
+\emph{analytically} by L'H\^opital substitution near the singular
+point; the present wrapper leaves them to the adaptive integrator.
+\item Stiff blow-ups in the calcium-handling subsystem when $Ca_{SR}$
+approaches the floor or when $fCa$ saturates close to $1$. Clamping
+$Ca_{SR}$ avoids overflow but does not regularise the
+$Ca_{i}/Ca_{SR}$ ratio that drives the SR-release flux.
+\item Exponential overflow of the $\alpha/\beta$ tails for $|V| \gg
+\text{vmMax}$. Clamping $V$ to the rate window is a workaround; the
+true fix is to ensure $V$ never leaves the physiological window in
+the first place (i.e. solve the PDE accurately).
+\end{itemize}
+
+In short: the guard turns a numerical disaster (NaN cascade) into a
+recoverable mis-evaluation. It is not a substitute for an
+adequately-resolved outer solver.
+
+\subsection{Logging and accounting}
+\label{sec:tnnp:log}
+
+Each invocation of \code{correctStateComponent} records a triplet
+\code{(phase, variable, reason)} together with the offending value,
+its corrected value, and the simulation time. If
+\code{TNNPLogNumericalProtection} is true, the entries are accumulated
+in memory (capped by \code{TNNPMaxProtectionLogEntries}) and emitted
+on solver exit to the file
+
+\smallskip
+\code{TNNP\_numericalProtection\_summary.dat}
+\smallskip
+
+\noindent in the case directory. The summary groups corrections by
+the \code{(phase, variable, reason)} key, with: count, first
+occurrence time, the first old/corrected value pair, and the
+min/max/$|\Delta|_{\max}$ over all corrections in the group. Typical
+diagnostic use:
+
+\begin{itemize}[leftmargin=*]
+\item Many \code{Vm\_below\_minimum} at one specific cell ID $\Rightarrow$
+suspect a Dirichlet BC pulling $V$ outside the rate window.
+\item Many \code{concentration\_below\_floor} after a long simulation
+$\Rightarrow$ ODE tolerances too loose; tighten \code{relTol}.
+\item Many \code{phase=derivatives} entries during the upstroke
+$\Rightarrow$ $\Delta t$ too large for the reaction stiffness; either
+reduce $\Delta t$ or add Picard sweeps (\S\ref{sec:nonlinear}).
+\item Any \code{nonfinite\_V} or \code{nonfinite\_gate}
+$\Rightarrow$ a real divergence already happened upstream; the guard
+contained the damage but the result is suspect.
+\end{itemize}
+
+\subsection{Defaults vs.\ recommended settings}
+\label{sec:tnnp:settings}
+
+The defaults are intentionally conservative (master switch \code{false})
+to keep the wrapper transparent in test configurations. For production
+and convergence studies the recommended setting is:
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Use case & \code{TNNPNumericalProtection} & Notes \\
+\midrule
+Verification / MMS    & \code{false} & Avoids hiding solver bugs. \\
+Production runs       & \code{true}  & Gate/$V$ clamps on, log on. \\
+Stress / stability    & \code{true}  & Inspect the summary file
+                                       as the primary signal. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All 2D results in Section~\ref{sec:results} were produced with the
+master switch \code{true}; each result directory contains the
+corresponding \code{TNNP\_numericalProtection\_summary.dat}.
 
 % ================================================================== %
 \section{Activation tracking and benchmarks}
@@ -543,36 +765,15 @@ control each branch.
              $\mathsf{r}_{k} = \Bimp\,\mathsf{V}^{n}
                  + \theta\,\mathbf{s}(\Iion(\mathsf{x}_{k}))
                  + (1-\theta)\,\mathbf{s}^{n}$.
-      \If{ \dictkey{nonlinearMethod} = diagonalIion }
-         \State $\Aimp_{k} \gets \Aimp -
-                \theta\,\mathrm{diag}(\partial \Iion/\partial \Vm)_{k}$
-                (one-sided FD, \dictkey{diagonalIionEpsilon}).
-         \State $\mathsf{r}_{k} \gets \mathsf{r}_{k}
-                - \theta\,\mathrm{diag}(\partial \Iion/\partial \Vm)_{k}\,
-                  \mathsf{x}_{k}$.
-      \Else
-         \State $\Aimp_{k} \gets \Aimp$.
-      \EndIf
-      \State Solve $\Aimp_{k}\,\mathsf{V}_{*} = \mathsf{r}_{k}$ with Eigen
+      \State Solve $\Aimp\,\mathsf{V}_{*} = \mathsf{r}_{k}$ with Eigen
              (\dictkey{linearSolver}, \dictkey{tolerance},
               \dictkey{maxIterations}).
-      \State $\mathsf{x}_{k+1} \gets (1-\omega)\,\mathsf{x}_{k}
-             + \omega\,\mathsf{V}_{*}$,
-             $\omega = $~\dictkey{nonlinearRelaxation}.
-      \If{ convergence tests pass (\dictkey{nonlinearTolerance}, $\dots$) }
-         \State \textbf{break}
-      \EndIf
+      \State $\mathsf{x}_{k+1} \gets \mathsf{V}_{*}$.
    \EndFor
-   \State $\mathsf{V}^{n+1} \gets \mathsf{x}_{k+1}$.
-   \If{ \textbf{not} converged \textbf{and not}
-        \dictkey{nonlinearAcceptUnconverged} }
-      \State Warn; roll back: $\mathsf{V}^{n+1} \gets \mathsf{V}^{n}$,
-             $\Iion^{n+1} \gets \Iion^{n}$, $\mathbf{s}^{n+1} \gets \mathbf{s}^{n}$.
-   \EndIf
+   \State Accept the last Picard iterate, ionic current, and ionic states.
    \State Record activation times (\dictkey{activationThreshold});
           P8 stop check (\dictkey{stopAfterPointActivation},
           \dictkey{stopDelayAfterActivation}).
-   \State Write nonlinear-residual log if \dictkey{writeNonlinearResiduals}.
    \State $t^{n+1} \gets t^{n} + \Delta t$.
 \EndWhile
 \State Post-process: IDW sampling at P8 and diagonal
@@ -615,9 +816,6 @@ Python constant & OpenFOAM key & Meaning \\
    + \code{LRECoeffs\_*} &
    Tuples \texttt{(Vm-level, Iion-level)}; level $\in$
    \{\code{NO}, \code{p1}, \code{p2}, \code{p3}\}. \\
-\code{ACTIVE\_NONLINEAR\_METHODS} &
-   \code{nonlinearMethod} &
-   \{\code{picard}, \code{diagonalIion}\}. \\
 \code{ACTIVE\_STATE\_ODE\_SOLVERS} &
    \code{timeIntegrationProperties.solver} &
    ODE integrator names (\code{RKF45}, $\dots$). \\
@@ -634,24 +832,7 @@ Python constant & OpenFOAM key & Meaning \\
 Python constant & OpenFOAM key & Meaning \\
 \midrule \endhead
 \code{IMPLICIT\_NONLINEAR\_ITERATIONS} & \code{nonlinearIterations} &
-   Picard iteration cap per step. \\
-\code{IMPLICIT\_MIN\_NONLINEAR\_ITERATIONS} &
-   \code{minNonlinearIterations} & Minimum sweeps. \\
-\code{NONLINEAR\_TOLERANCE} & \code{nonlinearTolerance} &
-   Coupled-residual tolerance. \\
-\code{NONLINEAR\_VM\_TOLERANCE} & \code{nonlinearVmTolerance} &
-   Relative L$^{2}$ change in $\Vm$. \\
-\code{NONLINEAR\_IION\_TOLERANCE} & \code{nonlinearIionTolerance} &
-   Same on $\Iion$. \\
-\code{NONLINEAR\_STATES\_TOLERANCE} &
-   \code{nonlinearStatesTolerance} & Max over states. \\
-\code{NONLINEAR\_REQUIRE\_STATES\_CONVERGENCE} &
-   \code{nonlinearRequireStatesConvergence} & Gate state test. \\
-\code{NONLINEAR\_RELAXATION} & \code{nonlinearRelaxation} &
-   Picard mix factor $\omega$. \\
-\code{DIAGONAL\_IION\_EPSILON} & \code{diagonalIionEpsilon} &
-   FD step for diagonal $\partial \Iion/\partial \Vm$ when
-   \code{nonlinearMethod = diagonalIion}. \\
+   Fixed Picard sweep count per step; at least one sweep is performed. \\
 \code{IMPLICIT\_LINEAR\_SOLVER} & \code{linearSolver} &
    \{\code{SparseLU}, \code{BiCGSTAB}\}. \\
 \code{IMPLICIT\_TOLERANCE} & \code{tolerance} &
@@ -690,40 +871,267 @@ Python constant & OpenFOAM key & Meaning \\
    \code{stopAfterPointActivation} & Early-stop on P8. \\
 \code{STOP\_DELAY\_AFTER\_ACTIVATION} &
    \code{stopDelayAfterActivation} & Delay (s). \\
-\code{WRITE\_NONLINEAR\_RESIDUALS} &
-   \code{writeNonlinearResiduals} & Residual log. \\
 \code{SAVE\_LOGS\_ON\_SUCCESS} & --- &
    Python-only; keep logs after successful run. \\
 \bottomrule
 \end{longtable}
 
 % ================================================================== %
-\section{Niederer benchmark results}
+\section{2D Niederer-style benchmark --- in-house convergence study}
 \label{sec:results}
 % ================================================================== %
 
 This section collects measured P8 activation times, wall-clock cost
-and peak memory from four independent result trees of this solver:
-\begin{enumerate}[topsep=0pt,itemsep=2pt]
-  \item
-    \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderNiedererEtAl2012Implicit/}
-  \item
-    \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderNiedererEtAl2012Implicit_1/}
-  \item
-    \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderNiedererEtAl2012Implicit_3/}
-  \item
-    \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderNiedererEtAl2012Implicit_4/}
-\end{enumerate}
+and peak memory.
+
+\paragraph{Scope and disclaimer.}
+The published Niederer et al.~2012~\cite{niederer2012} benchmark is
+three-dimensional (20$\times$7$\times$3~mm anisotropic slab with
+fibre rotation). The case used here is a 2D reduction
+(20$\times$8~mm, single cell in $z$, planar fibres) defined for
+code-development testing only and not reflected, to our knowledge, in
+any published reference. The numbers below should therefore be read
+as an \emph{internal} self-consistency study --- $h$- and
+$\Delta t$-refinement, plus the effect of the LRE $p$-levels --- and
+not as a comparison with any external reference value.
+
 Rows of the tables below are LRE p-levels for $\Vm$ $\times$ $\Iion$
 (\texttt{NO} = high-order disabled); columns are mesh sizes
 $\Delta x$ in millimetres. Computational cost is the elapsed wall-clock
 time of the solver process reported by \texttt{/usr/bin/time -v}; peak
 memory is the maximum resident set size of the same process. The
-nonlinear method, time-integration scheme and mass matrix are noted
-above each block when relevant. \textsc{NC} = no run data found for
+time-integration scheme and mass matrix are noted above each block when
+relevant. \textsc{NC} = no run data found for
 that combination.
 
+In the reported runs, \code{IMPLICIT\_NONLINEAR\_ITERATIONS=1}, so the
+method behaves as a semi-implicit or linearly implicit scheme:
+diffusion is treated implicitly, while the ionic source is evaluated
+from a lagged Picard voltage and is not nonlinearly converged
+(see \S\ref{sec:nonlinear} for the consequences).
+
 \input{results_tables.tex}
+
+\subsection{Discussion of the 2D results}
+\label{sec:results:discussion}
+
+The four scalar refinement axes --- mesh size $\Delta x$, time step
+$\Delta t$, LRE order on the diffusion (\code{useHighOrder\_Vm}), and
+LRE order on the ionic source (\code{useHighOrder\_Iion}) --- can be
+read off the tables in pairs. The observations below use the
+$P_{8}$ activation time $t_{\text{act}}^{P8}$ as the single scalar
+output (in ms).
+
+\paragraph{$h$-refinement at fixed $\Delta t$ (low order).}
+For the pair (\code{NO}, \code{NO}) with Crank--Nicolson and
+consistent mass matrix, holding $\Delta t = 10^{-3}$~s and refining
+the mesh gives, from $\Delta x = 0.5$ to $0.05$~mm,
+$t_{\text{act}}^{P8} = 192.75,\, 99.19,\, 92.01,\, 91.96,\, 91.51$~ms.
+Only the two coarsest meshes are clearly under-resolved; from
+$\Delta x \le 0.125$~mm the value is mesh-stable to within $\sim$0.5~ms.
+At this $\Delta t$ the front is well-resolved in space even with the
+low-order scheme.
+
+\paragraph{$\Delta t$-refinement at fixed $h$ (low order).}
+On the same low-order pair at $\Delta x = 0.05$~mm, refining
+$\Delta t$ from $10^{-3}$ to $10^{-6}$~s gives $91.51,\, 50.29,\,
+46.10,\, 45.69$~ms. A one-order-of-magnitude reduction in $\Delta t$
+between $10^{-3}$ and $10^{-4}$ \emph{halves} the activation time; the
+following decade ($10^{-4} \to 10^{-5}$) moves it by another $\sim$4~ms,
+and the last decade ($10^{-5} \to 10^{-6}$) by only $\sim$0.4~ms. This
+is not the $\theta = 1/2$ asymptotic order of Crank--Nicolson; it is
+the linearisation-error signature of \code{nonlinearIterations} $= 1$
+(\S\ref{sec:nonlinear}). With a single Picard sweep, $\Delta t$ is
+bounded above by the reaction stiffness rather than by the diffusion
+stability or the formal $\theta$-order. Practical mesh-converged
+behaviour for the low-order pair therefore requires
+$\Delta t \lesssim 10^{-5}$~s in this benchmark.
+
+\paragraph{Effect of the LRE $p$-level on the source.}
+Varying only the second slot at the same $(\Delta x, \Delta t)$ ---
+e.g. (\code{NO}, \code{NO}) vs.\ (\code{NO}, \code{p2}) --- isolates
+the high-order ionic integration. At
+$\Delta x = 0.5$~mm and $\Delta t = 10^{-5}$~s,
+$t_{\text{act}}^{P8}$ moves from $157.69$ to $35.26$~ms; at
+$\Delta x = 0.25$~mm from $67.69$ to $43.20$~ms. The cell-averaged
+source $\overline{\Iion}$ computed at LRE cell quadrature points
+differs from $\Iion(\overline{\Vm})$ wherever $\Vm$ has non-trivial
+curvature across the cell --- exactly during the upstroke --- and the
+difference is large on coarse meshes. The size of the
+(\code{NO}, \code{NO})~vs.~(\code{NO}, \code{p2}) gap is a useful
+proxy for under-resolution of the front at that $(\Delta x,\Delta t)$:
+when the two configurations agree, the cell is small enough that
+piecewise-constant $\Vm$ inside the cell is a good approximation.
+
+\paragraph{Effect of the LRE $p$-level on the diffusion.}
+With (\code{p3}, \code{p3}) at $\Delta x = 0.125$~mm,
+$\Delta t = 10^{-6}$~s, $t_{\text{act}}^{P8} = 45.73$~ms; at
+$\Delta x = 0.5$~mm with the same $\Delta t$, the value is $36.61$~ms.
+Notice the trend is \emph{non-monotone} in $\Delta x$ for the
+(\code{p3}, \code{p3}) pair: the coarsest meshes give the
+\emph{lowest} activation times, with the values increasing and
+plateauing as $\Delta x$ shrinks (cf.\ also (\code{NO}, \code{p2})
+which behaves similarly). This is the signature of an LRE stencil
+that, on a very coarse mesh, sees a substantial part of the front
+within its support and effectively over-smooths the source; on a
+finer mesh the stencil is local enough that the average becomes
+faithful again. The values at $\Delta x = 0.1$~mm,
+$\Delta t = 10^{-6}$~s lie in $[45.04, 45.80]$~ms across all four
+high-order configurations we inspected --- the best mutually-consistent
+estimate of $t_{\text{act}}^{P8}$ available in the current data set.
+
+\paragraph{Cost.}
+Peak RSS grows roughly linearly in the number of cells
+$N_{c}$ (the Eigen sparse matrices dominate memory). Wall time grows
+roughly as $N_{c}/\Delta t$ for fixed end-time, with the LRE
+high-order branches paying a constant-factor overhead from the larger
+stencil (mass-matrix assembly and the per-quadrature-point ionic ODE).
+At $\Delta t = 10^{-3}$~s the cost ratio between
+(\code{p3}, \code{p3}) and (\code{NO}, \code{NO}) at fixed $\Delta x$
+is much larger than the accuracy ratio at that $\Delta t$ --- but the
+balance flips at $\Delta t = 10^{-5}$~s, where (\code{p3}, \code{p3})
+on a coarse mesh already matches the low-order configuration on the
+finest mesh.
+
+\subsection{Conclusions on the 2D study}
+\label{sec:results:conclusions}
+
+\begin{enumerate}[leftmargin=*]
+\item The dominant numerical error in the reported configuration is
+\emph{the linearisation error from a single Picard sweep}. This is
+visible in the strong $\Delta t$-dependence of the low-order pair
+(192~$\rightarrow$~46~ms across the $\Delta t$ sweep on the finest
+mesh) and the much weaker $\Delta t$-dependence of the high-order
+pairs. Until the Picard loop is closed (either by adding sweeps with
+a residual stop, or by adding a $\partial\Iion/\partial\Vm$ Jacobian
+diagonal correction), the formal $\theta = 1/2$ second-order behaviour
+will not be recovered.
+\item LRE high-order integration of the ionic source (\code{p2} /
+\code{p3}) buys substantial accuracy on coarse meshes and partially
+compensates for under-resolution of the activation front. It is more
+cost-effective than $h$-refinement at the same target accuracy,
+\emph{for the activation-time metric}.
+\item The high-order configurations agree among themselves to within
+$\lesssim 1$~ms at $\Delta x = 0.1$~mm and $\Delta t = 10^{-6}$~s,
+which we take as the internal-consistency floor of the present data.
+We do not claim this represents the ``true'' value of
+$t_{\text{act}}^{P8}$ for this 2D problem --- there is, as noted,
+no published reference to compare against.
+\item The natural next step is to enable a second Picard sweep
+(or, equivalently, a tolerance-based stop on the Picard residual) and
+re-run the $\Delta t$ sweep. We expect the $\Delta t$-sensitivity
+above $10^{-4}$~s to collapse and the $\theta = 1/2$ second-order
+behaviour to become visible.
+\end{enumerate}
+
+% ================================================================== %
+\section{3D Niederer-style benchmark}
+\label{sec:results:3D}
+% ================================================================== %
+
+The 3D sweep follows the published Niederer
+slab geometry ($20\times 3\times 7$~mm, $40\times 6\times 14$ to
+$200\times 30\times 70$ cells for $\Delta x\in\{0.5,0.2,0.1\}$~mm) and
+shares the same activation tracker as the 2D study. All 3D runs use
+Crank--Nicolson with the consistent high-order mass matrix, the
+TNNP cell model with default \code{numericalProtection}, and a single
+requested $\Delta t_{\text{req}} = 5\!\cdot\!10^{-5}$~s; the implicit
+scheme integrates with that step at every mesh size. Only three LRE
+pairs are currently available (\code{NO}/\code{NO}, \code{NO}/\code{p1},
+\code{p3}/\code{p3}), and not every pair has every mesh: the coarsest
+mesh ($\Delta x = 0.5$~mm) exists for all three, the medium one
+($\Delta x = 0.2$~mm) only for the two low-order pairs, and the finest
+($\Delta x = 0.1$~mm) only for the fully low-order pair. The tables
+below report what is present; missing combinations are marked
+\textsc{NC}. The runs are stored under
+\path{highOrderNiedererEtAl2012Implicit/results/example0/3D/}.
+
+\begin{center}\small
+\begin{tabular}{cccc}\toprule
+$\Delta x$ [mm] & $40\!\times\!6\!\times\!14$ ($0.5$) &
+                 $100\!\times\!15\!\times\!35$ ($0.2$) &
+                 $200\!\times\!30\!\times\!70$ ($0.1$) \\
+$N_{c}$ & 3360 & 52\,500 & 420\,000 \\
+\bottomrule\end{tabular}\end{center}
+
+\subsection{P8 activation time at $\Delta t = 5\!\cdot\!10^{-5}$~s}
+
+\begin{center}\footnotesize
+\begin{longtable}{llrrr}
+\caption{3D P8 activation time [ms]. Rows are LRE p-levels for
+Vm $\times$ Iion; columns are mesh sizes $\Delta x$ (mm). All runs use
+crankNicolson and the consistent mass matrix.}\\
+\toprule
+Vm & Iion & $0.5$ & $0.2$ & $0.1$ \\
+\midrule\endfirsthead\toprule
+Vm & Iion & $0.5$ & $0.2$ & $0.1$ \\
+\midrule\endhead
+NO & NO & 142.70 & 55.55 & 47.31 \\
+NO & p1 &  38.01 & 44.60 & NC    \\
+p3 & p3 &  34.50 & NC    & NC    \\
+\bottomrule\end{longtable}\end{center}
+
+\subsection{Wall-clock cost per configuration (minutes)}
+
+\begin{center}\footnotesize
+\begin{longtable}{llrrr}
+\caption{3D solver wall-clock time [min] (elapsed wall time reported
+by \texttt{/usr/bin/time -v}, rounded to integer minutes).}\\
+\toprule
+Vm & Iion & $0.5$ & $0.2$ & $0.1$ \\
+\midrule\endfirsthead\toprule
+Vm & Iion & $0.5$ & $0.2$ & $0.1$ \\
+\midrule\endhead
+NO & NO &   4 &  41 & 263 \\
+NO & p1 &  14 & 232 & NC  \\
+p3 & p3 & 151 & NC  & NC  \\
+\bottomrule\end{longtable}\end{center}
+
+\subsection{Peak resident set size per configuration (MiB)}
+
+\begin{center}\footnotesize
+\begin{longtable}{llrrr}
+\caption{3D peak resident set size [MiB] (maximum physical RAM
+reported by \texttt{/usr/bin/time -v}).}\\
+\toprule
+Vm & Iion & $0.5$ & $0.2$ & $0.1$ \\
+\midrule\endfirsthead\toprule
+Vm & Iion & $0.5$ & $0.2$ & $0.1$ \\
+\midrule\endhead
+NO & NO &  157 &  334 & 1666 \\
+NO & p1 &  219 & 1383 & NC   \\
+p3 & p3 & 1653 & NC   & NC   \\
+\bottomrule\end{longtable}\end{center}
+
+\subsection{Discussion of the 3D results}
+
+At the coarsest mesh ($\Delta x = 0.5$~mm) the (\code{NO}, \code{NO})
+pair gives $t_{\text{act}}^{P8} \approx 142.7$~ms. Switching the ionic
+quadrature to \code{p1} on the same coarse mesh collapses it to
+$38.0$~ms, and the fully high-order pair (\code{p3}, \code{p3})
+reaches $34.5$~ms --- consistent with the same qualitative pattern
+observed in the explicit 3D sweep: high-order on the source is the
+single biggest accuracy lever on coarse meshes. Mesh refinement of the
+low-order pair brings $t_{\text{act}}^{P8}$ from $142.7$ to $55.6$ to
+$47.3$~ms; the (\code{NO}, \code{p1}) row goes from $38.0$ to
+$44.6$~ms on the only two meshes where it is currently available.
+
+Wall time grows roughly linearly in the number of cells (low-order
+pair: $4 \to 41 \to 263$~min for $N_c$ multiplying by $\sim 15$ each
+refinement, with the per-step linear-solver cost growing slightly
+super-linearly because of conditioning). The high-order branches pay
+a large constant-factor overhead on top of that: at
+$\Delta x = 0.5$~mm the (\code{p3}, \code{p3}) cost is already
+$\sim 38\times$ the (\code{NO}, \code{NO}) cost on the same mesh.
+Peak RSS scales close to linearly with $N_c$ for the low-order pair
+(157, 334, 1666~MiB) and adds the LRE-stencil overhead for the
+high-order pairs.
+
+The 3D sweep is therefore consistent with the 2D study but much
+sparser: it confirms that high-order on the source is the
+cost-effective accuracy lever, but the dataset is too thin to draw
+quantitative conclusions about the asymptotic $t_{\text{act}}^{P8}$
+of this 3D problem.
 
 % ================================================================== %
 \appendix
@@ -765,6 +1173,13 @@ Field & OpenFOAM \code{dimensionSet} & SI \\
 
 \bibitem{hairer2} E. Hairer, G. Wanner,
     \emph{Solving Ordinary Differential Equations II}, Springer, 1996.
+
+\bibitem{cardiff2018s4f} P. Cardiff, A. Karač, P. De Jaeger,
+    H. Jasak, J. Nagy, A. Ivanković, Ž. Tuković,
+    \emph{An open-source finite volume toolbox for solid mechanics
+    and fluid--solid interaction simulations},
+    arXiv:1808.10736 (2018). Provides the LRE high-order reconstruction
+    library (\code{LRE.H}) used in \S\ref{sec:stdFV} et seq.
 
 \end{thebibliography}
 

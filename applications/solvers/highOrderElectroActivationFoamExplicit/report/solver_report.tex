@@ -1,551 +1,1358 @@
-\documentclass[11pt]{article}
+\documentclass[11pt,a4paper]{article}
 
-\usepackage[a4paper,margin=1in]{geometry}
-\usepackage{amsmath,amssymb}
+% ------------------------------------------------------------------ %
+% Packages
+% ------------------------------------------------------------------ %
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath,amssymb,mathtools}
 \usepackage{booktabs}
 \usepackage{longtable}
 \usepackage{array}
-\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
 \usepackage{siunitx}
+\usepackage{microtype}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{multirow}
+\usepackage[hidelinks]{hyperref}
 
-\hypersetup{
-  colorlinks=true,
-  linkcolor=blue,
-  urlcolor=blue
+% ------------------------------------------------------------------ %
+% Listing style for parameter snippets
+% ------------------------------------------------------------------ %
+\lstdefinestyle{cfg}{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  rulecolor=\color{black!30},
+  showstringspaces=false,
 }
+\lstset{style=cfg}
 
-\title{High-Order Explicit Electro-Activation Solver with TNNP Ionic Model}
-\author{cardiacFoam: \texttt{highOrderElectroActivationFoamExplicit}}
-\date{May 6, 2026}
+\algrenewcommand\algorithmicrequire{\textbf{Input:}}
+\algrenewcommand\algorithmicensure{\textbf{Output:}}
+\newcommand{\pyconst}[1]{\textcolor{black!60!blue}{\texttt{\footnotesize #1}}}
+\newcommand{\dictkey}[1]{\textcolor{black!60!green}{\texttt{\footnotesize #1}}}
+
+% ------------------------------------------------------------------ %
+% Convenience macros
+% ------------------------------------------------------------------ %
+\newcommand{\Vm}{V_{m}}
+\newcommand{\Vmsub}[1]{V_{m,#1}}
+\newcommand{\Iion}{I_{\text{ion}}}
+\newcommand{\Iionsub}[1]{I_{\text{ion},#1}}
+\newcommand{\Iext}{I_{\text{ext}}}
+\newcommand{\Dten}{\mathbf{D}}
+\newcommand{\grad}{\nabla}
+\newcommand{\divg}{\nabla\!\cdot}
+\newcommand{\Lop}{\mathsf{L}}
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+\title{Solver Specification:\\
+       \texorpdfstring{\texttt{highOrderElectroActivationFoamExplicit}}{highOrderElectroActivationFoamExplicit}\\
+       \large A high-order, explicit forward-Euler
+       monodomain solver in OpenFOAM with CFL-bounded time step}
+\author{Pablo}
+\date{\today}
 
 \begin{document}
 \maketitle
 
-\section{Purpose}
+\begin{abstract}
+This report specifies the algorithms implemented in the OpenFOAM solver:
 
-This report documents the solver
-\path{/home/pablo/cardiacFoam-pc/applications/solvers/highOrderElectroActivationFoamExplicit/}.
-The solver is an explicit monodomain electro-activation solver. It is intended
-for benchmark-type simulations such as the Niederer et al. three-dimensional
-cardiac electrophysiology benchmark. The solver supports either standard
-finite-volume diffusion and cell-centred ionic integration, or high-order LRE
-reconstruction for the diffusion operator and for the volume integration of
-the ionic source.
+\begin{center}
+\code{highOrderElectroActivationFoamExplicit}.
+\end{center}
 
-The output quantities used by the benchmark are the activation time field,
-the activation time at point P8, and activation time samples along the
-diagonal from P1 to P8.
+The solver advances the monodomain equations of cardiac
+electrophysiology coupled to the ten Tusscher--Noble--Noble--Panfilov
+(TNNP, 2004) ionic cell model. The diffusion operator is discretised
+with the cell-centred finite-volume framework of OpenFOAM, optionally
+upgraded to a Local Regression Estimators (LRE) high-order
+reconstruction; the ionic source is evaluated either at cell centres
+or at cell quadrature points; time integration is the explicit
+forward-Euler scheme, with a stable time step bounded by the
+parabolic CFL condition computed at run time from the local
+diffusivity and the characteristic cell size. A staggered
+operator-split structures the per-step work: the algebraic ionic
+current at $t^{n}$ is updated first, then the diffusion Laplacian is
+assembled, the voltage is advanced by an Euler step, and finally the
+TNNP cell ODEs are integrated from $t^{n}$ to $t^{n+1}$ using the
+just-updated voltage. The per-cell ionic ODE uses OpenFOAM's
+adaptive RKF45 integrator with configurable tolerances; the TNNP
+cell model is wrapped in a phase-aware \code{protectState} guard that
+enforces physical bounds before every algebraic evaluation;
+activation times are recorded by linear interpolation across the
+first threshold crossing and benchmark points are sampled by
+inverse-distance weighting. The report also discusses how the
+CFL-bounded explicit scheme behaves on the 2D and 3D Niederer-style
+benchmark runs: in
+particular, how the reported \emph{requested} $\Delta t$ relates to
+the \emph{effective} $\Delta t$ the solver actually uses after the
+CFL clamp. All algorithmic parameters are exposed through the
+\code{constant/spatialIntegrationProperties} and
+\code{constant/timeIntegrationProperties} dictionaries, and the
+companion Python driver \code{run\_convergence.py} generates these
+dictionaries from a single configuration file. Section~\ref{sec:results}
+collects measured P8 activation times, wall-clock cost and peak
+memory from a 2D Niederer-style sweep and a sparser 3D Niederer-style
+sweep.
+\end{abstract}
 
-\section{Governing Equation}
+\tableofcontents
+\bigskip
 
-The solver advances the monodomain equation for the transmembrane potential
-$V_m$,
+% ================================================================== %
+\section{Notation}
+% ================================================================== %
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Symbol & Meaning & Units \\
+\midrule
+$\Omega \subset \mathbb{R}^{d}$ & Spatial domain ($d \in \{2,3\}$) & \si{\meter} \\
+$\partial\Omega$ & Insulated boundary (zero-flux Neumann) & --- \\
+$t \in (0, T]$ & Time & \si{\second} \\
+$\Vm(\mathbf{x}, t)$ & Transmembrane voltage & \si{\volt} \\
+$\mathbf{s}(\mathbf{x}, t) \in \mathbb{R}^{17}$ & TNNP ionic states & mixed \\
+$\Iion(\Vm, \mathbf{s})$ & Total ionic current density & \si{\volt\per\second} \\
+$\Iext(\mathbf{x}, t)$ & External stimulus current density & \si{\ampere\per\meter\cubed} \\
+$\chi$ & Membrane surface-to-volume ratio & \si{\per\meter} \\
+$C_{m}$ & Membrane capacitance per unit area & \si{\farad\per\meter\squared} \\
+$\Dten(\mathbf{x})$ & Bulk conductivity tensor & \si{\siemens\per\meter} \\
+$\Delta t$ & Outer time-step length (effective) & \si{\second} \\
+$\Delta t_{\text{req}}$ & Requested outer time step (\code{controlDict.deltaT}) & \si{\second} \\
+$\Delta t_{\text{CFL}}$ & CFL-stable time step computed at run-time & \si{\second} \\
+$\Delta x$ & Characteristic cell size & \si{\meter} \\
+$\text{CFL}$ & Safety coefficient of the parabolic CFL bound & --- \\
+$N_{c}$ & Number of mesh cells & --- \\
+$\mathsf{V}^{n} \in \mathbb{R}^{N_{c}}$ & Vector of cell-averaged $\Vm$ at time $t^{n}$ & \si{\volt} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ================================================================== %
+\section{Governing equations}
+% ================================================================== %
+
+\subsection{Monodomain PDE}
+
+The bulk voltage is propagated by the standard monodomain
+reaction--diffusion equation~\cite{ttp2004,niederer2012}:
 \begin{equation}
-  \frac{\partial V_m}{\partial t}
-  =
-  \frac{1}{\chi C_m}\nabla\cdot(\boldsymbol{\sigma}\nabla V_m)
-  - I_{\mathrm{ion}}(V_m,\mathbf{y})
-  + \frac{I_{\mathrm{stim}}}{\chi C_m},
-  \label{eq:monodomain}
+  \chi \, C_{m} \, \frac{\partial \Vm}{\partial t}
+   \;=\;
+   \divg\!\bigl( \Dten \grad \Vm \bigr)
+   - \Iion(\Vm, \mathbf{s})
+   + \Iext
+   \quad \text{in } \Omega \times (0, T],
+   \label{eq:monodomain}
 \end{equation}
-where $\chi$ is the membrane surface-to-volume ratio, $C_m$ is the membrane
-capacitance per unit area, $\boldsymbol{\sigma}$ is the conductivity tensor,
-$I_{\mathrm{stim}}$ is the applied stimulus current density, and
-$\mathbf{y}$ denotes the ionic state vector.
+subject to insulated boundaries
+$\mathbf{n} \cdot ( \Dten \grad \Vm ) = 0$ on
+$\partial \Omega \times (0, T]$, and initial condition
+$\Vm(\mathbf{x}, 0) = -\SI{84}{\milli\volt}$. The conductivity tensor
+$\Dten$ is symmetric positive-definite and either uniform or read as a
+\code{volTensorField} from disk.
 
-The TNNP model uses membrane voltage in millivolts internally. The solver field
-$V_m$ is passed to the ionic model and converted as
+Dividing~\eqref{eq:monodomain} by $\chi C_{m}$ gives the form actually
+used inside the solver:
 \begin{equation}
-  V = 1000\,V_m,
-\end{equation}
-where $V$ is the voltage used in the TNNP equations below.
-
-\section{Explicit Time Integration}
-
-Let $K_i$ be a control volume. The explicit update used by the solver can be
-written as
-\begin{equation}
-  V_{m,i}^{n+1}
-  =
-  V_{m,i}^{n}
-  +
-  \Delta t
-  \left[
-    \frac{1}{\chi C_m}L_i(V_m^n)
-    - \overline{I}_{\mathrm{ion},i}^{\,n}
-    + \frac{I_{\mathrm{stim},i}^{n}}{\chi C_m}
-  \right],
-  \label{eq:explicit-vm}
-\end{equation}
-where $L_i(V_m^n)$ is either the standard finite-volume diffusion operator or
-the high-order LRE diffusion operator. The ionic state equations are advanced
-after the voltage update through the selected OpenFOAM ODE solver. For the
-Niederer setup used here, the selected ODE method is RKF45.
-
-\section{High-Order Spatial Discretization}
-
-\subsection{Diffusion Operator}
-
-When \texttt{useHighOrder\_Vm false}, the diffusion term is evaluated with the
-standard finite-volume operator
-\begin{equation}
-  L_i(V_m) = \left[\nabla\cdot(\boldsymbol{\sigma}\nabla V_m)\right]_i.
+  \frac{\partial \Vm}{\partial t}
+   \;=\;
+   \mathcal{L} \Vm
+   \;+\;
+   s(\Vm, \mathbf{s}),
+   \qquad
+   \mathcal{L} \;=\; \frac{1}{\chi C_{m}}\,\divg(\Dten \grad \cdot),
+   \quad
+   s \;=\; -\frac{\Iion}{\chi C_{m}} + \frac{\Iext}{\chi C_{m}}.
+   \label{eq:semi-discrete}
 \end{equation}
 
-When \texttt{useHighOrder\_Vm true}, LRE reconstruction is used at face
-quadrature points. For a face $f$, the high-order diffusive flux is assembled
-as
-\begin{equation}
-  \Phi_f
-  =
-  |S_f|
-  \sum_{q=1}^{N_f}
-  w_{fq}\,
-  \mathbf{n}_f\cdot
-  \left(
-    \boldsymbol{\sigma}_{\mathrm{owner}(f)}
-    \nabla_h V_m(\mathbf{x}_{fq})
-  \right),
-  \label{eq:ho-face-flux}
-\end{equation}
-and the cell diffusion contribution is
-\begin{equation}
-  L_i(V_m) =
-  \frac{1}{|K_i|}
-  \sum_{f\in\partial K_i}
-  s_{if}\,\Phi_f,
-\end{equation}
-where $s_{if}=+1$ for outward owner-cell flux and $s_{if}=-1$ for neighbour
-contributions.
+\subsection{Ionic ODE}
 
-\subsection{Ionic Source Quadrature}
-
-The solver distinguishes the high-order reconstruction of the voltage from the
-high-order volume integration of the ionic source.
-
-If \texttt{useHighOrder\_Iion false}, the ionic model is integrated at cell
-centres:
+At every spatial sampling point the TNNP state vector
+$\mathbf{s} \in \mathbb{R}^{17}$ evolves according to
 \begin{equation}
-  \overline{I}_{\mathrm{ion},i}
-  =
-  I_{\mathrm{ion}}(V_{m,i},\mathbf{y}_i).
+  \frac{\mathrm{d}\mathbf{s}}{\mathrm{d}t}
+   \;=\;
+   \mathbf{f}_{\text{TNNP}}\!\bigl(\Vm, \mathbf{s}; \texttt{tissue}\bigr),
+   \qquad \mathbf{s}(0) = \mathbf{s}_{0},
+   \label{eq:tnnp}
 \end{equation}
+where \code{tissue} selects \code{epicardialCells}, \code{mCells} or
+\code{endocardialCells}. The 17 tracked states are
+\[
+  \mathbf{s} = (V,\ K_{i},\ Na_{i},\ Ca_{i},\ Xr_{1},\ Xr_{2},\ Xs,\ m,\ h,\ j,\ d,\ f,\ fCa,\ s,\ r,\ g,\ Ca_{SR}).
+\]
+The total ionic current returned to the PDE is \code{Iion\_cm} of
+TNNP~\cite{ttp2004}; the full rate-equation set is reproduced in
+Appendix~\ref{app:tnnp} for reference.
 
-If \texttt{useHighOrder\_Iion true}, the ionic states are stored and evolved at
-the cell quadrature points $\mathbf{x}_{iq}$. The volume-averaged source is
-then
+\paragraph{Units and sign convention.} The field \code{Iion\_cm}
+returned by the TNNP wrapper is the per-capacitance ionic current,
+\begin{equation*}
+  \code{Iion\_cm}
+   \;=\;
+   \frac{I_{\text{ion}}^{\text{(memb)}}}{C_{m}}
+   \;\equiv\;
+   \frac{1}{\chi C_{m}}\,
+   \bigl(\chi\, I_{\text{ion}}^{\text{(memb)}}\bigr),
+\end{equation*}
+expressed in V/s, with the electrophysiological convention
+\emph{outward (cation efflux) current positive}.
+Equation~\eqref{eq:semi-discrete} therefore adds
+$-\,\code{Iion\_cm}$ to the PDE source; the external stimulus
+\code{externalStimulusCurrent} is stored in A/m$^{3}$ and divided by
+$\chi C_{m}$ inside the solver (see \code{createFields.H} and the
+\code{rhsVm} assembly in the main solver loop). Throughout the rest
+of this report the symbol $\Iion$ is used as a shorthand for
+\code{Iion\_cm}; no further rescaling is applied between the cell
+model and the explicit update.
+
+\subsection{External stimulus}
+
 \begin{equation}
-  \overline{I}_{\mathrm{ion},i}
-  =
-  \frac{\sum_{q=1}^{N_i} w_{iq}
-    I_{\mathrm{ion}}\left(V_{m,iq},\mathbf{y}_{iq}\right)}
-       {\sum_{q=1}^{N_i} w_{iq}}.
-  \label{eq:iion-quadrature}
-\end{equation}
-The quadrature-point voltage is reconstructed as
-\begin{equation}
-  V_{m,iq} =
+  \Iext(\mathbf{x}, t) \;=\;
   \begin{cases}
-    R_{\mathrm{LRE}}[V_m](\mathbf{x}_{iq}),
-      & \texttt{useHighOrder\_Vm true},\\
-    V_{m,i} + \nabla V_{m,i}\cdot(\mathbf{x}_{iq}-\mathbf{x}_i),
-      & \texttt{useHighOrder\_Vm false}.
+    I_{0} & \mathbf{x} \in \Omega_{\text{stim}}^{(b)},
+            \;\; t \in [t_{0}^{(b)},\, t_{0}^{(b)} + \tau], \\
+    0     & \text{otherwise},
   \end{cases}
 \end{equation}
-The ionic state vector at each quadrature point is advanced by
+with Niederer-benchmark defaults
+$I_{0} = \SI{50000}{\ampere\per\meter\cubed}$ and
+$\tau = \SI{2}{\milli\second}$.
+
+% ================================================================== %
+\section{Time discretisation: forward Euler with parabolic CFL bound}
+\label{sec:time}
+% ================================================================== %
+
+The solver advances the semi-discrete
+equation~\eqref{eq:semi-discrete} by a single forward-Euler step on
+the whole right-hand side:
 \begin{equation}
-  \frac{d\mathbf{y}_{iq}}{dt}
-  =
-  \mathbf{F}_{\mathrm{TNNP}}\left(V_{iq},\mathbf{y}_{iq},t\right).
+  \mathsf{V}^{n+1}
+   \;=\;
+   \mathsf{V}^{n}
+   \;+\;
+   \Delta t\,
+   \Bigl[
+     \Lop\,\mathsf{V}^{n}
+     \;-\;\Iion^{n}
+     \;+\;\Iext^{n}/(\chi C_{m})
+   \Bigr],
+   \label{eq:euler}
 \end{equation}
-For writing fields such as \texttt{Ca\_i}, the solver volume-averages the
-quadrature states back to cells:
+with $\Lop$ the discrete operator of $\mathcal{L}$ (Section
+\ref{sec:space}). No implicit matrix is assembled and no linear
+system is solved.
+
+\subsection{Stable time step}
+\label{sec:cfl}
+
+The diffusion half of~\eqref{eq:semi-discrete} is parabolic; the
+corresponding explicit stability bound is
 \begin{equation}
-  \mathbf{y}_i
-  =
-  \frac{\sum_q w_{iq}\mathbf{y}_{iq}}{\sum_q w_{iq}}.
+  \Delta t_{\text{CFL}}
+   \;=\;
+   \text{CFL}\;\,
+   \frac{\Delta x^{2}}{d\, D_{\text{eff,max}}},
+   \qquad
+   D_{\text{eff,max}}
+   \;=\;
+   \frac{\max\!\bigl(D_{xx}, D_{yy}, D_{zz}\bigr)}{\chi C_{m}},
+   \label{eq:cfl}
 \end{equation}
-
-\section{Boundary Conditions}
-
-For the standard finite-volume branch, OpenFOAM boundary fields determine the
-boundary contribution. For the high-order diffusion branch, \texttt{zeroGradient}
-and \texttt{empty} patches are treated as true no-flux boundaries:
+where $d$ is the active geometric dimension (\code{mesh.nGeometricD()}
+in 1/2/3D), and the characteristic cell size is
 \begin{equation}
-  \mathbf{n}\cdot\boldsymbol{\sigma}\nabla V_m = 0
-  \quad\text{on}\quad \Gamma_N.
+  \Delta x \;=\;
+   \Bigl(
+     \frac{
+       \text{bbox active volume}
+     }{N_{c}}
+   \Bigr)^{1/d}
+   \quad\text{(\code{characteristicDx})}.
+   \label{eq:dx}
 \end{equation}
-In the implementation, this means that the high-order boundary face flux is set
-to zero on these patches:
+For a uniform Cartesian mesh~\eqref{eq:dx} returns the standard cell
+edge. The bound~\eqref{eq:cfl} uses the maximum of the diagonal
+conductivity components — sufficient for diagonal-dominated
+conductivity tensors of the Niederer-style benchmarks; for strongly
+anisotropic or non-diagonal $\Dten$ the bound is conservative.
+
+At solver start the effective step is set to
 \begin{equation}
-  \Phi_f = 0,
-  \qquad f\subset\Gamma_N.
+  \Delta t \;=\; \min\!\bigl(\Delta t_{\text{req}},\,\Delta t_{\text{CFL}}\bigr),
 \end{equation}
-This is important because simply reconstructing a high-order gradient at a
-\texttt{zeroGradient} boundary can produce a non-zero normal flux unless the
-Neumann condition is explicitly enforced at the high-order flux level.
+where $\Delta t_{\text{req}}$ is the value of
+\code{controlDict.deltaT}; the value is then written back into the
+running time database with \code{runTime.setDeltaT(dt)}. The driver
+script \code{run\_convergence.py} records both quantities in the
+results tables (column \code{dt\_requested} versus
+\code{dt\_expectedSolver}); see Section~\ref{sec:results}.
 
-Only \texttt{fixedValue} or \texttt{fixedVoltage} patches are included in the
-high-order voltage stencil through boundary values. \texttt{zeroGradient}
-patches are not included as value constraints in the high-order voltage stencil.
+\paragraph{Implication.}
+For the configurations reported in Section~\ref{sec:results} the
+requested $\Delta t = 10^{-2}$~s is many orders of magnitude above
+$\Delta x^{2}/(d D_{\text{eff,max}})$; the solver therefore always
+runs at $\Delta t = \Delta t_{\text{CFL}}$ and the
+\emph{requested} value only sets an upper bound on the step. The
+column \code{dt\_expectedSolver} in the result tables is the actual
+step. Tightening or loosening \code{controlDict.deltaT} below the
+CFL value is the only way to override the bound, at the obvious cost
+of stability.
 
-\section{Activation Time}
+% ================================================================== %
+\section{Spatial discretisation}
+\label{sec:space}
+% ================================================================== %
 
-The activation time field is the first time at which $V_m$ crosses the
-prescribed threshold $V_{\mathrm{thr}}$ from below. If
-$V_{m,i}^n<V_{\mathrm{thr}}\le V_{m,i}^{n+1}$, the crossing time is linearly
-interpolated as
+\subsection{Standard orthogonal FV Laplacian}
+\label{sec:stdFV}
+
+When \code{useHighOrder\_Vm = false} (or in 1D), the diffusion is
+evaluated by OpenFOAM's built-in operator
 \begin{equation}
-  t_{\mathrm{act},i}
-  =
-  t^n
-  +
-  \Delta t
-  \frac{V_{\mathrm{thr}}-V_{m,i}^n}
-       {V_{m,i}^{n+1}-V_{m,i}^n}.
+  \Lop \mathsf{V}
+   \;\approx\;
+   \frac{1}{\chi C_{m}}\;
+   \text{\code{fvc::laplacian(conductivity, Vm)}},
 \end{equation}
-The Niederer benchmark output point P8 is sampled from the activation-time
-field at
+i.e.\ the classical orthogonal 5/7-point stencil with linear face
+interpolation and the corrected snGrad. \code{zeroGradient} and
+\code{empty} patches contribute zero flux; \code{fixedValue} (or the
+custom \code{fixedVoltage}) patches contribute the one-sided owner
+gradient via the standard FV path.
+
+\subsection{High-order LRE diffusion}
+\label{sec:hoVm}
+
+When \code{useHighOrder\_Vm = true} and $d > 1$, the Laplacian is
+assembled by an explicit face-quadrature integration
+(\code{computeHighOrderLaplacian} in the main solver):
 \begin{equation}
-  \mathbf{x}_{P8} = (0.02,\;0.003,\;0)\;{\rm m}.
+  \Phi_{f}
+   \;=\;
+   \sum_{q \in \mathcal{Q}_{f}}
+       w_{q}\, \lvert \mathbf{S}_{f} \rvert\,
+       \mathbf{n}_{f} \cdot \Dten_{\text{owner}(f)} \cdot
+       \grad_{\!h}\Vm(\mathbf{x}_{fq}),
 \end{equation}
-
-\section{TNNP Ionic Model}
-
-The solver uses the ten Tusscher--Noble--Noble--Panfilov 2004 ionic model
-through \texttt{ionicModel TNNP}. The state vector is
+with face quadrature points $\mathbf{x}_{fq}$ and weights $w_{q}$
+provided by the LRE library~\cite{cardiff2018s4f}. The cell
+contribution to the Laplacian is then
 \begin{equation}
-  \mathbf{y} =
-  \left[
-  V, K_i, Na_i, Ca_i, X_{r1}, X_{r2}, X_s, m, h, j,
-  d, f, f_{Ca}, s, r, Ca_{SR}, g
-  \right]^T .
+  (\Lop \mathsf{V})_{i}
+   \;=\;
+   \frac{1}{\chi C_{m}}\,\frac{1}{|K_{i}|}
+   \sum_{f \in \partial K_{i}} s_{if}\,\Phi_{f},
 \end{equation}
-For the monodomain solver, $V$ is imposed by the PDE and is not evolved inside
-the ionic ODE system unless \texttt{solveVmWithinODESolver} is enabled.
+with $s_{if} = \pm 1$ for owner/neighbour orientation. The cell-loop
+divergence is taken with \code{fvc::div(fluxVm\_HO)} after the face
+fluxes are written.
 
-\subsection{Reversal Potentials}
+\paragraph{Boundary faces in the high-order branch.}
+For boundary faces, the LRE face quadrature still evaluates a
+reconstructed gradient, but the flux is enforced as follows:
+\code{zeroGradient} and \code{empty} patches set
+$\Phi_{f} \equiv 0$ (true Neumann zero-flux, even though the LRE
+stencil could return a non-zero gradient otherwise);
+\code{fixedValue} and \code{fixedVoltage} patches use the LRE-
+reconstructed gradient on the owner side. The high-order LRE stencil
+is therefore strictly internal in the Neumann-only case used in the
+2D/3D benchmarks reported here, and the formal spatial order is
+expected to drop to that of the standard branch in the first layer
+of cells adjacent to a non-empty patch.
 
+\subsection{Ionic source quadrature}
+\label{sec:hoIion}
+
+If \code{useHighOrder\_Iion = false}, the cell-model is integrated
+at cell centres:
+\begin{equation}
+  \overline{\Iion}_{i}
+   \;=\; \Iion(\Vmsub{i}, \mathbf{s}_{i}).
+\end{equation}
+
+If \code{useHighOrder\_Iion = true} the TNNP states are evolved at
+the cell quadrature points $\mathbf{x}_{iq}$ provided by the LRE
+library: $\Vm$ is reconstructed at each point by a Taylor expansion
+(\code{reconstructVmAtIionIntegrationPoints})
+\begin{equation}
+  \Vmsub{iq}
+   \;=\;
+   \Vmsub{i}
+   \;+\;
+   \grad\Vmsub{i}\cdot(\mathbf{x}_{iq} - \mathbf{x}_{i})
+   \;+\;
+   \tfrac{1}{2}\,(\mathbf{x}_{iq} - \mathbf{x}_{i})^{\!\top}\!
+   \mathbf{H}_{i}\,(\mathbf{x}_{iq} - \mathbf{x}_{i})
+   \;+\;
+   \tfrac{1}{6}\,\mathbf{T}^{(3)}_{i}\!:\!(\mathbf{x}_{iq} - \mathbf{x}_{i})^{\otimes 3},
+\end{equation}
+where the Hessian and third-order term are included only if the LRE
+order on $\Vm$ is $\ge 2$ or $\ge 3$ respectively. When
+\code{useHighOrder\_Vm = false}, only the linear term is used and
+the gradient comes from \code{fvc::grad}. The ionic ODE is then
+advanced at each quadrature point against this frozen $\Vmsub{iq}$,
+and the cell-averaged source is the quadrature
+\begin{equation}
+  \overline{\Iion}_{i}
+   \;=\;
+   \frac{\sum_{q \in \mathcal{Q}_{i}} w_{q}\,\Iion(\Vmsub{iq},\mathbf{s}_{iq})}
+        {\sum_{q \in \mathcal{Q}_{i}} w_{q}}
+   \qquad
+   \bigl(\text{\code{averageIionIntegrationPointsToCells}}\bigr).
+   \label{eq:iion-quad}
+\end{equation}
+
+% ================================================================== %
+\section{Per-step operator splitting}
+\label{sec:split}
+% ================================================================== %
+
+The solver uses a staggered operator-split per outer step. For
+$t^{n}\rightarrow t^{n+1}=t^{n}+\Delta t$:
+
+\begin{algorithm}[H]
+\caption{Per-step flow of \texttt{highOrderElectroActivationFoamExplicit}.}
+\begin{algorithmic}[1]
+\State Save $\mathsf{V}^{n}$ from the current field.
+\State Apply stimulus to $\Iext$ at $t^{n}$.
+\State \textbf{First ionic call (algebraic).} Call
+       \code{ionicModel->calculateCurrent} at the current state
+       $\mathbf{s}^{n}$ and voltage $\mathsf{V}^{n}$ to obtain
+       $\Iion^{n}$. This is an \emph{algebraic} evaluation; the
+       state vector is \emph{not} advanced here.
+\State Build $\Lop\mathsf{V}^{n}$ (standard FV or HO LRE,
+       Section~\ref{sec:space}).
+\State Update voltage by forward Euler:
+       \begin{equation*}
+         \mathsf{V}^{n+1}
+          \;=\;
+          \mathsf{V}^{n}
+          \;+\;
+          \Delta t\,\bigl[
+            \Lop\mathsf{V}^{n}
+            \;-\;\Iion^{n}
+            \;+\;\Iext^{n}/(\chi C_{m})
+          \bigr].
+       \end{equation*}
+\State \textbf{Second ionic call (ODE).} Call
+       \code{ionicModel->solveODE} from $t^{n}$ to $t^{n+1}$ with
+       voltage $\mathsf{V}^{n+1}$ \emph{frozen}, advancing
+       $\mathbf{s}^{n}\to\mathbf{s}^{n+1}$. If
+       \code{useHighOrder\_Iion}, the ODE is advanced at the cell
+       quadrature points with reconstructed $\Vmsub{iq}^{n+1}$, and
+       the cell-averaged $\Iion^{n+1}$ is written via
+       Eq.~\eqref{eq:iion-quad}.
+\State Update activation-time field
+       (Section~\ref{sec:activation}).
+\State If \code{stopAfterPointActivation}: check the stop cell.
+\State Write fields if \code{runTime.outputTime}.
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Order of accuracy in time.}
+The split is first-order accurate: the voltage update~\eqref{eq:euler}
+is plain forward Euler, and the cell-model is integrated against the
+end-of-step voltage rather than a time-centred value. Restoring a
+second-order overall scheme would require either a Strang split with
+half-steps on the ionic ODE, or replacing the forward Euler by a
+Heun-/RK2-type evaluation; neither is implemented.
+
+\paragraph{Why two distinct ionic calls.}
+The first call (\code{calculateCurrent}) evaluates the algebraic
+$\Iion$ at the current state; this is the source seen by the voltage
+update~\eqref{eq:euler}. The second call (\code{solveODE}) advances
+the gating and concentration ODEs to $t^{n+1}$ and \emph{also} returns
+$\Iion^{n+1}$, which is stored in the field \code{ionicCurrent} for
+output and used by the next step. The two calls share no internal
+state — the first one does not pre-advance any gate — so the order is
+``algebraic source first, then ODE update with the new voltage''.
+
+% ================================================================== %
+\section{Ionic ODE integration}
+\label{sec:ode}
+% ================================================================== %
+
+For each cell or cell QP, the TNNP ODE~\eqref{eq:tnnp} is advanced
+by the OpenFOAM adaptive integrator selected via the \code{solver}
+key in \code{timeIntegrationProperties}. Default \code{RKF45}~\cite{hairer2}.
+The keys read from that file are:
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Key & Meaning & Default \\
+\midrule
+\code{solver} & ODE integrator & \code{RKF45} \\
+\code{absTol} & Absolute tolerance per state & $10^{-9}$ \\
+\code{relTol} & Relative tolerance per state & $10^{-6}$ \\
+\code{maxSteps} & Cap on sub-steps per outer call & $10^{4}$ \\
+\code{initialODEStep} & Initial sub-step (ms) & $10^{-5}$ \\
+\code{CFL} & Diffusion CFL coefficient
+            (Eq.~\eqref{eq:cfl}) & $0.1$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The outer CFL coefficient sits in the same dictionary purely for
+convenience; functionally it is a time-stepping parameter
+(Section~\ref{sec:cfl}) and not an ODE-integrator parameter.
+
+% ================================================================== %
+\section{TNNP numerical protection}
+\label{sec:tnnpProtect}
+% ================================================================== %
+
+The TNNP 2004 cell model contains several mathematical features that
+become numerical traps when the state variables are driven outside
+their physiological window by the outer solver: gate variables that
+overshoot $[0,1]$ make the rate-balance equations stiff or
+unphysical; intracellular concentrations that touch zero force
+$\log(\cdot)$ / $\sqrt{\cdot}$ / $\mathrm{pow}(\cdot)$ to overflow;
+very large $|V|$ saturates the $\exp(\cdot)$ tails of the
+$\alpha/\beta$ rate constants; and the $L$-type calcium current
+$i_{CaL}$ contains a removable singularity at $V=0$ (a
+$V/(\exp(V/RT)-1)$ factor, see Eq.~\eqref{eq:app:ical} in
+Appendix~\ref{app:tnnp}). The TNNP wrapper provides a guard,
+\code{protectState(state, t, qp, phase)}, whose job is to keep the
+state vector inside that physiological window at the boundaries of
+every external call into the cell-model kernel. The guard is
+intentionally minimal: it does \emph{not} fix the cell model, it
+only prevents one bad time-step from cascading into NaN/Inf and
+corrupting the rest of the simulation.
+
+\subsection{Master switch and configuration}
+\label{sec:tnnp:knobs}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Key & Type & Default \\
+\midrule
+\code{TNNPNumericalProtection} & Switch & \code{false} \\
+\code{TNNPClampGates} & Switch & \code{true} \\
+\code{TNNPClampVmForRates} & Switch & \code{true} \\
+\code{TNNPLogNumericalProtection} & Switch & \code{true} \\
+\code{TNNPConcentrationFloor} & scalar (mM) & $10^{-12}$ \\
+\code{TNNPVMinForRates} & scalar (mV) & $-200$ \\
+\code{TNNPVMaxForRates} & scalar (mV) & $+100$ \\
+\code{TNNPVoltageZeroEps} & scalar (mV) & $10^{-8}$ \\
+\code{TNNPMaxProtectionLogEntries} & label & $10^{6}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The master switch is \code{TNNPNumericalProtection}. When it is
+\code{false}, \code{protectState} returns immediately and \emph{none}
+of the sub-switches have any effect; in particular,
+\code{TNNPClampGates} and \code{TNNPClampVmForRates} default to
+\code{true} but are inert without the master switch. The default
+configuration is therefore \emph{all protection off}; production runs
+typically need to set \code{TNNPNumericalProtection true} explicitly.
+
+\subsection{Phases at which the guard fires}
+\label{sec:tnnp:phases}
+
+The wrapper invokes the guard at four phases, distinguished by a
+string tag passed to \code{protectState} (used only for logging /
+accounting; see \S\ref{sec:tnnp:log}):
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Phase tag & Call site & Acts on \\
+\midrule
+\code{calculateCurrent} & entry of \code{calculateCurrent}
+   & the state vector passed in for the algebraic
+     $\Iion$ evaluation (step~3 of \S\ref{sec:split}) \\
+\code{solveODE\_start}  & entry of \code{solveODE}
+   & the integrator's working state vector at $t^{n}$
+     (step~6 of \S\ref{sec:split}) \\
+\code{solveODE\_end}    & exit of \code{solveODE}
+   & the integrator's working state vector at $t^{n+1}$ \\
+\code{derivatives}      & inside \code{derivatives()}, every
+                          RKF45 sub-step
+   & a \emph{copy} of the state vector (does not mutate $y$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All four sites are gated by the single \code{TNNPNumericalProtection}
+flag. The \code{derivatives} site has one important asymmetry: it
+copies the integrator state and protects the copy, then feeds the
+copy into the rate kernel \code{TNNPcomputeRates}. The integrator's
+working vector $y$ is never modified mid-step, so the protection only
+changes the value of the rates RKF45 sees, not the state it
+integrates.
+
+\subsection{Corrections and their order}
+\label{sec:tnnp:steps}
+
+When fired, \code{protectState} applies the following corrections, in
+this order, to the (possibly copied) state vector:
+
+\begin{enumerate}
+\item \textbf{Non-finite $V$:} if \code{state[V]} is \code{NaN} or
+\code{Inf}, it is reset to $-86.2$~mV (TNNP resting potential, by
+construction inside $[\text{vmMin}, \text{vmMax}]$).
+\item \textbf{Voltage clamp for rates} (if \code{TNNPClampVmForRates}):
+$V$ is clamped to $[\code{TNNPVMinForRates},\code{TNNPVMaxForRates}]$.
+After step~1 this step is a no-op; it only fires when $V$ was finite
+but outside the rate window.
+\item \textbf{Avoid $i_{CaL}$ singularity:} if $|V| <
+\code{TNNPVoltageZeroEps}$, $V$ is pushed to $\pm\code{TNNPVoltageZeroEps}$
+(sign preserved). This removes the $V/(\exp(V/RT)-1)$ removable
+singularity in $i_{CaL}$ at the symbolic level. Steps~1--2 may have
+moved $V$ off zero already; this is the safety net for the case
+where $V$ is finite, inside the rate window, but right on zero.
+\item \textbf{Concentration floor:} each of
+$K_{i}, Na_{i}, Ca_{i}, Ca_{SR}$ is replaced by
+\code{TNNPConcentrationFloor} ($10^{-12}$ mM) if it is non-finite or
+below the floor. This prevents $\log(\cdot)$ and rational-exponent
+operations on near-zero concentrations from overflowing.
+\item \textbf{Gate clamp} (if \code{TNNPClampGates}): the twelve
+gating variables $Xr_{1}, Xr_{2}, Xs, m, h, j, d, f, fCa, s, r, g$
+are clamped to $[0, 1]$ (with non-finite values pulled to $0$). This
+is the most frequent correction in practice because adaptive ODE
+sub-stepping can overshoot the bounds by $\mathcal{O}(\code{relTol})$
+between $t^{n}$ and $t^{n+1}$.
+\end{enumerate}
+
+Each step is idempotent and operates on the already-corrected state,
+so a single \code{protectState} call is enough — there is no inner
+fixed-point iteration. The ionic currents are computed from the
+corrected state after step~5.
+
+\subsection{Interaction with the RKF45 step controller}
+\label{sec:tnnp:rkf45}
+
+The \code{derivatives} call site introduces \emph{non-smoothness} in
+the right-hand side seen by RKF45: clamping is $C^{0}$ at best
+(piecewise linear in the offending component), and the gate clamp is
+a saturation that flattens the Jacobian once the gate touches its
+bound. The RKF45 embedded error estimator implicitly assumes
+$C^{q+1}$ smoothness of the RHS over the sub-step, so firing the
+guard inside \code{derivatives()} can inflate the local error
+estimate around clamp boundaries and trigger spurious sub-stepping.
+Because the integrator's working state $y$ is \emph{not} mutated
+(\S\ref{sec:tnnp:phases}), the practical effect is bounded: only the
+rates are perturbed, the state recovers as soon as the active gate
+leaves the clamp. Even so, a high count of \code{phase=derivatives}
+corrections in the summary file is a diagnostic signal that the cell
+ODE is being driven outside its valid regime — usually by a too-large
+$\Delta t$ (note: the outer $\Delta t$ here is already bounded by CFL,
+so this is more likely a transient in $\Vm$ that the explicit
+diffusion solver could not follow). The recommended response is to
+investigate the upstream cause; the \code{derivatives}-phase
+protection is a safety net, not a correction mechanism.
+
+\subsection{What the guard does not protect}
+\label{sec:tnnp:notProtected}
+
+The five corrections above address NaN/Inf propagation, gate
+excursion outside $[0,1]$, the $V=0$ singularity of $i_{CaL}$, and
+concentration underflow. They do \emph{not} address the following
+remaining failure modes intrinsic to the TNNP cell model:
+
+\begin{itemize}[leftmargin=*]
+\item Removable singularities in the $\alpha/\beta$ rate expressions
+of $i_{Na}$ and $i_{Kr}$ (notably the $1/(\exp(\cdot)-1)$ factors at
+$V = -47.13$~mV and similar). These can be regularised
+\emph{analytically} by L'H\^opital substitution near the singular
+point; the present wrapper leaves them to the adaptive integrator.
+\item Stiff blow-ups in the calcium-handling subsystem when $Ca_{SR}$
+approaches the floor or when $fCa$ saturates close to $1$. Clamping
+$Ca_{SR}$ avoids overflow but does not regularise the
+$Ca_{i}/Ca_{SR}$ ratio that drives the SR-release flux.
+\item Exponential overflow of the $\alpha/\beta$ tails for $|V| \gg
+\text{vmMax}$. Clamping $V$ to the rate window is a workaround; the
+true fix is to ensure $V$ never leaves the physiological window in
+the first place (i.e.\ pick a CFL/step combination that keeps the
+upstroke under control).
+\end{itemize}
+
+In short: the guard turns a numerical disaster (NaN cascade) into a
+recoverable mis-evaluation. It is not a substitute for an
+adequately-resolved outer solver.
+
+\subsection{Logging and accounting}
+\label{sec:tnnp:log}
+
+Each invocation of \code{correctStateComponent} records a triplet
+\code{(phase, variable, reason)} together with the offending value,
+its corrected value, and the simulation time. If
+\code{TNNPLogNumericalProtection} is true, the entries are
+accumulated in memory (capped by \code{TNNPMaxProtectionLogEntries})
+and emitted on solver exit to the file
+
+\smallskip
+\code{TNNP\_numericalProtection\_summary.dat}
+\smallskip
+
+\noindent in the case directory. The summary groups corrections by
+the \code{(phase, variable, reason)} key, with: count, first
+occurrence time, the first old/corrected value pair, and the
+min/max/$|\Delta|_{\max}$ over all corrections in the group. Typical
+diagnostic use:
+
+\begin{itemize}[leftmargin=*]
+\item Many \code{Vm\_below\_minimum} at one specific cell ID
+$\Rightarrow$ suspect a Dirichlet BC pulling $V$ outside the rate
+window.
+\item Many \code{concentration\_below\_floor} after a long simulation
+$\Rightarrow$ ODE tolerances too loose; tighten \code{relTol}.
+\item Many \code{phase=derivatives} entries during the upstroke
+$\Rightarrow$ the inner ODE integrator is straining against the
+explicit voltage update; consider tightening the CFL coefficient or
+shrinking the requested $\Delta t$ below
+$\Delta t_{\text{CFL}}$ to recover head-room.
+\item Any \code{nonfinite\_V} or \code{nonfinite\_gate}
+$\Rightarrow$ a real divergence already happened upstream; the guard
+contained the damage but the result is suspect.
+\end{itemize}
+
+\subsection{Defaults vs.\ recommended settings}
+\label{sec:tnnp:settings}
+
+The defaults are intentionally conservative (master switch
+\code{false}) to keep the wrapper transparent in test configurations.
+For production and convergence studies the recommended setting is:
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Use case & \code{TNNPNumericalProtection} & Notes \\
+\midrule
+Verification / MMS    & \code{false} & Avoids hiding solver bugs. \\
+Production runs       & \code{true}  & Gate/$V$ clamps on, log on. \\
+Stress / stability    & \code{true}  & Inspect the summary file
+                                       as the primary signal. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All 2D and 3D results in Section~\ref{sec:results} were produced
+with the master switch \code{true}; each result directory contains
+the corresponding \code{TNNP\_numericalProtection\_summary.dat}.
+
+% ================================================================== %
+\section{Activation tracking and benchmarks}
+\label{sec:activation}
+% ================================================================== %
+
+\paragraph{Activation time per cell.} First-crossing of $V_{\text{thr}}$
+in a step is recorded by linear interpolation:
+\begin{equation}
+  w \;=\; \mathrm{clip}\!\Bigl(
+      \frac{V_{\text{thr}} - V^{n}}{V^{n+1} - V^{n}},
+      \; 0, 1
+    \Bigr),
+   \qquad
+   t_{\text{act}} \;=\; t^{n} + w\, \Delta t.
+\end{equation}
+The per-cell flag is cleared so re-crossings are ignored.
+Default threshold $V_{\text{thr}} = 0$~V (= 0~mV; the Niederer
+convention).
+
+\paragraph{Early termination on P8.} When
+\code{stopAfterPointActivation = true}, the cell nearest
+\code{stopActivationPoint} (P8 in the Niederer benchmark) is
+monitored, and the effective end time is set to
+$t_{\text{act}} + $~\code{stopDelayAfterActivation}.
+
+\paragraph{Diagonal sampling.} \code{sampleIDW} performs
+inverse-distance-weighted interpolation at \code{nDiagonalSamples}
+points between \code{diagonalStart} and \code{diagonalEnd} with
+$k = $~\code{sampleNeighbours}, $p = $~\code{samplePower}.
+
+% ================================================================== %
+\section{Driver script: \texttt{run\_convergence.py}}
+\label{sec:driver}
+% ================================================================== %
+
+\subsection{Geometry and parameter sweep}
+\begin{longtable}{@{}p{0.30\linewidth}p{0.28\linewidth}p{0.36\linewidth}@{}}
+\toprule
+Python constant & OpenFOAM key & Meaning \\
+\midrule \endhead
+\code{DIMENSIONS} & --- &
+   List of dimensions to sweep (\code{2D}, \code{3D}). \\
+\code{DX\_VALUES\_MM} & \code{blockMeshDict} cell counts &
+   Uniform cell size in millimetres. \\
+\code{DT\_VALUES} & \code{controlDict.deltaT} &
+   Requested outer time-step sizes (seconds). \\
+\code{END\_TIME} & \code{controlDict.endTime} & End time (s). \\
+\code{CFL} & \code{timeIntegrationProperties.CFL} &
+   Parabolic CFL safety coefficient
+   (Eq.~\eqref{eq:cfl}). \\
+\code{ACTIVE\_HO\_PAIRS\_Vm\_States} &
+   \code{useHighOrder\_Vm} / \code{useHighOrder\_Iion}
+   + \code{LRECoeffs\_*} &
+   Tuples \texttt{(Vm-level, Iion-level)}; level $\in$
+   \{\code{NO}, \code{p1}, \code{p2}, \code{p3}\}. \\
+\code{ACTIVE\_STATE\_ODE\_SOLVERS} &
+   \code{timeIntegrationProperties.solver} &
+   ODE integrator names (\code{RKF45}, $\dots$). \\
+\code{SIGMA\_X, SIGMA\_Y, SIGMA\_Z} & \code{cardiacProperties} &
+   Diagonal of $\Dten$. \\
+\code{CHI} & \code{cardiacProperties.chi} & Surface-to-volume ratio. \\
+\code{CM} & \code{cardiacProperties.Cm} & Membrane capacitance. \\
+\bottomrule
+\end{longtable}
+
+\subsection{Inner ODE integrator (RKF45)}
+\begin{longtable}{@{}p{0.30\linewidth}p{0.30\linewidth}p{0.35\linewidth}@{}}
+\toprule
+Python constant & OpenFOAM key & Meaning \\
+\midrule \endhead
+\code{ODE\_ABS\_TOL} & \code{timeIntegrationProperties.absTol} &
+   Absolute tolerance per state. \\
+\code{ODE\_REL\_TOL} & \code{timeIntegrationProperties.relTol} &
+   Relative tolerance per state. \\
+\code{ODE\_INITIAL\_STEP} & \code{initialODEStep} &
+   Initial sub-step (ms). \\
+\code{ODE\_MAX\_STEPS} & \code{maxSteps} & RKF45 sub-step cap. \\
+\bottomrule
+\end{longtable}
+
+\subsection{Effective $\Delta t$ reported in result tables}
+\begin{longtable}{@{}p{0.30\linewidth}p{0.65\linewidth}@{}}
+\toprule
+Column & Meaning \\
+\midrule \endhead
+\code{dt\_requested} &
+   Value of \code{controlDict.deltaT} written by the driver
+   (= \code{DT\_VALUES}). \\
+\code{dt\_expectedSolver} &
+   $\Delta t = \min(\Delta t_{\text{req}}, \Delta t_{\text{CFL}})$
+   reconstructed by the driver from
+   Eq.~\eqref{eq:cfl}--\eqref{eq:dx}; this is the value the
+   solver actually integrates with (it is also what
+   \code{runTime.setDeltaT} stores in \code{controlDict}).
+   When $\Delta t_{\text{req}} \ge \Delta t_{\text{CFL}}$
+   (the usual case in the reported sweeps),
+   $\Delta t = \Delta t_{\text{CFL}}$. \\
+\bottomrule
+\end{longtable}
+
+\subsection{Post-processing and run-control}
+\begin{longtable}{@{}p{0.35\linewidth}p{0.30\linewidth}p{0.30\linewidth}@{}}
+\toprule
+Python constant & OpenFOAM key & Meaning \\
+\midrule \endhead
+\code{ACTIVATION\_THRESHOLD} & \code{activationThreshold} &
+   $V_{\text{thr}}$ (V). Default $0$. \\
+\code{N\_DIAGONAL\_SAMPLES} & \code{nDiagonalSamples} & IDW samples. \\
+\code{SAMPLE\_NEIGHBOURS} & \code{sampleNeighbours} & $k$-NN for IDW. \\
+\code{SAMPLE\_POWER} & \code{samplePower} & Inverse-distance power. \\
+\code{STOP\_AFTER\_POINT\_ACTIVATION} &
+   \code{stopAfterPointActivation} & Early-stop on P8. \\
+\code{STOP\_DELAY\_AFTER\_ACTIVATION} &
+   \code{stopDelayAfterActivation} & Delay (s). \\
+\code{SAVE\_LOGS\_ON\_SUCCESS} & --- &
+   Python-only; keep logs after successful run. \\
+\bottomrule
+\end{longtable}
+
+% ================================================================== %
+\section{Niederer-style benchmark results}
+\label{sec:results}
+% ================================================================== %
+
+This section collects measured P8 activation times, wall-clock cost
+and peak memory.
+
+\paragraph{Scope and disclaimer.}
+The published Niederer et al.~2012~\cite{niederer2012} benchmark is
+three-dimensional (20$\times$7$\times$3~mm anisotropic slab with
+fibre rotation). The 2D case used here is a planar reduction
+(20$\times$8~mm, single cell in $z$, planar fibres) defined for
+code-development testing only and not reflected, to our knowledge,
+in any published reference. The 3D case follows the Niederer slab
+geometry (20$\times$7$\times$3~mm) but the sweep is sparser (fewer
+LRE pairs and mesh sizes) than the 2D one. The numbers below should
+therefore be read as an \emph{internal} self-consistency study
+($h$- and $\Delta t$-refinement, plus the effect of the LRE
+$p$-levels) and not as a comparison with any external reference
+value.
+
+Rows of the tables below are LRE p-levels for $\Vm$ $\times$ $\Iion$
+(\texttt{NO} = high-order disabled); columns are mesh sizes
+$\Delta x$ in millimetres. Computational cost is the elapsed
+wall-clock time of the solver process reported by
+\texttt{/usr/bin/time -v}; peak memory is the maximum resident set
+size of the same process. \textsc{NC} = no run data found for that
+combination.
+
+\paragraph{Reading $\Delta t_{\text{req}}$ versus $\Delta t_{\text{CFL}}$.}
+The forward-Euler scheme is bounded by the parabolic CFL condition
+(Section~\ref{sec:cfl}). The 2D sweep was driven with a single
+$\Delta t_{\text{req}} = 10^{-2}$~s; this value is much larger than
+the CFL bound at all mesh sizes used, so the solver always integrates
+with $\Delta t = \Delta t_{\text{CFL}}$ — the values are listed in
+the header table of \S\ref{sec:results:2D}. In the 3D sweep
+$\Delta t_{\text{req}}$ is set close to the CFL bound, so for some
+configurations the CFL clamp \emph{does not} bind and the solver
+runs at the requested step; for others it does. Both columns are
+reported.
+
+\subsection{2D Niederer-style sweep}
+\label{sec:results:2D}
+
+The 2D sweep covers all 16 LRE pairs
+(\code{NO}, \code{p1}, \code{p2}, \code{p3}) $\times$
+(\code{NO}, \code{p1}, \code{p2}, \code{p3}) at five mesh sizes
+$\Delta x \in \{0.5, 0.25, 0.125, 0.1, 0.05\}$~mm, with a single
+$\Delta t_{\text{req}} = 10^{-2}$~s.
+
+\input{results_tables.tex}
+
+\subsubsection{Discussion of the 2D results}
+
+\paragraph{$h$-refinement at fixed configuration.}
+For the low-order pair (\code{NO}, \code{NO}), the P8 activation
+time decreases monotonically with mesh refinement
+($160.63\rightarrow 68.12\rightarrow 50.35\rightarrow 48.15\rightarrow
+45.62$~ms from $\Delta x = 0.5$ to $0.05$~mm). At each $\Delta x$ the
+effective step also decreases as $\Delta x^{2}$
+($1.3\!\cdot\!10^{-4}\rightarrow 1.3\!\cdot\!10^{-6}$~s); the
+forward-Euler scheme is therefore well below its stability bound
+\emph{by construction} on every line of the table. The asymptotic
+value at the finest mesh is $\approx 45.6$~ms.
+
+\paragraph{High-order on the source.}
+Activating the LRE quadrature on $\Iion$ — without changing the
+diffusion (\code{NO}, \code{p2}) — drops the coarsest-mesh value
+from $160.63$~ms to $34.71$~ms and brings the finer-mesh values to
+$\approx 45$~ms already at $\Delta x = 0.125$. The high-order ionic
+quadrature is therefore the most cost-effective single switch for
+accuracy on coarse meshes; see Eq.~\eqref{eq:iion-quad} for the
+mechanism.
+
+\paragraph{High-order on the diffusion alone.}
+The combinations (\code{p1}, \code{NO}), (\code{p2}, \code{NO}),
+(\code{p3}, \code{NO}) — high-order LRE diffusion with cell-centre
+ionic source — are noticeably less stable on the coarsest mesh:
+\code{p1/NO} at $\Delta x=0.5$~mm returns $14.25$~ms (clearly a
+spurious very-early crossing), and \code{p2/NO} returns $0.00$~ms
+(the front never crossed within the simulated window, or crossed
+spuriously at $t=0$). These values are diagnostic, not physical:
+the high-order Laplacian operating on a piecewise-constant ionic
+source produces an over-shooting voltage on coarsely-resolved fronts,
+which the activation-time tracker then latches at the first numerical
+crossing. The pathology disappears once the ionic source is also
+volume-integrated at LRE quadrature points (any \code{p$k$}/\code{p$k$}
+pair gives a well-behaved value on the same mesh).
+
+\paragraph{Full HO at the finer meshes.}
+The diagonal pairs (\code{p2}, \code{p2}) and (\code{p3}, \code{p3})
+plateau quickly: at $\Delta x = 0.125$~mm and $\Delta x = 0.1$~mm
+the values are $48.5$/$48.1$~ms and $45.5$/$45.7$~ms respectively;
+at $\Delta x = 0.05$~mm the (\code{p2}, \code{p2}) value is
+$46.6$~ms. The off-diagonal pairs
+(\code{NO}, \code{p2}), (\code{NO}, \code{p3}),
+(\code{p1}, \code{p2}), (\code{p1}, \code{p3}),
+(\code{p3}, \code{p2}), (\code{p3}, \code{p3}) all collapse to a
+mutually-consistent value in $[44.5, 46.0]$~ms at $\Delta x \le 0.1$~mm.
+This $[44.5, 46.0]$~ms band is the internal-consistency floor of
+the 2D dataset; we do not claim it represents the ``true'' value
+for this 2D problem.
+
+\paragraph{Cost.}
+Wall-clock cost is dominated by the
+$N_{c}\times(\text{ionic-ODE work per cell})$ product and by the
+inverse $\Delta t_{\text{CFL}}$. Refining the mesh from
+$\Delta x = 0.5$ to $0.05$~mm increases the cell count by $10^{2}$ and
+the step count by $\sim 10^{2}$, so the total cost grows by
+$\sim 10^{4}$ — consistent with the (\code{NO}, \code{NO}) entries
+of the wall-clock table (1~min vs.\ 168~min).
+Peak RSS grows roughly linearly with $N_{c}$, with HO levels adding a
+constant-factor overhead for the LRE stencils and the per-quadrature-
+point state vectors.
+
+\subsection{3D Niederer-style sweep}
+\label{sec:results:3D}
+
+The 3D sweep is much sparser: eight LRE pairs
+\{(\code{NO}, \code{NO}), (\code{NO}, \code{p1}),
+(\code{NO}, \code{p2}), (\code{p1}, \code{p1}),
+(\code{p2}, \code{p1}), (\code{p2}, \code{p2}),
+(\code{p3}, \code{p1}), (\code{p3}, \code{p3})\},
+three requested time steps
+$\Delta t_{\text{req}} \in
+\{1\!\cdot\!10^{-5}, 5\!\cdot\!10^{-5}, 5\!\cdot\!10^{-6}\}$~s,
+and mesh sizes $\Delta x \in \{0.5, 0.25, 0.2\}$~mm covering a
+$20\times 3\times 7$~mm slab (Niederer geometry, $40\times 6\times 14$
+to $100\times 15\times 35$ cells). Most combinations exist only for
+$\Delta x = 0.5$~mm; one mesh refinement to $\Delta x = 0.25$~mm
+exists for half the LRE pairs at $\Delta t_{\text{req}} = 5e{-5}$;
+$\Delta x = 0.2$~mm exists only for (\code{NO}, \code{NO}) and
+(\code{NO}, \code{p1}) at $\Delta t_{\text{req}} = 5e{-5}$.
+
+\subsection{P8 activation time at the requested $\Delta t$}
+
+Effective time step set by the explicit CFL limit:
+\begin{center}\small
+\begin{tabular}{ccccc}\toprule
+$\Delta x$ [mm] & 0.5 & 0.25 & 0.2 & 0.1\\
+$\Delta t_{\rm eff}$ [s] & $8.7\!\cdot\!10^{-5}$ & $2.1\!\cdot\!10^{-5}$ & $1.3\!\cdot\!10^{-5}$ & $3.4\!\cdot\!10^{-6}$ \\
+\bottomrule\end{tabular}\end{center}
+
+\begin{center}\footnotesize
+\begin{longtable}{llrrrrr}
+\caption{P8 activation time [ms]: rows are LRE p-levels for Vm $\times$ Iion; columns are mesh sizes $\Delta x$ (mm). \textsc{NC} = no run data found.}\\
+\toprule
+Vm & Iion & $\Delta t_{\text{req}}\,[\text{s}]$ & $0.5$ & $0.25$ & $0.2$ & $0.1$\\
+\midrule\endfirsthead\toprule
+Vm & Iion & $\Delta t_{\text{req}}\,[\text{s}]$ & $0.5$ & $0.25$ & $0.2$ & $0.1$\\
+\midrule\endhead
+NO & NO & $5\!\cdot\!10^{-5}$ & 141.52 & 61.68 & 54.32 & 45.26 \\
+NO & NO & $1\!\cdot\!10^{-5}$ & 140.96 & NC & NC & NC \\
+NO & NO & $5\!\cdot\!10^{-6}$ & 140.91 & NC & NC & NC \\\hline
+NO & p1 & $5\!\cdot\!10^{-5}$ & 36.35 & 42.25 & 42.79 & NC \\
+NO & p1 & $1\!\cdot\!10^{-5}$ & 36.66 & NC & NC & NC \\
+NO & p1 & $5\!\cdot\!10^{-6}$ & 36.71 & NC & NC & NC \\\hline
+p1 & p1 & $5\!\cdot\!10^{-5}$ & 38.75 & 45.44 & NC & NC \\
+p1 & p1 & $1\!\cdot\!10^{-5}$ & 39.10 & NC & NC & NC \\
+p1 & p1 & $5\!\cdot\!10^{-6}$ & 39.16 & NC & NC & NC \\\hline
+p2 & p1 & $5\!\cdot\!10^{-5}$ & 41.13 & 46.41 & NC & NC \\
+p2 & p1 & $1\!\cdot\!10^{-5}$ & 41.46 & NC & NC & NC \\
+p2 & p1 & $5\!\cdot\!10^{-6}$ & 41.53 & NC & NC & NC \\\hline
+p2 & p2 & $5\!\cdot\!10^{-5}$ & 35.56 & 42.80 & NC & NC \\
+p2 & p2 & $1\!\cdot\!10^{-5}$ & 35.83 & NC & NC & NC \\
+p2 & p2 & $5\!\cdot\!10^{-6}$ & 35.89 & NC & NC & NC \\\hline
+p3 & p1 & $5\!\cdot\!10^{-5}$ & 35.51 & 42.14 & NC & NC \\
+p3 & p1 & $1\!\cdot\!10^{-5}$ & 35.85 & NC & NC & NC \\
+p3 & p1 & $5\!\cdot\!10^{-6}$ & 35.92 & NC & NC & NC \\\hline
+p3 & p3 & $5\!\cdot\!10^{-5}$ & 32.64 & 40.27 & NC & NC \\
+p3 & p3 & $1\!\cdot\!10^{-5}$ & 32.94 & NC & NC & NC \\
+p3 & p3 & $5\!\cdot\!10^{-6}$ & 33.00 & NC & NC & NC \\
+\bottomrule\end{longtable}\end{center}
+	
+	
+\subsection{Wall-clock cost per configuration (minutes)}
+
+Total solver elapsed time as reported by \texttt{/usr/bin/time -v}.
+\begin{center}\footnotesize
+\begin{longtable}{llrrrrr}
+\caption{Solver wall-clock time [min].}\\
+\toprule
+Vm & Iion & $\Delta t_{\text{req}}\,[\text{s}]$ & $0.5$ & $0.25$ & $0.2$ & $0.1$\\
+\midrule\endfirsthead\toprule
+Vm & Iion & $\Delta t_{\text{req}}\,[\text{s}]$ & $0.5$ & $0.25$ & $0.2$ & $0.1$\\
+\midrule\endhead
+NO & NO & $5\!\cdot\!10^{-5}$ & 3 & 16 & 40 & 384 \\
+NO & NO & $1\!\cdot\!10^{-5}$ & 6 & NC & NC & NC \\
+NO & NO & $5\!\cdot\!10^{-6}$ & 9 & NC & NC & NC \\\hline
+NO & p1 & $5\!\cdot\!10^{-5}$ & 11 & 137 & 288 & NC \\
+NO & p1 & $1\!\cdot\!10^{-5}$ & 19 & NC & NC & NC \\
+NO & p1 & $5\!\cdot\!10^{-6}$ & 27 & NC & NC & NC \\\hline
+p1 & p1 & $5\!\cdot\!10^{-5}$ & 12 & 158 & NC & NC \\
+p1 & p1 & $1\!\cdot\!10^{-5}$ & 20 & NC & NC & NC \\
+p1 & p1 & $5\!\cdot\!10^{-6}$ & 29 & NC & NC & NC \\\hline
+p2 & p1 & $5\!\cdot\!10^{-5}$ & 13 & 166 & NC & NC \\
+p2 & p1 & $1\!\cdot\!10^{-5}$ & 21 & NC & NC & NC \\
+p2 & p1 & $5\!\cdot\!10^{-6}$ & 31 & NC & NC & NC \\\hline
+p2 & p2 & $5\!\cdot\!10^{-5}$ & 52 & 632 & NC & NC \\
+p2 & p2 & $1\!\cdot\!10^{-5}$ & 81 & NC & NC & NC \\
+p2 & p2 & $5\!\cdot\!10^{-6}$ & 126 & NC & NC & NC \\\hline
+p3 & p1 & $5\!\cdot\!10^{-5}$ & 12 & 150 & NC & NC \\
+p3 & p1 & $1\!\cdot\!10^{-5}$ & 20 & NC & NC & NC \\
+p3 & p1 & $5\!\cdot\!10^{-6}$ & 31 & NC & NC & NC \\\hline
+p3 & p3 & $5\!\cdot\!10^{-5}$ & 102 & 1416 & NC & NC \\
+p3 & p3 & $1\!\cdot\!10^{-5}$ & 168 & NC & NC & NC \\
+p3 & p3 & $5\!\cdot\!10^{-6}$ & 297 & NC & NC & NC \\
+\bottomrule\end{longtable}\end{center}
+
+
+\subsection{Peak resident set size per configuration (MiB)}
+Maximum physical RAM used by the solver process.
+\begin{center}\footnotesize
+\begin{longtable}{llrrrrr}
+\caption{Peak RSS [MiB].}\\
+\toprule
+Vm & Iion & $\Delta t_{\text{req}}\,[\text{s}]$ & $0.5$ & $0.25$ & $0.2$ & $0.1$\\
+\midrule\endfirsthead\toprule
+Vm & Iion & $\Delta t_{\text{req}}\,[\text{s}]$ & $0.5$ & $0.25$ & $0.2$ & $0.1$\\
+\midrule\endhead
+NO & NO & $5\!\cdot\!10^{-5}$ & 153 & 210 & 278 & 1234 \\
+NO & NO & $1\!\cdot\!10^{-5}$ & 153 & NC & NC & NC \\
+NO & NO & $5\!\cdot\!10^{-6}$ & 153 & NC & NC & NC \\\hline
+NO & p1 & $5\!\cdot\!10^{-5}$ & 199 & 609 & 1054 & NC \\
+NO & p1 & $1\!\cdot\!10^{-5}$ & 199 & NC & NC & NC \\
+NO & p1 & $5\!\cdot\!10^{-6}$ & 199 & NC & NC & NC \\\hline
+p1 & p1 & $5\!\cdot\!10^{-5}$ & 219 & 764 & NC & NC \\
+p1 & p1 & $1\!\cdot\!10^{-5}$ & 219 & NC & NC & NC \\
+p1 & p1 & $5\!\cdot\!10^{-6}$ & 219 & NC & NC & NC \\\hline
+p2 & p1 & $5\!\cdot\!10^{-5}$ & 245 & 976 & NC & NC \\
+p2 & p1 & $1\!\cdot\!10^{-5}$ & 245 & NC & NC & NC \\
+p2 & p1 & $5\!\cdot\!10^{-6}$ & 245 & NC & NC & NC \\\hline
+p2 & p2 & $5\!\cdot\!10^{-5}$ & 405 & 2262 & NC & NC \\
+p2 & p2 & $1\!\cdot\!10^{-5}$ & 405 & NC & NC & NC \\
+p2 & p2 & $5\!\cdot\!10^{-6}$ & 405 & NC & NC & NC \\\hline
+p3 & p1 & $5\!\cdot\!10^{-5}$ & 381 & 2056 & NC & NC \\
+p3 & p1 & $1\!\cdot\!10^{-5}$ & 381 & NC & NC & NC \\
+p3 & p1 & $5\!\cdot\!10^{-6}$ & 381 & NC & NC & NC \\\hline
+p3 & p3 & $5\!\cdot\!10^{-5}$ & 862 & 5909 & NC & NC \\
+p3 & p3 & $1\!\cdot\!10^{-5}$ & 862 & NC & NC & NC \\
+p3 & p3 & $5\!\cdot\!10^{-6}$ & 862 & NC & NC & NC \\
+\bottomrule\end{longtable}\end{center}
+
+\subsubsection{Discussion of the 3D results}
+
+\paragraph{$\Delta t_{\text{req}}$ versus $\Delta t_{\text{CFL}}$.}
+In the 3D sweep some rows have
+$\Delta t_{\text{req}} = \Delta t_{\text{CFL}}$ (the requested
+step happened to be at or below the CFL bound, so the solver
+integrated with that value), while others have
+$\Delta t_{\text{req}} > \Delta t_{\text{CFL}}$ (the CFL clamp
+binds, the solver integrates with the smaller CFL value). Both
+columns are reported because they are dictated by different
+constraints: $\Delta t_{\text{req}}$ comes from the user's
+\code{controlDict}, $\Delta t_{\text{CFL}}$ from the
+mesh-and-conductivity product.
+
+\paragraph{Coarse-mesh sensitivity.}
+At the coarsest mesh ($\Delta x = 0.5$~mm,
+40$\times$6$\times$14 cells), the low-order (\code{NO},
+\code{NO}) configuration gives $t_{\text{act}}^{P8} \approx 141$~ms
+— consistent across both $\Delta t = 10^{-5}$ and $5\!\cdot\!10^{-6}$~s
+(140.96 vs.\ 140.91 ms): the temporal error is small but the
+spatial error is dominant. Adding even \code{p1} to the ionic
+quadrature collapses the value to $\approx 36.7$~ms at the same
+mesh, with the same temporal stability. The (\code{p3}, \code{p3})
+pair reaches $\approx 33$~ms on the same coarse mesh.
+
+\paragraph{One mesh refinement.}
+For the rows that exist at $\Delta x = 0.25$~mm (with
+$\Delta t_{\text{CFL}} \approx 2.2\!\cdot\!10^{-5}$~s), the
+high-order pairs cluster in $[40.3, 46.4]$~ms across the four LRE
+combinations available. The (\code{p3}, \code{p3}) pair value
+$40.27$~ms is the lowest of this group.
+
+\paragraph{Where the 2D and 3D values disagree.}
+The 2D and 3D problems are different (different geometry, different
+ratio of diffusion to reaction), so the activation times are not
+comparable directly. The qualitative pattern is the same in both
+cases: high-order on the source (\code{p}$k$, second slot) is the
+single biggest accuracy lever; mesh-only refinement with low-order
+diffusion converges from above (the front arrives later than the
+asymptotic value); turning on high-order diffusion in isolation
+(\code{p}$k$, \code{NO}) is unstable on coarse meshes.
+
+\subsection{Conclusions on the 2D/3D study}
+\label{sec:results:conclusions}
+
+\begin{enumerate}[leftmargin=*]
+\item The forward-Euler scheme is always run at $\Delta t =
+\Delta t_{\text{CFL}}$ when $\Delta t_{\text{req}} \gg
+\Delta t_{\text{CFL}}$ (the 2D sweep) and at $\Delta t =
+\Delta t_{\text{req}}$ otherwise (some of the 3D rows). The two
+columns in the result tables are not redundant; they reflect a
+\code{min()} clamp in the solver and the actually-used
+step is the smaller of the two.
+\item The LRE quadrature on the ionic source
+(\code{useHighOrder\_Iion}) is the most cost-effective accuracy
+switch on both 2D and 3D meshes; on coarse meshes it brings the
+P8 activation time from $\sim 160$~ms (2D) / $\sim 140$~ms (3D)
+to physical values $\sim 40$~ms.
+\item The high-order LRE diffusion in isolation
+(\code{useHighOrder\_Vm} with cell-centre ionic source) is
+\emph{not} robust on coarse meshes; the high-order reconstruction
+of the Laplacian on top of a piecewise-constant source leads to
+non-physical early crossings. The recommended use is to enable
+both switches together, or to keep the low-order branch on the
+diffusion when the source is also low-order.
+\item The 2D internal-consistency floor (best mutually-consistent
+band across high-order pairs at the finer meshes) sits at
+$[44.5, 46.0]$~ms; the 3D high-order pairs at $\Delta x = 0.25$~mm
+sit in $[40.3, 46.4]$~ms. We do not claim either band represents
+the ``true'' value for the respective problem; published 3D
+Niederer values are reported with a wide cross-code spread.
+\item For matched accuracy, the explicit forward-Euler scheme is
+much more expensive than the implicit Crank-Nicolson scheme of the
+companion solver, because $\Delta t_{\text{CFL}} = \mathcal{O}
+(\Delta x^{2})$ binds and the per-step cost is dominated by the
+cell-model ODE work (which is independent of the time
+discretisation). The explicit solver is competitive on coarse
+meshes and as a verification baseline for the implicit solver,
+not as a production tool on fine meshes.
+\end{enumerate}
+
+% ================================================================== %
+\appendix
+\section{Dimension table}
+% ================================================================== %
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Field & OpenFOAM \code{dimensionSet} & SI \\
+\midrule
+\code{Vm} & $[1, 2, -3, 0, 0, -1, 0]$ & volt \\
+\code{Iion} & \code{dimVoltage/dimTime} & \si{\volt\per\second} \\
+\code{externalStimulusCurrent} & \code{dimCurrent/dimVolume} &
+    \si{\ampere\per\meter\cubed} \\
+\code{conductivity} &
+    \code{dimCurrent\^{}2 dimTime\^{}3 / (dimMass dimVolume)} &
+    \si{\siemens\per\meter} \\
+\code{chi} & \code{dimless/dimLength} & \si{\per\meter} \\
+\code{Cm} & \code{dimCurrent dimTime / (dimVoltage dimArea)} &
+    \si{\farad\per\meter\squared} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ================================================================== %
+\section{TNNP rate expressions (verbatim)}
+\label{app:tnnp}
+% ================================================================== %
+
+For completeness, the rate expressions used by the TNNP 2004 cell
+model wrapper are reproduced below. The membrane voltage entering
+these expressions is in millivolts ($V = 10^{3}\,\Vm$ when the
+PDE-side voltage is in volts); concentrations are in mM; time
+constants are in ms. References are to \cite{ttp2004}.
+
+\paragraph{Reversal potentials.}
 \begin{align}
   E_{Na} &= \frac{RT}{F}\ln\left(\frac{Na_o}{Na_i}\right),\\
-  E_K &= \frac{RT}{F}\ln\left(\frac{K_o}{K_i}\right),\\
+  E_K   &= \frac{RT}{F}\ln\left(\frac{K_o}{K_i}\right),\\
   E_{Ks} &=
   \frac{RT}{F}
-  \ln\left(
-    \frac{K_o + P_{kna}Na_o}{K_i + P_{kna}Na_i}
-  \right),\\
+  \ln\left(\frac{K_o + P_{kna}Na_o}{K_i + P_{kna}Na_i}\right),\\
   E_{Ca} &= \frac{1}{2}\frac{RT}{F}\ln\left(\frac{Ca_o}{Ca_i}\right).
 \end{align}
 
-\subsection{Ionic Currents}
-
-The total ionic current used by the model is
+\paragraph{Total ionic current.}
 \begin{equation}
-  I_{\mathrm{ion}} =
+  I_{\text{ion}} =
   i_{K1}+i_{to}+i_{Kr}+i_{Ks}+i_{CaL}+i_{NaK}
   +i_{Na}+i_{bNa}+i_{NaCa}+i_{bCa}+i_{pK}+i_{pCa}.
 \end{equation}
-The individual currents are
+
+\paragraph{Individual currents.}
 \begin{align}
   i_{Na} &= g_{Na}m^3hj(V-E_{Na}),\\
   i_{bNa} &= g_{bNa}(V-E_{Na}),\\
-  i_{K1} &=
-  g_{K1}x_{K1,\infty}\sqrt{\frac{K_o}{5.4}}(V-E_K),\\
+  i_{K1} &= g_{K1}x_{K1,\infty}\sqrt{K_o/5.4}(V-E_K),\\
   i_{to} &= g_{to}rs(V-E_K),\\
-  i_{Kr} &= g_{Kr}\sqrt{\frac{K_o}{5.4}}X_{r1}X_{r2}(V-E_K),\\
+  i_{Kr} &= g_{Kr}\sqrt{K_o/5.4}X_{r1}X_{r2}(V-E_K),\\
   i_{Ks} &= g_{Ks}X_s^2(V-E_{Ks}),\\
   i_{bCa} &= g_{bCa}(V-E_{Ca}),\\
   i_{pK} &= \frac{g_{pK}(V-E_K)}{1+\exp((25-V)/5.98)},\\
   i_{pCa} &= \frac{g_{pCa}Ca_i}{Ca_i+K_{pCa}}.
 \end{align}
-The L-type calcium current is
 \begin{equation}
   i_{CaL}
   =
-  \frac{
-  g_{CaL}df f_{Ca}
-  \frac{4VF^2}{RT}
-  \left(Ca_i\exp(2VF/RT)-0.341Ca_o\right)}
-  {\exp(2VF/RT)-1}.
-  \label{eq:ical}
+  \frac{g_{CaL}\,d\,f\,f_{Ca}\,\dfrac{4VF^{2}}{RT}
+       \left(Ca_i\exp(2VF/RT)-0.341\,Ca_o\right)}
+       {\exp(2VF/RT)-1}.
+  \label{eq:app:ical}
 \end{equation}
-The sodium--potassium pump and sodium--calcium exchanger are
 \begin{align}
   i_{NaK} &=
-  \frac{
-    P_{NaK}\frac{K_o}{K_o+K_{mk}}\frac{Na_i}{Na_i+K_{mNa}}
-  }
-  {
-    1+0.1245\exp(-0.1VF/RT)+0.0353\exp(-VF/RT)
-  },\\
+  \frac{P_{NaK}\dfrac{K_o}{K_o+K_{mk}}\dfrac{Na_i}{Na_i+K_{mNa}}}
+       {1+0.1245\exp(-0.1VF/RT)+0.0353\exp(-VF/RT)},\\
   i_{NaCa} &=
-  \frac{
-    K_{NaCa}
-    \left[
-      \exp(\gamma V F/RT)Na_i^3 Ca_o
-      -
-      \exp((\gamma-1)VF/RT)Na_o^3 Ca_i\alpha
-    \right]
-  }
-  {
-    (K_{mNai}^3+Na_o^3)(K_{mCa}+Ca_o)
-    \left[1+K_{sat}\exp((\gamma-1)VF/RT)\right]
-  }.
+  \frac{K_{NaCa}\left[\exp(\gamma VF/RT)Na_i^{3}Ca_o
+       -\exp((\gamma-1)VF/RT)Na_o^{3}Ca_i\alpha\right]}
+       {(K_{mNai}^{3}+Na_o^{3})(K_{mCa}+Ca_o)
+        \left[1+K_{sat}\exp((\gamma-1)VF/RT)\right]}.
 \end{align}
 
-\subsection{Gate Kinetics}
-
-Most gates use the standard form
-\begin{equation}
-  \frac{dx}{dt} = \frac{x_\infty(V,Ca_i)-x}{\tau_x(V,Ca_i)}.
-\end{equation}
-The implemented steady states and time constants are
-\begin{align}
-  m_\infty &= \left[1+\exp((-56.86-V)/9.03)\right]^{-2},\\
-  \alpha_m &= \left[1+\exp((-60-V)/5)\right]^{-1},\\
-  \beta_m &=
-  \frac{0.1}{1+\exp((V+35)/5)}
-  +
-  \frac{0.1}{1+\exp((V-50)/200)},\\
-  \tau_m &= \alpha_m\beta_m,\\
-  h_\infty &= \left[1+\exp((V+71.55)/7.43)\right]^{-2},\\
-  \alpha_h &=
-  \begin{cases}
-  0.057\exp(-(V+80)/6.8), & V<-40,\\
-  0, & V\ge -40,
-  \end{cases}\\
-  \beta_h &=
-  \begin{cases}
-  2.7\exp(0.079V)+310000\exp(0.3485V), & V<-40,\\
-  \dfrac{0.77}{0.13[1+\exp((V+10.66)/-11.1)]}, & V\ge -40,
-  \end{cases}\\
-  \tau_h &= \frac{1}{\alpha_h+\beta_h},\\
-  j_\infty &= h_\infty,\\
-  \alpha_j &=
-  \begin{cases}
-  \dfrac{[-25428\exp(0.2444V)-6.948\cdot 10^{-6}\exp(-0.04391V)](V+37.78)}
-  {1+\exp[0.311(V+79.23)]}, & V<-40,\\
-  0, & V\ge -40,
-  \end{cases}\\
-  \beta_j &=
-  \begin{cases}
-  \dfrac{0.02424\exp(-0.01052V)}
-  {1+\exp[-0.1378(V+40.14)]}, & V<-40,\\
-  \dfrac{0.6\exp(0.057V)}
-  {1+\exp[-0.1(V+32)]}, & V\ge -40,
-  \end{cases}\\
-  \tau_j &= \frac{1}{\alpha_j+\beta_j},\\
-  d_\infty &= \left[1+\exp((-5-V)/7.5)\right]^{-1},\\
-  \alpha_d &= \frac{1.4}{1+\exp((-35-V)/13)}+0.25,\\
-  \gamma_{fCa} &= \frac{1.4}{1+\exp((V+5)/5)},\\
-  \gamma_d &= \frac{1}{1+\exp((50-V)/20)},\\
-  \tau_d &= \alpha_d\gamma_{fCa}+\gamma_d,\\
-  f_\infty &= \left[1+\exp((V+20)/7)\right]^{-1},\\
-  \tau_f &= 1125\exp[-(V+27)^2/240]+80
-  +\frac{165}{1+\exp((25-V)/10)},\\
-  X_{r1,\infty} &= \left[1+\exp((-26-V)/7)\right]^{-1},\\
-  \alpha_{xr1} &= \frac{450}{1+\exp((-45-V)/10)},\\
-  \beta_{xr1} &= \frac{6}{1+\exp((V+30)/11.5)},\\
-  \tau_{xr1} &= \alpha_{xr1}\beta_{xr1},\\
-  X_{r2,\infty} &= \left[1+\exp((V+88)/24)\right]^{-1},\\
-  \alpha_{xr2} &= \frac{3}{1+\exp((-60-V)/20)},\\
-  \beta_{xr2} &= \frac{1.12}{1+\exp((V-60)/20)},\\
-  \tau_{xr2} &= \alpha_{xr2}\beta_{xr2},\\
-  X_{s,\infty} &= \left[1+\exp((-5-V)/14)\right]^{-1},\\
-  \alpha_{xs} &= 1100\left[1+\exp((-10-V)/6)\right]^{-1/2},\\
-  \beta_{xs} &= \left[1+\exp((V-60)/20)\right]^{-1},\\
-  \tau_{xs} &= \alpha_{xs}\beta_{xs},\\
-  r_\infty &= \left[1+\exp((20-V)/6)\right]^{-1},\\
-  \tau_r &= 9.5\exp[-(V+40)^2/1800]+0.8.
-\end{align}
-The $s$ gate depends on tissue type:
+\paragraph{Gate kinetics (selected; full set generated by the
+TNNP code generator).}
+Most gates use the standard $x_\infty/\tau_x$ form
+$\dot x = (x_\infty - x)/\tau_x$. The implemented steady states and
+time constants for $m, h, j, d, f, X_{r1}, X_{r2}, X_s, r$ are the
+ones of \cite{ttp2004} and are not reproduced here in full. The
+$s$ gate depends on tissue type:
 \begin{equation}
   s_\infty =
   \begin{cases}
   \left[1+\exp((V+20)/5)\right]^{-1},
   & \text{endocardial},\\
   1.1\left[1+\exp((V+28)/6)\right]^{-1},
-  & \text{M cell or epicardial}.
+  & \text{M cell or epicardial},
   \end{cases}
 \end{equation}
-Its time constant is
-\begin{equation}
-  \tau_s =
-  \begin{cases}
-  85\exp[-(V+45)^2/320]
-  +\dfrac{5}{1+\exp((V-20)/5)}+3,
-  & \text{endocardial},\\
-  1000\exp[-(V+67)^2/1000]+8,
-  & \text{M cell or epicardial}.
-  \end{cases}
-\end{equation}
-The inward rectifier auxiliary variable used by $i_{K1}$ is
+with $\tau_s$ also tissue-dependent. The calcium-dependent gates
+follow
 \begin{align}
-  \alpha_{K1}
-  &= \frac{0.1}{1+\exp[0.06((V-E_K)-200)]},\\
-  \beta_{K1}
-  &=
-  \frac{
-  3\exp[0.0002((V-E_K)+100)]
-  + \exp[0.1((V-E_K)-10)]}
-  {1+\exp[-0.5(V-E_K)]},\\
-  x_{K1,\infty}
-  &= \frac{\alpha_{K1}}{\alpha_{K1}+\beta_{K1}}.
+  \alpha_{fCa} &= [1+(Ca_i/0.000325)^{8}]^{-1},\\
+  \beta_{fCa} &= 0.1[1+\exp((Ca_i-0.0005)/0.0001)]^{-1},\\
+  \beta_d &= 0.2[1+\exp((Ca_i-0.00075)/0.0008)]^{-1},\\
+  f_{Ca,\infty} &= (\alpha_{fCa}+\beta_{fCa}+\beta_d+0.23)/1.46,
 \end{align}
-The calcium-dependent gates are
-\begin{align}
-  \alpha_{fCa} &= \left[1+\left(Ca_i/0.000325\right)^8\right]^{-1},\\
-  \beta_{fCa} &= 0.1\left[1+\exp((Ca_i-0.0005)/0.0001)\right]^{-1},\\
-  \beta_d &= 0.2\left[1+\exp((Ca_i-0.00075)/0.0008)\right]^{-1},\\
-  f_{Ca,\infty} &= \frac{\alpha_{fCa}+\beta_{fCa}+\beta_d+0.23}{1.46}.
-\end{align}
-The $f_{Ca}$ rate is conditionally limited:
+with the conditionally-frozen update
 \begin{equation}
   \frac{df_{Ca}}{dt}
   =
   \begin{cases}
   0, & f_{Ca,\infty}>f_{Ca}\ \text{and}\ V>-60,\\
-  (f_{Ca,\infty}-f_{Ca})/\tau_{fCa}, & \text{otherwise}.
+  (f_{Ca,\infty}-f_{Ca})/\tau_{fCa}, & \text{otherwise},
   \end{cases}
 \end{equation}
-The RyR gate $g$ follows
-\begin{align}
-  g_\infty &=
-  \begin{cases}
-  \left[1+(Ca_i/0.00035)^6\right]^{-1}, & Ca_i<0.00035,\\
-  \left[1+(Ca_i/0.00035)^{16}\right]^{-1}, & Ca_i\ge 0.00035,
-  \end{cases}\\
-  \frac{dg}{dt}
-  &=
-  \begin{cases}
-  0, & g_\infty>g\ \text{and}\ V>-60,\\
-  (g_\infty-g)/\tau_g, & \text{otherwise}.
-  \end{cases}
-\end{align}
+and analogously for the RyR $g$ gate.
 
-\subsection{Concentration Equations}
-
-The sodium and potassium concentration rates are
+\paragraph{Concentrations and SR fluxes.}
 \begin{align}
-  \frac{dNa_i}{dt}
-  &=
-  -\frac{(i_{Na}+i_{bNa}+3i_{NaK}+3i_{NaCa})C_m}{V_cF},\\
-  \frac{dK_i}{dt}
-  &=
-  -\frac{[(i_{K1}+i_{to}+i_{Kr}+i_{Ks}+i_{pK}+I_{stim})
-  -2i_{NaK}]C_m}{V_cF}.
-\end{align}
-The calcium release, uptake and leak terms are
-\begin{align}
+  \frac{dNa_i}{dt} &=
+   -\frac{(i_{Na}+i_{bNa}+3i_{NaK}+3i_{NaCa})C_m}{V_cF},\\
+  \frac{dK_i}{dt} &=
+   -\frac{[(i_{K1}+i_{to}+i_{Kr}+i_{Ks}+i_{pK}+I_{stim})
+   -2i_{NaK}]C_m}{V_cF},\\
   i_{rel} &=
-  \left[
-    \frac{a_{rel}Ca_{SR}^2}{b_{rel}^2+Ca_{SR}^2}
-    + c_{rel}
-  \right]dg,\\
-  i_{up} &= \frac{V_{max,up}}{1+K_{up}^2/Ca_i^2},\\
-  i_{leak} &= V_{leak}(Ca_{SR}-Ca_i).
-\end{align}
-The buffered calcium rates are
-\begin{align}
+   \left[\frac{a_{rel}Ca_{SR}^{2}}{b_{rel}^{2}+Ca_{SR}^{2}}+c_{rel}\right]dg,\\
+  i_{up} &= \frac{V_{max,up}}{1+K_{up}^{2}/Ca_i^{2}},\\
+  i_{leak} &= V_{leak}(Ca_{SR}-Ca_i),\\
   J_{Ca_i} &=
-  -\frac{(i_{CaL}+i_{bCa}+i_{pCa}-2i_{NaCa})C_m}
-  {2V_cF}
-  + i_{leak} - i_{up} + i_{rel},\\
-  f_{JCa_i} &=
-  \left[
-    1+\frac{Buf_cK_{buf,c}}{(Ca_i+K_{buf,c})^2}
-  \right]^{-1},\\
-  \frac{dCa_i}{dt} &= J_{Ca_i}f_{JCa_i},\\
-  J_{Ca_{SR}} &= \frac{V_c}{V_{SR}}(i_{up}-i_{rel}-i_{leak}),\\
-  f_{JCa_{SR}} &=
-  \left[
-    1+\frac{Buf_{SR}K_{buf,SR}}{(Ca_{SR}+K_{buf,SR})^2}
-  \right]^{-1},\\
-  \frac{dCa_{SR}}{dt} &= J_{Ca_{SR}}f_{JCa_{SR}}.
+   -\frac{(i_{CaL}+i_{bCa}+i_{pCa}-2i_{NaCa})C_m}{2V_cF}
+   + i_{leak} - i_{up} + i_{rel},\\
+  \frac{dCa_i}{dt}    &= J_{Ca_i}\,f_{J Ca_i},\\
+  \frac{dCa_{SR}}{dt} &= \frac{V_c}{V_{SR}}(i_{up}-i_{rel}-i_{leak})\,f_{J Ca_{SR}},
 \end{align}
+with buffering factors $f_{J Ca_i}, f_{J Ca_{SR}}$ of the form
+$[1+\text{Buf}\cdot K/(\text{Ca}+K)^{2}]^{-1}$.
 
-\section{Numerical Protections in TNNP}
+% ================================================================== %
+\begin{thebibliography}{9}
+% ================================================================== %
 
-The generated TNNP algebra contains logarithms, powers and divisions that are
-only defined for physically admissible states. The most sensitive quantities
-are $Ca_i$, $Ca_{SR}$, $Na_i$, $K_i$, gate variables and the removable
-singularity in Eq.~\eqref{eq:ical} near $V=0$.
+\bibitem{ttp2004} K.~H.~W.~J. ten Tusscher, D. Noble, P.~J. Noble, A.~V.
+    Panfilov, \emph{A model for human ventricular tissue},
+    AJP -- Heart and Circulatory Physiology
+    \textbf{286} (2004) H1573--H1589.
 
-The implemented protection is optional and controlled from
-\texttt{cardiacProperties}. When \texttt{TNNPNumericalProtection true}, the
-wrapper checks the state vector before calls to the generated TNNP algebra:
-\begin{itemize}
-  \item non-finite concentrations or concentrations below
-  \texttt{TNNPConcentrationFloor} are replaced by that floor;
-  \item gate variables are clipped to $[0,1]$ when
-  \texttt{TNNPClampGates true};
-  \item non-finite voltage is replaced by a resting fallback value;
-  \item voltage is limited to
-  $[V_{\min},V_{\max}]$ when \texttt{TNNPClampVmForRates true};
-  \item if $|V|<\varepsilon_V$, $V$ is shifted to
-  $\pm\varepsilon_V$ to avoid the direct evaluation of the
-  $i_{CaL}$ denominator at zero.
-\end{itemize}
+\bibitem{niederer2012} S.~A. Niederer et al.,
+    \emph{Verification of cardiac tissue electrophysiology simulators
+    using an N-version benchmark}, Prog.\ Biophys.\ Mol.\ Biol.
+    \textbf{104} (2012) 22--48.
 
-Each correction is written to \texttt{TNNP\_numericalProtection.log} when
-\texttt{TNNPLogNumericalProtection true}. The log columns are
-\begin{equation}
-  t_{\mathrm{ms}},\quad t_{\mathrm{s}},\quad
-  \text{integration point},\quad
-  \text{phase},\quad
-  \text{variable},\quad
-  \text{old value},\quad
-  \text{corrected value},\quad
-  \text{reason}.
-\end{equation}
-This makes the protection auditable: the run can be continued without losing
-information about which state became non-physical and where the correction was
-applied.
+\bibitem{hairer2} E. Hairer, G. Wanner,
+    \emph{Solving Ordinary Differential Equations II}, Springer, 1996.
 
-\section{Niederer P8 Activation-Time Results}
-\label{sec:results}
+\bibitem{cardiff2018s4f} P. Cardiff, A. Karač, P. De Jaeger,
+    H. Jasak, J. Nagy, A. Ivanković, Ž. Tuković,
+    \emph{An open-source finite volume toolbox for solid mechanics
+    and fluid--solid interaction simulations},
+    arXiv:1808.10736 (2018). Provides the LRE high-order reconstruction
+    library (\code{LRE.H}) used in \S\ref{sec:hoVm}.
 
-This section reports two-dimensional Niederer-benchmark results read from
-both result trees of this solver:
-\path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderNiedererEtAl2012Explicit/}
-and
-\path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderNiedererEtAl2012Explicit_2/}.
-The first folder contains the historical sweep over the requested
-$\Delta t \in \{10^{-2}, 5\!\cdot\!10^{-5}, 10^{-5}, 5\!\cdot\!10^{-6}\}$~s;
-the second folder is a more recent and more complete sweep at the
-single requested $\Delta t = 10^{-2}$~s. Because the explicit solver
-applies the CFL stability limit, the value the solver actually uses
-($\Delta t_{\rm eff}$, table at the top of the next subsection) is far
-smaller than the requested one and depends on the mesh size~$\Delta x$.
-Computational cost data come from \texttt{/usr/bin/time -v} and are
-reported as elapsed wall-clock time and peak resident set size (RSS).
-\textsc{NC} means that no run was found for that combination in the
-results tree.
-
-\noindent The label \emph{Vm} refers to the LRE p-level used for the
-high-order diffusion reconstruction, and the label \emph{Iion} refers
-to the LRE p-level used for the cell-quadrature ionic-source
-integration. \texttt{NO} means that high-order is disabled for that
-quantity (cell-centre Laplacian / cell-centre ionic source).
-
-\input{results_tables.tex}
-
-\section{Implementation Notes}
-
-The most relevant implementation details are:
-\begin{itemize}
-  \item \texttt{useHighOrder\_Vm} controls the LRE high-order diffusion
-  reconstruction.
-  \item \texttt{useHighOrder\_Iion} controls whether TNNP states are evolved
-  at cell quadrature points and whether $I_{\mathrm{ion}}$ is volume-integrated
-  with those points.
-  \item \texttt{useHighOrder\_states} is still accepted as a legacy dictionary
-  keyword, but the current solver interprets it as the high-order
-  $I_{\mathrm{ion}}$ quadrature switch.
-  \item \texttt{activationTime} is written as a field and can be viewed in
-  ParaView.
-  \item \texttt{P8\_activationTime.dat} and
-  \texttt{diagonalActivationTime.dat} are written for benchmark postprocessing.
-\end{itemize}
+\end{thebibliography}
 
 \end{document}

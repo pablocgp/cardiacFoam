@@ -16,28 +16,89 @@
 \gdef\HyperFirstAtBeginDocument#1{#1}
 \providecommand\HyField@AuxAddToFields[1]{}
 \providecommand\HyField@AuxAddToCoFields[2]{}
-\@writefile{toc}{\contentsline {section}{\numberline {1}Purpose}{1}{section.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {2}Governing Equation}{1}{section.2}\protected@file@percent }
-\newlabel{eq:monodomain}{{1}{1}{Governing Equation}{equation.2.1}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {3}Explicit Time Integration}{1}{section.3}\protected@file@percent }
-\newlabel{eq:explicit-vm}{{3}{1}{Explicit Time Integration}{equation.3.3}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {4}High-Order Spatial Discretization}{2}{section.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Diffusion Operator}{2}{subsection.4.1}\protected@file@percent }
-\newlabel{eq:ho-face-flux}{{5}{2}{Diffusion Operator}{equation.4.5}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Ionic Source Quadrature}{2}{subsection.4.2}\protected@file@percent }
-\newlabel{eq:iion-quadrature}{{8}{2}{Ionic Source Quadrature}{equation.4.8}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {5}Boundary Conditions}{3}{section.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {6}Activation Time}{3}{section.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {7}TNNP Ionic Model}{3}{section.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.1}Reversal Potentials}{3}{subsection.7.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.2}Ionic Currents}{4}{subsection.7.2}\protected@file@percent }
-\newlabel{eq:ical}{{31}{4}{Ionic Currents}{equation.7.31}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.3}Gate Kinetics}{4}{subsection.7.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.4}Concentration Equations}{6}{subsection.7.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {8}Numerical Protections in TNNP}{7}{section.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {9}Niederer P8 Activation-Time Results}{7}{section.9}\protected@file@percent }
-\newlabel{sec:results}{{9}{7}{Niederer P8 Activation-Time Results}{section.9}{}}
+\citation{ttp2004}
+\citation{niederer2012}
+\citation{ttp2004}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Notation}{3}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Governing equations}{3}{section.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Monodomain PDE}{3}{subsection.2.1}\protected@file@percent }
+\newlabel{eq:monodomain}{{1}{3}{Monodomain PDE}{equation.2.1}{}}
+\newlabel{eq:semi-discrete}{{2}{3}{Monodomain PDE}{equation.2.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Ionic ODE}{3}{subsection.2.2}\protected@file@percent }
+\newlabel{eq:tnnp}{{3}{3}{Ionic ODE}{equation.2.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{Units and sign convention.}{3}{section*.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}External stimulus}{4}{subsection.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Time discretisation: forward Euler with parabolic CFL bound}{4}{section.3}\protected@file@percent }
+\newlabel{sec:time}{{3}{4}{Time discretisation: forward Euler with parabolic CFL bound}{section.3}{}}
+\newlabel{eq:euler}{{5}{4}{Time discretisation: forward Euler with parabolic CFL bound}{equation.3.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Stable time step}{4}{subsection.3.1}\protected@file@percent }
+\newlabel{sec:cfl}{{3.1}{4}{Stable time step}{subsection.3.1}{}}
+\newlabel{eq:cfl}{{6}{4}{Stable time step}{equation.3.6}{}}
+\newlabel{eq:dx}{{7}{4}{Stable time step}{equation.3.7}{}}
+\@writefile{toc}{\contentsline {paragraph}{Implication.}{4}{section*.3}\protected@file@percent }
+\citation{cardiff2018s4f}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Spatial discretisation}{5}{section.4}\protected@file@percent }
+\newlabel{sec:space}{{4}{5}{Spatial discretisation}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Standard orthogonal FV Laplacian}{5}{subsection.4.1}\protected@file@percent }
+\newlabel{sec:stdFV}{{4.1}{5}{Standard orthogonal FV Laplacian}{subsection.4.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}High-order LRE diffusion}{5}{subsection.4.2}\protected@file@percent }
+\newlabel{sec:hoVm}{{4.2}{5}{High-order LRE diffusion}{subsection.4.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{Boundary faces in the high-order branch.}{5}{section*.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Ionic source quadrature}{5}{subsection.4.3}\protected@file@percent }
+\newlabel{sec:hoIion}{{4.3}{5}{Ionic source quadrature}{subsection.4.3}{}}
+\newlabel{eq:iion-quad}{{14}{5}{Ionic source quadrature}{equation.4.14}{}}
+\citation{hairer2}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Per-step operator splitting}{6}{section.5}\protected@file@percent }
+\newlabel{sec:split}{{5}{6}{Per-step operator splitting}{section.5}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces Per-step flow of \texttt  {highOrderElectroActivationFoamExplicit}.}}{6}{algorithm.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Order of accuracy in time.}{6}{section*.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Why two distinct ionic calls.}{6}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Ionic ODE integration}{6}{section.6}\protected@file@percent }
+\newlabel{sec:ode}{{6}{6}{Ionic ODE integration}{section.6}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {7}TNNP numerical protection}{7}{section.7}\protected@file@percent }
+\newlabel{sec:tnnpProtect}{{7}{7}{TNNP numerical protection}{section.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1}Master switch and configuration}{7}{subsection.7.1}\protected@file@percent }
+\newlabel{sec:tnnp:knobs}{{7.1}{7}{Master switch and configuration}{subsection.7.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2}Phases at which the guard fires}{7}{subsection.7.2}\protected@file@percent }
+\newlabel{sec:tnnp:phases}{{7.2}{7}{Phases at which the guard fires}{subsection.7.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.3}Corrections and their order}{7}{subsection.7.3}\protected@file@percent }
+\newlabel{sec:tnnp:steps}{{7.3}{7}{Corrections and their order}{subsection.7.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4}Interaction with the RKF45 step controller}{8}{subsection.7.4}\protected@file@percent }
+\newlabel{sec:tnnp:rkf45}{{7.4}{8}{Interaction with the RKF45 step controller}{subsection.7.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.5}What the guard does not protect}{8}{subsection.7.5}\protected@file@percent }
+\newlabel{sec:tnnp:notProtected}{{7.5}{8}{What the guard does not protect}{subsection.7.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.6}Logging and accounting}{9}{subsection.7.6}\protected@file@percent }
+\newlabel{sec:tnnp:log}{{7.6}{9}{Logging and accounting}{subsection.7.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.7}Defaults vs.\ recommended settings}{9}{subsection.7.7}\protected@file@percent }
+\newlabel{sec:tnnp:settings}{{7.7}{9}{Defaults vs.\ recommended settings}{subsection.7.7}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8}Activation tracking and benchmarks}{9}{section.8}\protected@file@percent }
+\newlabel{sec:activation}{{8}{9}{Activation tracking and benchmarks}{section.8}{}}
+\@writefile{toc}{\contentsline {paragraph}{Activation time per cell.}{9}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Early termination on P8.}{9}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Diagonal sampling.}{9}{section*.9}\protected@file@percent }
 \gdef \LT@i {\LT@entry 
+    {1}{147.69621pt}\LT@entry 
+    {1}{144.24788pt}\LT@entry 
+    {1}{176.03403pt}}
+\gdef \LT@ii {\LT@entry 
+    {1}{147.69621pt}\LT@entry 
+    {1}{153.69621pt}\LT@entry 
+    {1}{171.31346pt}}
+\gdef \LT@iii {\LT@entry 
+    {1}{147.69621pt}\LT@entry 
+    {1}{313.00247pt}}
+\gdef \LT@iv {\LT@entry 
+    {1}{171.31346pt}\LT@entry 
+    {1}{153.69621pt}\LT@entry 
+    {1}{147.69621pt}}
+\@writefile{toc}{\contentsline {section}{\numberline {9}Driver script: \texttt  {run\_convergence.py}}{10}{section.9}\protected@file@percent }
+\newlabel{sec:driver}{{9}{10}{Driver script: \texttt {run\_convergence.py}}{section.9}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1}Geometry and parameter sweep}{10}{subsection.9.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.2}Inner ODE integrator (RKF45)}{10}{subsection.9.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.3}Effective $\Delta t$ reported in result tables}{10}{subsection.9.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.4}Post-processing and run-control}{10}{subsection.9.4}\protected@file@percent }
+\citation{niederer2012}
+\gdef \LT@v {\LT@entry 
     {1}{26.64435pt}\LT@entry 
     {1}{27.67212pt}\LT@entry 
     {3}{37.69429pt}\LT@entry 
@@ -45,19 +106,23 @@
     {1}{33.06932pt}\LT@entry 
     {3}{33.06932pt}\LT@entry 
     {3}{33.06932pt}}
-\gdef \LT@ii {\LT@entry 
+\@writefile{toc}{\contentsline {section}{\numberline {10}Niederer-style benchmark results}{11}{section.10}\protected@file@percent }
+\newlabel{sec:results}{{10}{11}{Niederer-style benchmark results}{section.10}{}}
+\@writefile{toc}{\contentsline {paragraph}{Scope and disclaimer.}{11}{section*.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Reading $\Delta t_{\text  {req}}$ versus $\Delta t_{\text  {CFL}}$.}{11}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.1}2D Niederer-style sweep}{11}{subsection.10.1}\protected@file@percent }
+\newlabel{sec:results:2D}{{10.1}{11}{2D Niederer-style sweep}{subsection.10.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.2}P8 activation time at the requested $\Delta t = 1.0\cdot 10^{-2}$\nobreakspace  {}s}{11}{subsection.10.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5}{P8 activation time [ms]: rows are LRE p-levels for Vm $\times $ Iion; columns are mesh sizes $\Delta x$ (mm). \textsc  {NC} = no run data found.}}{11}{table.5}\protected@file@percent }
+\gdef \LT@vi {\LT@entry 
     {1}{26.64435pt}\LT@entry 
     {1}{27.67212pt}\LT@entry 
-    {3}{33.06932pt}\LT@entry 
-    {3}{33.06932pt}\LT@entry 
-    {3}{37.69429pt}\LT@entry 
-    {3}{37.69429pt}\LT@entry 
-    {3}{42.31926pt}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.1}P8 activation time at the requested $\Delta t = 1.0\cdot 10^{-2}$\nobreakspace  {}s}{8}{subsection.9.1}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {1}{P8 activation time [ms]: rows are LRE p-levels for Vm $\times $ Iion; columns are mesh sizes $\Delta x$ (mm). \textsc  {NC} = no run data found.}}{8}{table.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.2}Wall-clock cost per configuration (seconds)}{8}{subsection.9.2}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {2}{Solver wall-clock time [s].}}{8}{table.2}\protected@file@percent }
-\gdef \LT@iii {\LT@entry 
+    {1}{23.81938pt}\LT@entry 
+    {1}{28.44435pt}\LT@entry 
+    {1}{33.06932pt}\LT@entry 
+    {3}{25.87492pt}\LT@entry 
+    {3}{30.4999pt}}
+\gdef \LT@vii {\LT@entry 
     {1}{26.64435pt}\LT@entry 
     {1}{27.67212pt}\LT@entry 
     {3}{25.87492pt}\LT@entry 
@@ -65,7 +130,68 @@
     {1}{33.06932pt}\LT@entry 
     {3}{25.87492pt}\LT@entry 
     {1}{28.44435pt}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.3}Peak resident set size per configuration (MiB)}{9}{subsection.9.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {3}{Peak RSS [MiB].}}{9}{table.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {10}Implementation Notes}{9}{section.10}\protected@file@percent }
-\gdef \@abspage@last{9}
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.3}Wall-clock cost per configuration (minutes)}{12}{subsection.10.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6}{Solver wall-clock time [min].}}{12}{table.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.4}Peak resident set size per configuration (MiB)}{12}{subsection.10.4}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7}{Peak RSS [MiB].}}{12}{table.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {10.4.1}Discussion of the 2D results}{13}{subsubsection.10.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{$h$-refinement at fixed configuration.}{13}{section*.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{High-order on the source.}{13}{section*.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{High-order on the diffusion alone.}{13}{section*.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Full HO at the finer meshes.}{13}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Cost.}{13}{section*.16}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.5}3D Niederer-style sweep}{13}{subsection.10.5}\protected@file@percent }
+\newlabel{sec:results:3D}{{10.5}{13}{3D Niederer-style sweep}{subsection.10.5}{}}
+\gdef \LT@viii {\LT@entry 
+    {1}{26.64435pt}\LT@entry 
+    {1}{27.67212pt}\LT@entry 
+    {1}{43.90532pt}\LT@entry 
+    {3}{37.69429pt}\LT@entry 
+    {3}{33.06932pt}\LT@entry 
+    {3}{33.06932pt}\LT@entry 
+    {3}{33.06932pt}}
+\gdef \LT@ix {\LT@entry 
+    {1}{26.64435pt}\LT@entry 
+    {1}{27.67212pt}\LT@entry 
+    {1}{43.90532pt}\LT@entry 
+    {3}{25.87492pt}\LT@entry 
+    {3}{30.4999pt}\LT@entry 
+    {3}{25.87492pt}\LT@entry 
+    {3}{25.87492pt}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.6}P8 activation time at the requested $\Delta t$}{14}{subsection.10.6}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {8}{P8 activation time [ms]: rows are LRE p-levels for Vm $\times $ Iion; columns are mesh sizes $\Delta x$ (mm). \textsc  {NC} = no run data found.}}{14}{table.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.7}Wall-clock cost per configuration (minutes)}{14}{subsection.10.7}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {9}{Solver wall-clock time [min].}}{14}{table.9}\protected@file@percent }
+\gdef \LT@x {\LT@entry 
+    {1}{26.64435pt}\LT@entry 
+    {1}{27.67212pt}\LT@entry 
+    {1}{43.90532pt}\LT@entry 
+    {3}{25.87492pt}\LT@entry 
+    {3}{30.4999pt}\LT@entry 
+    {3}{30.4999pt}\LT@entry 
+    {3}{30.4999pt}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.8}Peak resident set size per configuration (MiB)}{15}{subsection.10.8}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {10}{Peak RSS [MiB].}}{15}{table.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {10.8.1}Discussion of the 3D results}{15}{subsubsection.10.8.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{$\Delta t_{\text  {req}}$ versus $\Delta t_{\text  {CFL}}$.}{15}{section*.17}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Coarse-mesh sensitivity.}{15}{section*.18}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{One mesh refinement.}{15}{section*.19}\protected@file@percent }
+\citation{ttp2004}
+\@writefile{toc}{\contentsline {paragraph}{Where the 2D and 3D values disagree.}{16}{section*.20}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.9}Conclusions on the 2D/3D study}{16}{subsection.10.9}\protected@file@percent }
+\newlabel{sec:results:conclusions}{{10.9}{16}{Conclusions on the 2D/3D study}{subsection.10.9}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {A}Dimension table}{16}{appendix.A}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {B}TNNP rate expressions (verbatim)}{16}{appendix.B}\protected@file@percent }
+\newlabel{app:tnnp}{{B}{16}{TNNP rate expressions (verbatim)}{appendix.B}{}}
+\citation{ttp2004}
+\@writefile{toc}{\contentsline {paragraph}{Reversal potentials.}{17}{section*.21}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Total ionic current.}{17}{section*.22}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Individual currents.}{17}{section*.23}\protected@file@percent }
+\newlabel{eq:app:ical}{{30}{17}{Individual currents}{equation.B.30}{}}
+\@writefile{toc}{\contentsline {paragraph}{Gate kinetics (selected; full set generated by the TNNP code generator).}{17}{section*.24}\protected@file@percent }
+\bibcite{ttp2004}{1}
+\bibcite{niederer2012}{2}
+\bibcite{hairer2}{3}
+\bibcite{cardiff2018s4f}{4}
+\@writefile{toc}{\contentsline {paragraph}{Concentrations and SR fluxes.}{18}{section*.25}\protected@file@percent }
+\gdef \@abspage@last{18}

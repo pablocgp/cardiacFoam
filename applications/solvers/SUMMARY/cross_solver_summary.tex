@@ -1,0 +1,582 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{siunitx}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+
+\newcommand{\Vm}{V_{m}}
+\newcommand{\Iion}{I_{\text{ion}}}
+\newcommand{\tact}{t_{\text{act}}^{P8}}
+\newcommand{\code}[1]{\texttt{\small #1}}
+
+\title{Cross-solver comparative summary\\
+       \large Manufactured verification and Niederer electro-activation
+       benchmark across the five high-order solvers
+       in \texttt{cardiacFoam-pc}}
+\author{Pablo}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document is an interim cross-report synthesis of the five solver
+reports currently maintained under
+\code{applications/solvers/}: two method-of-manufactured-solutions
+(MMS) reports that verify the discretisation, and three
+electro-activation reports that exercise the same discretisation on
+the Niederer-2012 monodomain benchmark. It is not a substitute for the
+individual reports; it is meant to answer, in one place, the six
+practical questions that come up when looking at the runs as a whole:
+does the method work, what does the benchmark converge to, which
+discretisation combinations are most cost-effective for that value,
+what those combinations cost, which combination is the most accurate
+and which is the most efficient, and what is still missing from the
+present data. All numbers below are transcribed from the per-solver
+result tables that exist at the time of writing; no new runs were
+performed for this summary.
+\end{abstract}
+
+\tableofcontents
+\bigskip
+
+% ================================================================== %
+\section{Scope and methods catalogue}
+\label{sec:scope}
+% ================================================================== %
+
+The five reports cover the same discretisation toolbox --- standard
+cell-centred finite-volume (FV) diffusion or a Local
+Regression-Estimator (LRE) high-order reconstruction; cell-centred or
+LRE-quadrature ionic source; lumped or consistent LRE mass matrix;
+$\theta$-scheme time integration; and one of three nonlinear coupling
+strategies (\code{Picard}, \code{diagonalIion}, \code{JFNK}) when the
+PDE is implicit --- applied to two problems:
+
+\begin{itemize}[leftmargin=*]
+\item A manufactured PDE--ODE system with a known exact solution
+($\Vm^\star$, $u_1^\star$, $u_2^\star$, $u_3^\star$) and a smooth
+nonlinear source $\Iion^{\text{MMS}}(\Vm,\mathbf{u})$.
+\item The Niederer-2012 monodomain benchmark with the TNNP ionic
+model, with $\tact$ as the diagnostic scalar.
+\end{itemize}
+
+\begin{center}\footnotesize
+\begin{longtable}{p{0.27\linewidth}p{0.10\linewidth}p{0.18\linewidth}p{0.16\linewidth}p{0.20\linewidth}}
+\caption{Catalogue of the five solver reports.}\\
+\toprule
+Solver & Problem & Time scheme & Nonlinear & Dimensions covered \\
+\midrule\endfirsthead\toprule
+Solver & Problem & Time scheme & Nonlinear & Dimensions covered \\
+\midrule\endhead
+\code{highOrderManufacturedFDAExplicit}     & MMS  & forward Euler (explicit) & ---                                        & 2D ($N=10\!\dots\!100$), 3D ($N=10\!\dots\!30$) \\
+\code{highOrderManufacturedFDAImplicitJfNK} & MMS  & bE / cN ($\theta$-scheme)& Picard / diagonalIion / JFNK               & 2D ($N=10\!\dots\!100$), 3D ($N=10\!\dots\!30$) \\
+\code{highOrderElectroActivationFoamExplicit}     & Niederer / TNNP & forward Euler & ---                       & 2D ($\Delta x\!\in\![0.5,0.05]$ mm), 3D ($\Delta x\!\in\![0.5,0.1]$ mm) \\
+\code{highOrderElectroActivationFoamImplicit}     & Niederer / TNNP & cN, $\theta=\tfrac{1}{2}$ & single-sweep Picard ($k=1$) & 2D ($\Delta x\!\in\![0.5,0.05]$ mm, $\Delta t\!\in\![10^{-3},10^{-6}]$ s), 3D ($\Delta x\!\in\![0.5,0.1]$ mm) \\
+\code{highOrderElectroActivationFoamImplicitJfNK} & Niederer / TNNP & cN, $\theta=\tfrac{1}{2}$ & Picard / diagonalIion / JFNK & 2D ($\Delta x\!\in\![0.5,0.1]$ mm, $\Delta t = 10^{-4}$ s), 3D ($\Delta x = 0.5$ mm) \\
+\bottomrule
+\end{longtable}\end{center}
+
+Throughout this document an LRE pair is written
+$(\code{p}_V, \code{p}_I)$, where the first slot
+($\code{p}_V$, for $\Vm$) is the high-order level used for the
+diffusion operator (and, when consistent mass is on, for the mass
+matrix) and the second slot ($\code{p}_I$, for $\Iion$) is the level
+used for the ionic source and ODE quadrature. \code{NO} means the standard FV / cell-centre operator.
+\code{NC} marks any cell where the corresponding run has not yet been
+done.
+
+% ================================================================== %
+\section{Convergence verification (MMS)}
+\label{sec:mms}
+% ================================================================== %
+
+\subsection{What the LRE level is supposed to deliver}
+
+The two MMS reports state the same theoretical-accuracy ladder:
+\code{NO} and \code{p1} target second-order spatial accuracy,
+\code{p2} third-order, and \code{p3} fourth-order. The cell-centred FV
+operator itself is second-order, so the cell-centred error column can
+only saturate at $\sim 2$; the formal LRE order can only be seen in
+the \emph{reconstructed} (Gauss-quadrature) error columns. The fitted
+order is also the minimum of the spatial order and the temporal /
+nonlinear-tolerance order; an aggressive LRE polynomial does not
+recover its formal order unless $\Delta t$, the mass matrix, and the
+nonlinear residual all permit it.
+
+\subsection{Explicit MMS --- observed orders}
+
+From
+\code{highOrderManufacturedFDAExplicit/report/tables/explicit\_orders\_2D.tex}
+and \code{explicit\_orders\_3D.tex}, fitted on $N=10\dots100$ (2D) and
+$N=10\dots30$ (3D), at the finest $\Delta t = 10^{-6}$~s:
+
+\begin{center}\footnotesize
+\begin{longtable}{lcccccc}
+\caption{Explicit MMS: observed convergence orders at
+$\Delta t = 10^{-6}$~s. Cell / G2 = cell-centred / reconstructed
+Gauss-quadrature error. Targets are written as
+$\text{Vm}/\Iion$ (LRE polynomial order).}\\
+\toprule
+$(\code{p}_V,\code{p}_I)$ & target & $\Vm$ cell (2D) & $\Vm^G$ (2D) & $\Vm$ cell (3D) & $\Vm^G$ (3D) \\
+\midrule\endfirsthead\toprule
+$(\code{p}_V,\code{p}_I)$ & target & $\Vm$ cell (2D) & $\Vm^G$ (2D) & $\Vm$ cell (3D) & $\Vm^G$ (3D) \\
+\midrule\endhead
+(\code{NO},\code{NO}) & 2/2 & 1.997 & 1.997 & 1.979 & 1.979 \\
+(\code{p1},\code{p1}) & 2/2 & 1.912 & 2.147 & 2.008 & 2.063 \\
+(\code{p2},\code{p2}) & 3/3 & 2.244 & 2.762 & 2.021 & 3.289 \\
+(\code{p3},\code{p3}) & 4/4 & 2.369 & 3.091 & 3.108 & 3.869 \\
+\bottomrule
+\end{longtable}\end{center}
+
+Reading the table: \code{NO}/\code{NO} and \code{p1}/\code{p1} are
+clean second-order in both columns; \code{p2}/\code{p2} reaches its
+target third order in the reconstructed column in 3D (3.289) and is
+close in 2D (2.762); \code{p3}/\code{p3} hits 3.869 in 3D --- formal
+fourth order is approached but not fully recovered with explicit
+forward-Euler at $\Delta t = 10^{-6}$~s. The cell-centred Vm column
+saturates at $\sim 2$ in 2D as expected.
+
+\subsection{Implicit MMS --- where formal fourth order is recovered}
+
+The implicit JFNK MMS report sweeps the same LRE pairs with both time
+schemes (\code{bE}/\code{cN}), both mass matrices
+(\code{lumped}/\code{consistent}), and all three nonlinear methods.
+The cleanest case for fourth order is \code{p3}/\code{p2} with
+\code{crankNicolson}, consistent mass, and $\Delta t = 10^{-3}$~s
+(\code{tables/results\_2D\_*\_dt\_1p0em03.tex}, line~65):
+
+\begin{center}\footnotesize
+\begin{longtable}{p{0.20\linewidth}cccccc}
+\caption{Implicit MMS 2D, \code{p3}/\code{p2}, $\Delta t = 10^{-3}$~s.
+Orders fitted over $N=10\dots100$. Cost is the
+$t_\Sigma$ / RSS$_\Sigma$ row sum from the same table.}\\
+\toprule
+Configuration & $\Vm$ & $\Vm^G$ & $u_1$ & $u_1^G$ & $u_2$ & $u_2^G$ \\
+\midrule\endfirsthead\toprule
+Configuration & $\Vm$ & $\Vm^G$ & $u_1$ & $u_1^G$ & $u_2$ & $u_2^G$ \\
+\midrule\endhead
+\code{bE} / consistent     & 2.434 & 3.214 & 2.000 & 3.534 & 2.000 & 3.532 \\
+\code{cN} / consistent     & 3.539 & 3.993 & 1.999 & 4.003 & 1.997 & 4.010 \\
+\code{cN} / lumped         & 2.369 & 3.091 & 1.999 & 3.441 & 1.996 & 3.435 \\
+\bottomrule
+\end{longtable}\end{center}
+
+Three concrete observations from those three rows:
+
+\begin{itemize}[leftmargin=*]
+\item \textbf{Backward Euler caps to first order in time}, which here
+collapses the reconstructed Vm fit from $3.993 \rightarrow 3.214$; the
+state-reconstructed columns survive because their dominant error
+component is spatial, not temporal.
+\item \textbf{Lumped mass caps the reconstructed Vm order}
+($3.993 \rightarrow 3.091$); the consistent LRE mass matrix is what
+lets the reconstruction respect its own quadrature.
+\item \textbf{Crank--Nicolson with consistent mass is the only
+combination that recovers the formal fourth-order target} for both
+$\Vm^G$ and the reconstructed state errors ($3.993, 4.003, 4.010$).
+\end{itemize}
+
+Comparing the three nonlinear methods on the very same
+\code{p3}/\code{p2}, \code{cN}, consistent, $\Delta t = 10^{-3}$~s row:
+
+\begin{center}\footnotesize
+\begin{tabular}{lcccc}
+\toprule
+Nonlinear method  & $\Vm$ & $\Vm^G$ & $t_\Sigma$ [s] & RSS$_\Sigma$ [MB] \\
+\midrule
+\code{Picard}       & 3.538 & 3.992 & 1730.1 & 19265.3 \\
+\code{diagonalIion} & 3.538 & 3.992 & 1661.8 & 19310.4 \\
+\code{JFNK}         & 3.539 & 3.993 &  798.3 & 18963.3 \\
+\bottomrule
+\end{tabular}\end{center}
+
+The three methods produce identical orders to three decimals --- as
+expected, since the MMS source is smooth and the nonlinear coupling
+error is small. They differ purely in cost: JFNK is $\sim 2.2\times$
+cheaper than Picard / diagonalIion in this MMS test. \emph{This is
+the opposite of the electro-activation picture below}, and the
+difference is explained in \S\ref{sec:efficient}.
+
+\subsection{Bottom line --- does the method work?}
+
+Yes. The MMS evidence is consistent: the formal LRE polynomial order
+is recovered whenever the rest of the discretisation does not block
+it (Crank--Nicolson, consistent mass, $\Delta t$ small enough,
+nonlinear residual converged). The MMS does not stress-test the
+non-smoothness of an activation front or the stiffness of the TNNP
+ionic model; those stress tests are the role of the Niederer reports.
+
+% ================================================================== %
+\section{Electro-activation benchmark (Niederer)}
+\label{sec:niederer}
+% ================================================================== %
+
+This is the same monodomain PDE + TNNP-2004 ionic model in three
+geometries: a 2D code-development reduction ($20\times 8$ mm, single
+cell in $z$, planar fibres; \emph{not} a published Niederer geometry)
+and the published 3D Niederer slab ($20\times 3\times 7$ mm,
+anisotropic fibre rotation, $40\times 6\times 14$ cells at
+$\Delta x = 0.5$~mm). The scalar diagnostic is the P8 activation time
+$\tact$~[ms]: the time at which a designated benchmark point at the
+far end of the slab first crosses $\Vm = V_{\text{thr}}$.
+
+\subsection{2D internal-consistency floor}
+
+Neither the 2D explicit nor the 2D implicit report can compare $\tact$
+against an external reference (the 2D reduction is not in the
+published benchmark literature). Instead each report reports an
+\emph{internal-consistency floor}: the band in which the high-order
+LRE pairs all agree at the finest mesh / smallest $\Delta t$.
+
+\begin{center}\footnotesize
+\begin{longtable}{p{0.30\linewidth}p{0.22\linewidth}p{0.22\linewidth}p{0.18\linewidth}}
+\caption{2D internal-consistency floor for $\tact$ across the three
+electro-activation reports.}\\
+\toprule
+Solver & Floor for $\tact$ [ms] & Where it is reached & Reached by \\
+\midrule\endfirsthead\toprule
+Solver & Floor for $\tact$ [ms] & Where it is reached & Reached by \\
+\midrule\endhead
+\code{...FoamExplicit}        & $[44.5,\,46.0]$  & $\Delta x \le 0.1$~mm        & \code{(NO,p2)}, \code{(NO,p3)}, \code{(p1,p2)}, \code{(p1,p3)}, \code{(p3,p3)} \\
+\code{...FoamImplicit}        & $[45.04,\,45.80]$& $\Delta x = 0.1$~mm, $\Delta t = 10^{-6}$~s & every HO pair we ran at the finest column \\
+\code{...FoamImplicitJfNK}    & (no floor yet)   & 2D finest mesh available is $\Delta x = 0.1$~mm and only for \code{Picard} & \code{(NO,NO)}=$42.76$, \code{(NO,p1)}=$41.84$; HO pairs were not run at $\Delta x = 0.1$~mm yet \\
+\bottomrule
+\end{longtable}\end{center}
+
+The first two solvers agree to within $\sim 0.5$~ms on a floor of
+\textbf{$\tact \approx 45$--$46$~ms} for this 2D reduction. The JFNK
+report has not yet been pushed deep enough into the high-order /
+fine-mesh corner to corroborate that floor; the only $\Delta x = 0.1$~mm
+entries it has are low-order Picard rows that sit slightly below it
+(\code{(NO,NO)} drops to $42.76$~ms when $\Delta t$ goes from
+$10^{-5}$ to $10^{-4}$~s, which is the single-Picard linearisation
+effect discussed in \S\ref{sec:efficient}).
+
+\subsection{3D current best estimate}
+
+The 3D data are much sparser. Tabulating what each electro-activation
+report has at $\Delta x = 0.5$~mm (the only mesh that exists in all
+three):
+
+\begin{center}\footnotesize
+\begin{longtable}{p{0.10\linewidth}p{0.20\linewidth}p{0.18\linewidth}p{0.18\linewidth}p{0.18\linewidth}}
+\caption{3D $\tact$ [ms] at $\Delta x = 0.5$~mm across the three
+electro-activation reports. \code{NC} marks LRE pairs that were not
+yet run with that solver.}\\
+\toprule
+Pair & Explicit ($\Delta t_{\text{req}}=5\!\cdot\!10^{-5}$~s)
+     & Implicit ($\Delta t=5\!\cdot\!10^{-5}$~s)
+     & JfNK-Picard ($\Delta t=10^{-4}$~s)
+     & JfNK-diagIion ($\Delta t=10^{-4}$~s) \\
+\midrule\endfirsthead\toprule
+Pair & Explicit ($\Delta t_{\text{req}}=5\!\cdot\!10^{-5}$~s)
+     & Implicit ($\Delta t=5\!\cdot\!10^{-5}$~s)
+     & JfNK-Picard ($\Delta t=10^{-4}$~s)
+     & JfNK-diagIion ($\Delta t=10^{-4}$~s) \\
+\midrule\endhead
+\code{(NO,NO)} & 141.5 & 142.7 & 136.7 & 136.6 \\
+\code{(NO,p1)} &  36.4 &  38.0 &  33.5 &  33.4 \\
+\code{(NO,p3)} & NC    & NC    &  30.6 &  30.5 \\
+\code{(p3,NO)} & NC    & NC    & 149.1 & 149.1 \\
+\code{(p3,p1)} & NC    & NC    &  32.4 &  32.4 \\
+\code{(p3,p3)} &  32.6 &  34.5 &  29.6 & NC    \\
+\bottomrule
+\end{longtable}\end{center}
+
+The qualitative pattern is the same in all three reports: turning on
+LRE on the ionic source alone collapses the activation time from
+$\sim 140$~ms (low-order) to $\sim 30$--$38$~ms; the matched HO pair
+adds another $\sim 2$--$5$~ms drop. The three solvers agree within
+$\sim 0$--$8$~ms across all rows, with the dominant offset coming
+from $\Delta t$ ($5\!\cdot\!10^{-5}$ vs $10^{-4}$~s) and from the
+single-Picard linearisation in the non-JFNK implicit branch.
+
+\textbf{The 3D problem does not yet have enough mesh refinement to
+claim a converged $\tact$.} The high-order pairs cluster in
+$[29.6,\,34.5]$~ms at $\Delta x = 0.5$~mm, but the only finer 3D mesh
+that exists is for the low-order pair \code{(NO,NO)} (implicit:
+$55.6$~ms at $0.2$~mm, $47.3$~ms at $0.1$~mm). Until at least one HO
+pair is rerun at $\Delta x \le 0.25$~mm, the 3D internal-consistency
+floor remains open.
+
+\subsection{Cross-method agreement on the same configuration}
+
+The implicit-JFNK report contains the only side-by-side comparison of
+\code{Picard}, \code{diagonalIion}, and \code{JFNK} on the same
+electro-activation case. At $\Delta x = 0.5$~mm, $\Delta t = 10^{-4}$~s:
+
+\begin{center}\footnotesize
+\begin{tabular}{lccc}
+\toprule
+Pair & Picard [ms] & diagonalIion [ms] & JFNK [ms] \\
+\midrule
+\code{(NO,NO)} & 153.32 & 153.16 & 153.13 \\
+\code{(NO,p3)} &  32.46 &  32.37 &  32.36 \\
+\code{(p3,p3)} &  33.09 &  33.00 &  33.00 \\
+\bottomrule
+\end{tabular}\end{center}
+
+The three nonlinear methods agree to within $0.1$--$0.2$~ms on every
+row available. In other words, on the Niederer benchmark the
+\emph{choice of nonlinear method is essentially accuracy-free} at
+$\Delta t = 10^{-4}$~s; it is a cost decision (see \S\ref{sec:cost}).
+
+% ================================================================== %
+\section{Most cost-effective combinations}
+\label{sec:efficient}
+% ================================================================== %
+
+\subsection{High-order on the source alone is the dominant accuracy lever}
+
+The single largest accuracy gain per unit of extra cost comes from
+turning on LRE quadrature for the ionic source while leaving the
+diffusion at the standard FV operator: the \code{(NO,p2)} or
+\code{(NO,p3)} pair. Concrete example from the implicit 2D table
+(\code{...FoamImplicit/report/results\_tables.tex}, $\Delta t = 10^{-5}$~s):
+
+\begin{center}\footnotesize
+\begin{tabular}{lccccc}
+\toprule
+Pair & $\Delta x = 0.5$ & $0.25$ & $0.125$ & $0.1$ & $0.05$ [mm] \\
+\midrule
+\code{(NO,NO)} $\tact$ [ms]              & 157.69 & 67.69 & 50.65 & 48.55 & 46.10 \\
+\code{(NO,p2)} $\tact$ [ms]              &  35.26 & 43.20 & 45.15 & 45.42 & --- \\
+\code{(NO,p2)/(NO,NO)} wall-clock ratio  & 2.0    & 3.0   & 5.5   & 4.5   & --- \\
+\bottomrule
+\end{tabular}\end{center}
+
+Reading row 1: the low-order pair only enters the floor band at the
+two finest meshes. Reading row 2: \code{(NO,p2)} reaches a value
+within $\sim 2$~ms of the floor already at $\Delta x = 0.5$~mm and is
+inside the band at $\Delta x = 0.125$~mm. The cost ratio (row 3) is
+between $\sim 2\times$ and $\sim 5\times$ for the same target
+accuracy --- in other words, far cheaper than the order-of-magnitude
+mesh refinement that the \code{(NO,NO)} branch would need to match it.
+
+The same pattern holds in the explicit report (\code{(NO,p2)} reaches
+$34.7 \rightarrow 44.95$~ms over the mesh sweep) and in the
+implicit-JFNK report (\code{(NO,p3)} reaches $32.4 \rightarrow$
+finer-mesh values within the band).
+
+\subsection{LRE on the diffusion only is the worst-of-both-worlds}
+
+The \code{(p$k$, NO)} branch --- high-order LRE Laplacian on top of a
+piecewise-constant ionic source --- is documented in the explicit
+report as numerically pathological on coarse meshes. The Niederer
+explicit 2D table shows \code{(p1,NO)} at $\Delta x = 0.5$~mm giving
+$\tact = 14.25$~ms (a spurious very-early crossing) and
+\code{(p2,NO)} giving $0.00$~ms (the front never crossed in the
+simulated window). Same pattern in the implicit-JFNK 2D table:
+\code{(p3,NO)} at $\Delta x = 0.5$~mm gives $180.4$--$180.5$~ms across
+all three nonlinear methods, $\sim 20$\% \emph{worse} than the
+\code{(NO,NO)} baseline at the same mesh. This branch should be
+treated as a diagnostic, not a production setting.
+
+\subsection{The best combination versus the most efficient combination}
+
+Putting the two together:
+
+\begin{itemize}[leftmargin=*]
+\item \textbf{Best combination} (highest fidelity reference). A matched
+high-order pair (\code{p3}/\code{p3} or \code{p3}/\code{p2}) with
+Crank--Nicolson, consistent mass, the finest mesh in the table, and
+$\Delta t = 10^{-6}$~s on the implicit solver. This is the
+combination that \emph{defines} the internal-consistency floor in 2D
+($45.0$--$45.8$~ms). The single-Picard cost in this corner is
+$\sim 700$--$900$~min wall-clock on the finest 2D mesh per case
+(\code{...FoamImplicit/results\_tables.tex} wall-clock block).
+\item \textbf{Most efficient combination} (highest accuracy per unit
+cost). \code{(NO,p2)} or \code{(NO,p3)} on a coarse mesh, with
+\code{Picard} as the nonlinear method when the implicit branch is
+needed --- or with explicit forward-Euler when the CFL clamp at
+$\Delta x = 0.5$~mm ($\Delta t_{\text{CFL}} \approx 8.7\!\cdot\!10^{-5}$~s
+in 3D) is acceptable. Picard and diagonalIion agree on $\tact$ in
+both 2D and 3D, and Picard is typically $\sim 10$--$20$\% faster
+than diagonalIion at this accuracy level on the Niederer problem.
+\end{itemize}
+
+JFNK on the electro-activation problem is \emph{not} the most
+efficient choice, despite being so on the MMS problem. The reason is
+that the dominant cost of a JFNK iteration on the electro-activation
+problem is the per-Krylov-vector TNNP ODE re-solve (RKF45, 17 states,
+adaptive sub-stepping); each GMRES matvec re-integrates the ionic ODE
+over $[t^n, t^{n+1}]$ on every cell or quadrature point, which is
+much more expensive than the cheap manufactured source of the MMS
+test. Concrete penalty from the implicit-JFNK 2D wall-clock table
+(\code{...FoamImplicitJfNK/.../solver\_report.tex} Table~6) at
+$\Delta x = 0.125$~mm, \code{(NO,p3)}: Picard
+$402$~min vs JFNK $3407$~min (\textbf{$\sim 8.5\times$} penalty;
+\code{diagonalIion} sits between them at $533$~min).
+
+% ================================================================== %
+\section{Computational cost cross-table}
+\label{sec:cost}
+% ================================================================== %
+
+The following table lists four landmark configurations, one per row,
+and reports their wall-clock cost (in minutes) and peak resident set
+size (in MiB) on the cheapest available solver / nonlinear method.
+The numbers come directly from the per-solver result tables.
+
+\begin{center}\footnotesize
+\begin{longtable}{p{0.34\linewidth}p{0.18\linewidth}p{0.12\linewidth}p{0.10\linewidth}p{0.16\linewidth}}
+\caption{Cost cross-table for four landmark configurations. Time is
+elapsed wall-clock in minutes (rounded). \code{NA} = configuration
+not applicable to that solver.}\\
+\toprule
+Configuration & Solver / method & 2D time & 2D RSS & 3D time \\
+\midrule\endfirsthead\toprule
+Configuration & Solver / method & 2D time & 2D RSS & 3D time \\
+\midrule\endhead
+Cheapest baseline:           & Explicit                 & 1 min        & 148 MiB  & 3 min                   \\
+\code{(NO,NO)}, $\Delta x = 0.5$~mm
+                             & Implicit / Picard, $\Delta t = 10^{-3}$ & 1 min        & 148 MiB  & 4 min ($\Delta t = 5e\!-\!5$)  \\
+                             & JfNK / Picard, $\Delta t = 10^{-4}$     & 15 min       & 148 MiB  & 80 min                 \\
+\midrule
+Cheapest accurate:           & Explicit (CFL-clamped)   & 1 min        & 152 MiB  & 11 min ($\Delta x = 0.5$, $\Delta t_{\text{CFL}}$) \\
+\code{(NO,p2)} or \code{(NO,p3)}, $\Delta x = 0.5$~mm
+                             & Implicit / Picard, $\Delta t = 10^{-5}$ & 2--3 min     & 155 MiB  & 14 min ($\Delta x = 0.5$, $\Delta t = 5e\!-\!5$)             \\
+                             & JfNK / Picard, $\Delta t = 10^{-4}$     & 23 min       & 159 MiB  & 168 min                \\
+\midrule
+Mid-range converged:         & Explicit                 & 42 min       & 234 MiB  & NA                     \\
+\code{(NO,p2)}, $\Delta x = 0.125$~mm
+                             & Implicit / Picard, $\Delta t = 10^{-5}$ & 44 min       & 269 MiB  & NA                     \\
+                             & JfNK / Picard, $\Delta t = 10^{-4}$     & 402 min      & 288 MiB  & NA                     \\
+\midrule
+Reference run (defines floor): & Explicit ($\Delta x = 0.05$~mm) & 1167 min  & 961 MiB  & NA \\
+\code{(p2,p2)}, finest mesh
+                             & Implicit / Picard, $\Delta x = 0.05$, $\Delta t = 10^{-3}$ & 246 min & 1429 MiB & NA \\
+                             & Implicit / Picard, $\Delta x = 0.1$, $\Delta t = 10^{-6}$  & 730 min & 466 MiB  & NA \\
+\bottomrule
+\end{longtable}\end{center}
+
+The two general lessons that fall out of this table are:
+
+\begin{itemize}[leftmargin=*]
+\item \textbf{Crossing into a finer mesh costs $10$--$30\times$ more
+than upgrading the LRE pair on a coarse mesh}; e.g. going from
+\code{(NO,p2)} at $\Delta x = 0.5$~mm (2~min) to \code{(NO,p2)} at
+$\Delta x = 0.125$~mm (44~min) is a $\sim 20\times$ cost step, and
+buys only $\sim 10$~ms of accuracy ($\tact$ moves from $35.3$ to
+$45.2$~ms, i.e. from below to inside the floor band).
+\item \textbf{The JFNK branch on the electro-activation problem
+multiplies wall-clock cost by $\sim 5$--$8\times$ vs Picard at the
+same accuracy}; see for instance the
+\code{(NO,p3)}/$\Delta x = 0.125$~mm row of the JFNK 2D table cited
+in \S\ref{sec:efficient}. Memory cost is essentially method-independent.
+\end{itemize}
+
+% ================================================================== %
+\section{Gaps and pending runs}
+\label{sec:gaps}
+% ================================================================== %
+
+The largest \code{NC} blocks in the current data, listed in the order
+in which closing them most increases the value of the reports:
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{JFNK 3D sweep has not been run at all.} The
+implicit-JFNK 3D table has \code{Picard} and \code{diagonalIion}
+columns but no \code{JFNK} column. Filling at least the six 2D-row
+configurations at $\Delta x = 0.5$~mm closes the cross-method
+comparison in 3D.
+\item \textbf{One finer 3D mesh on a high-order pair.} The implicit
+3D table only has \code{(NO,NO)} at $\Delta x \in \{0.5, 0.2, 0.1\}$~mm;
+no high-order pair has been run below $\Delta x = 0.5$~mm in 3D. A
+single run of \code{(NO,p2)} or \code{(p3,p3)} at
+$\Delta x = 0.25$~mm or $0.2$~mm (cheapest on explicit forward-Euler
+at $\Delta t = 5\!\cdot\!10^{-6}$~s, or on Picard at
+$\Delta t = 10^{-4}$~s) would let us define the 3D
+internal-consistency floor.
+\item \textbf{Missing \code{(p3,p3)} diagonalIion 3D row} in the
+implicit-JFNK 3D table.
+\item \textbf{Finest-mesh entries for \code{(NO,p2)} and \code{(NO,p3)}
+in the explicit 2D table} at $\Delta x = 0.05$~mm are \code{NC};
+these are the runs that would let us claim the explicit 2D floor
+\emph{also} from the most cost-effective LRE pairs, not only from the
+matched high-order pairs.
+\item \textbf{Several Picard-only entries at $\Delta t = 10^{-6}$~s,
+$\Delta x = 0.05$~mm} in the implicit (non-JFNK) 2D table are
+\code{NC} (mostly the \code{p3} rows). These are the heaviest cases
+in the entire 2D study; they are not blocking conclusions, only
+documentation.
+\item \textbf{JFNK 2D fine-mesh rows.} JFNK 2D currently stops at
+$\Delta x = 0.125$~mm; only \code{Picard} reaches $\Delta x = 0.1$~mm.
+Two or three JFNK runs at the same mesh as the existing Picard rows
+would close the JFNK 2D internal-consistency picture.
+\end{enumerate}
+
+Items (1) and (2) are the two runs that most change the qualitative
+conclusion of this summary; everything else is documentation.
+
+% ================================================================== %
+\section{Bottom-line conclusions}
+\label{sec:conclusions}
+% ================================================================== %
+
+Answering, in order, the six questions that prompted this document:
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{Do the methods work?} Yes. The MMS reports recover the
+formal LRE polynomial order on every clean combination
+(Crank--Nicolson, consistent mass, $\Delta t$ small enough). The three
+Niederer-electro-activation reports agree with each other in the
+overlap regions; cross-method differences are explained by their
+respective discretisation choices, not by a bug.
+\item \textbf{What does the electro-activation problem converge to?}
+\textbf{2D:} $\tact \approx 45$--$46$~ms (internal-consistency floor
+shared by the explicit and the single-Picard implicit reports). The
+JFNK report has not yet run deep enough to corroborate this floor
+from a different time-step / nonlinear path. \textbf{3D:} the answer
+is currently \emph{open}. The high-order pairs cluster in
+$29.6$--$34.5$~ms at $\Delta x = 0.5$~mm but the 3D mesh sweep is too
+shallow to define a converged value.
+\item \textbf{Which combinations are the most cost-effective for that
+value?} \code{(NO,p2)} or \code{(NO,p3)} --- LRE quadrature on the
+ionic source alone, with the standard FV diffusion. They reach the
+internal-consistency band already at $\Delta x = 0.125$~mm and cost
+$\sim 5\times$ less than the matched high-order pairs at the same
+mesh.
+\item \textbf{What do those combinations cost?} On the implicit
+(single-Picard) 2D table at $\Delta t = 10^{-5}$~s: $\sim 2$~min at
+$\Delta x = 0.5$~mm, $\sim 44$~min at $\Delta x = 0.125$~mm,
+$\sim 243$~min at $\Delta x = 0.05$~mm for \code{(NO,p2)}; peak RSS
+stays under $1$~GiB. JFNK multiplies the wall-clock by
+$\sim 5$--$8\times$ for the same configuration on the
+electro-activation problem.
+\item \textbf{Which is the best combination?} The matched
+high-order pair \code{p3}/\code{p3} (or \code{p3}/\code{p2}) with
+\code{cN} + consistent mass + finest mesh + smallest $\Delta t$. This
+is the combination that \emph{defines} the floor; it is also the
+single most expensive cell of the entire study.
+\item \textbf{Which is the most efficient combination?}
+\code{(NO,p2)} or \code{(NO,p3)} on a coarse mesh, with \code{Picard}
+when the implicit branch is needed. On the electro-activation problem
+the JFNK branch is \emph{not} efficient (the per-Krylov ODE re-solve
+of the TNNP cell model dominates); this is the qualitative reverse of
+the MMS picture in \S\ref{sec:mms}, where JFNK is the cheapest of
+the three.
+\end{enumerate}
+
+\paragraph{A note on Crank--Nicolson order.}
+The implicit (non-JFNK) electro-activation report documents that with
+a \emph{single} Picard sweep per time step, the formal
+$\theta = \tfrac{1}{2}$ second-order temporal behaviour is not
+recovered (\code{$\tact$} on the finest mesh halves between
+$\Delta t = 10^{-3}$ and $10^{-4}$~s, rather than quartering as the
+asymptote would predict). This is a linearisation-error signature,
+not a Crank--Nicolson failure; the implicit-JFNK solver fixes it by
+genuinely solving the coupled nonlinear residual. The implicit
+report's stated next step --- enabling a tolerance-based stop on the
+Picard residual with $k \ge 2$ sweeps --- is the cheapest way to
+recover CN second order without paying the JFNK ODE-re-solve cost.
+
+\end{document}

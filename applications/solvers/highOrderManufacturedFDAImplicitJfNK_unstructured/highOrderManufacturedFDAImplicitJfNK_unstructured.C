@@ -682,11 +682,203 @@ namespace
         return area*(n & (D & e))/dMag;
     }
 
+    scalar normalDiffusivity(const tensor& D, const vector& n)
+    {
+        return max(mag(n & (D & n)), SMALL);
+    }
+
+    scalar stabilisationFaceCoeff
+    (
+        const scalar alpha,
+        const scalar area,
+        const tensor& D,
+        const vector& n,
+        const vector& d
+    )
+    {
+        if (alpha <= SMALL)
+        {
+            return 0.0;
+        }
+
+        const scalar dn = max(mag(d & n), VSMALL);
+        return alpha*area*normalDiffusivity(D, n)/dn;
+    }
+
+    void addCellGradientDotCoeffs
+    (
+        std::vector<Triplet>& triplets,
+        const label row,
+        const scalar scale,
+        const label cellI,
+        const vector& d,
+        const LRE& LREInterp
+    )
+    {
+        if (mag(scale) <= SMALL)
+        {
+            return;
+        }
+
+        const labelListList& stencils = LREInterp.globalCellStencils();
+        const CompactListList<vector>& gradCoeffs = LREInterp.QRGradCoeffs();
+        const labelList& curStencil = stencils[cellI];
+        const label selfCoeffI = curStencil.size();
+
+        forAll(curStencil, cI)
+        {
+            addTripletIfNeeded
+            (
+                triplets,
+                row,
+                curStencil[cI],
+                scale*(gradCoeffs[cellI][cI] & d)
+            );
+        }
+
+        addTripletIfNeeded
+        (
+            triplets,
+            row,
+            cellI,
+            scale*(gradCoeffs[cellI][selfCoeffI] & d)
+        );
+    }
+
+    void addCellTaylorExtrapolationCoeffs
+    (
+        std::vector<Triplet>& triplets,
+        const label row,
+        const scalar scale,
+        const label cellI,
+        const point& evalPoint,
+        const LRE& LREInterp,
+        const vectorField& C,
+        const bool twoD
+    )
+    {
+        if (mag(scale) <= SMALL)
+        {
+            return;
+        }
+
+        const vector d = evalPoint - C[cellI];
+        const labelListList& stencils = LREInterp.globalCellStencils();
+        const CompactListList<vector>& gradCoeffs = LREInterp.QRGradCoeffs();
+        const CompactListList<symmTensor>& hessCoeffs =
+            LREInterp.cellHessianCoeffs();
+        const CompactListList<LRE::symmTensor3Order>& thirdCoeffs =
+            LREInterp.cellThirdDerivCoeffs();
+
+        const labelList& curStencil = stencils[cellI];
+        const label selfCoeffI = curStencil.size();
+
+        forAll(curStencil, cI)
+        {
+            scalar coeff = gradCoeffs[cellI][cI] & d;
+
+            if (LREInterp.order() >= 2)
+            {
+                coeff += 0.5*quadraticForm(hessCoeffs[cellI][cI], d);
+            }
+
+            if (LREInterp.order() >= 3)
+            {
+                coeff +=
+                    (1.0/6.0)
+                   *LRE::cubicForm(thirdCoeffs[cellI][cI], d, twoD);
+            }
+
+            addTripletIfNeeded
+            (
+                triplets,
+                row,
+                curStencil[cI],
+                scale*coeff
+            );
+        }
+
+        scalar selfCoeff = 1.0 + (gradCoeffs[cellI][selfCoeffI] & d);
+
+        if (LREInterp.order() >= 2)
+        {
+            selfCoeff += 0.5*quadraticForm(hessCoeffs[cellI][selfCoeffI], d);
+        }
+
+        if (LREInterp.order() >= 3)
+        {
+            selfCoeff +=
+                (1.0/6.0)
+               *LRE::cubicForm(thirdCoeffs[cellI][selfCoeffI], d, twoD);
+        }
+
+        addTripletIfNeeded(triplets, row, cellI, scale*selfCoeff);
+    }
+
+    void addRhieChowInternalJumpCoeffs
+    (
+        std::vector<Triplet>& triplets,
+        const label row,
+        const scalar scale,
+        const label own,
+        const label nei,
+        const vector& dPN,
+        const LRE& LREInterp
+    )
+    {
+        addTripletIfNeeded(triplets, row, nei, scale);
+        addTripletIfNeeded(triplets, row, own, -scale);
+
+        addCellGradientDotCoeffs
+        (
+            triplets,
+            row,
+            -0.5*scale,
+            own,
+            dPN,
+            LREInterp
+        );
+
+        addCellGradientDotCoeffs
+        (
+            triplets,
+            row,
+            -0.5*scale,
+            nei,
+            dPN,
+            LREInterp
+        );
+    }
+
+    void addRhieChowBoundaryJumpCoeffs
+    (
+        std::vector<Triplet>& triplets,
+        const label row,
+        const scalar scale,
+        const label own,
+        const vector& dPb,
+        const LRE& LREInterp
+    )
+    {
+        addTripletIfNeeded(triplets, row, own, -scale);
+        addCellGradientDotCoeffs
+        (
+            triplets,
+            row,
+            -scale,
+            own,
+            dPb,
+            LREInterp
+        );
+    }
+
 
     void assembleStandardOrthogonalStiffnessMatrix
     (
         const fvMesh& mesh,
         const volTensorField& conductivity,
+        const LRE& LREInterp,
+        const scalar stabilisationAlpha,
         SpMat& K
     )
     {
@@ -713,6 +905,52 @@ namespace
         }
 
         const surfaceVectorField& Cf = mesh.Cf();
+
+        if (stabilisationAlpha > SMALL)
+        {
+            forAll(neighbour, faceI)
+            {
+                const label own = owner[faceI];
+                const label nei = neighbour[faceI];
+
+                const vector Sf = mesh.Sf()[faceI];
+                const scalar area = mag(Sf) + VSMALL;
+                const vector n = Sf/area;
+                const vector dPN = C[nei] - C[own];
+                const tensor Df = 0.5*(conductivity[own] + conductivity[nei]);
+                const scalar a =
+                    stabilisationFaceCoeff
+                    (
+                        stabilisationAlpha,
+                        area,
+                        Df,
+                        n,
+                        dPN
+                    );
+
+                addRhieChowInternalJumpCoeffs
+                (
+                    triplets,
+                    own,
+                    a/max(V[own], SMALL),
+                    own,
+                    nei,
+                    dPN,
+                    LREInterp
+                );
+
+                addRhieChowInternalJumpCoeffs
+                (
+                    triplets,
+                    nei,
+                    -a/max(V[nei], SMALL),
+                    own,
+                    nei,
+                    dPN,
+                    LREInterp
+                );
+            }
+        }
 
         forAll(mesh.boundary(), patchI)
         {
@@ -741,6 +979,35 @@ namespace
                         );
 
                     addTripletIfNeeded(triplets, own, own, -a/max(V[own], SMALL));
+
+                    if (stabilisationAlpha > SMALL)
+                    {
+                        const vector Sf =
+                            mesh.Sf().boundaryField()[patchI][faceI];
+                        const scalar area = mag(Sf) + VSMALL;
+                        const vector n = Sf/area;
+                        const vector dPb =
+                            Cf.boundaryField()[patchI][faceI] - C[own];
+                        const scalar aStab =
+                            stabilisationFaceCoeff
+                            (
+                                stabilisationAlpha,
+                                area,
+                                conductivity[own],
+                                n,
+                                dPb
+                            );
+
+                        addRhieChowBoundaryJumpCoeffs
+                        (
+                            triplets,
+                            own,
+                            aStab/max(V[own], SMALL),
+                            own,
+                            dPb,
+                            LREInterp
+                        );
+                    }
                 }
             }
         }
@@ -755,9 +1022,13 @@ namespace
         const fvMesh& mesh,
         const volTensorField& conductivity,
         const LRE& LREInterp,
+        const scalar stabilisationAlpha,
         SpMat& K
     )
     {
+        const bool twoD = mesh.nGeometricD() == 2;
+        const vectorField& C = mesh.C();
+        const surfaceVectorField& Cf = mesh.Cf();
         const CompactListList<point>& faceQP = LREInterp.faceQuadPoints();
         const CompactListList<scalar>& faceQW = LREInterp.faceQuadWeight();
         const labelListList& faceStencils = LREInterp.globalFaceStencils();
@@ -813,6 +1084,76 @@ namespace
             }
         }
 
+        if (stabilisationAlpha > SMALL)
+        {
+            forAll(neighbour, faceI)
+            {
+                const label own = owner[faceI];
+                const label nei = neighbour[faceI];
+
+                const vector Sf = mesh.Sf()[faceI];
+                const scalar area = mag(Sf) + VSMALL;
+                const vector n = Sf/area;
+                const vector dPN = C[nei] - C[own];
+                const tensor Df = 0.5*(conductivity[own] + conductivity[nei]);
+                const scalar a =
+                    stabilisationFaceCoeff
+                    (
+                        stabilisationAlpha,
+                        area,
+                        Df,
+                        n,
+                        dPN
+                    );
+                const point xf = Cf[faceI];
+
+                addCellTaylorExtrapolationCoeffs
+                (
+                    triplets,
+                    own,
+                    a/max(V[own], SMALL),
+                    nei,
+                    xf,
+                    LREInterp,
+                    C,
+                    twoD
+                );
+                addCellTaylorExtrapolationCoeffs
+                (
+                    triplets,
+                    own,
+                    -a/max(V[own], SMALL),
+                    own,
+                    xf,
+                    LREInterp,
+                    C,
+                    twoD
+                );
+                addCellTaylorExtrapolationCoeffs
+                (
+                    triplets,
+                    nei,
+                    -a/max(V[nei], SMALL),
+                    nei,
+                    xf,
+                    LREInterp,
+                    C,
+                    twoD
+                );
+                addCellTaylorExtrapolationCoeffs
+                (
+                    triplets,
+                    nei,
+                    a/max(V[nei], SMALL),
+                    own,
+                    xf,
+                    LREInterp,
+                    C,
+                    twoD
+                );
+            }
+        }
+
         forAll(mesh.boundary(), patchI)
         {
             const fvPatch& patch = mesh.boundary()[patchI];
@@ -861,6 +1202,43 @@ namespace
                         );
                     }
                 }
+
+                if
+                (
+                    stabilisationAlpha > SMALL
+                 && (
+                        bcType == fixedValueFvPatchScalarField::typeName
+                     || bcType == "fixedVoltage"
+                    )
+                )
+                {
+                    const vector Sf = mesh.Sf().boundaryField()[patchI][faceI];
+                    const scalar area = mag(Sf) + VSMALL;
+                    const vector n = Sf/area;
+                    const point xf = Cf.boundaryField()[patchI][faceI];
+                    const vector dPb = xf - C[own];
+                    const scalar a =
+                        stabilisationFaceCoeff
+                        (
+                            stabilisationAlpha,
+                            area,
+                            conductivity[own],
+                            n,
+                            dPb
+                        );
+
+                    addCellTaylorExtrapolationCoeffs
+                    (
+                        triplets,
+                        own,
+                        -a/max(V[own], SMALL),
+                        own,
+                        xf,
+                        LREInterp,
+                        C,
+                        twoD
+                    );
+                }
             }
         }
 
@@ -873,6 +1251,8 @@ namespace
     (
         const fvMesh& mesh,
         const volTensorField& conductivity,
+        const LRE& LREInterp,
+        const scalar stabilisationAlpha,
         const scalar t,
         const label dim
     )
@@ -910,6 +1290,27 @@ namespace
                     );
 
                 b[own] += a/max(V[own], SMALL)*exactVm(p, t, dim);
+
+                if (stabilisationAlpha > SMALL)
+                {
+                    const vector Sf =
+                        mesh.Sf().boundaryField()[patchI][faceI];
+                    const scalar area = mag(Sf) + VSMALL;
+                    const vector n = Sf/area;
+                    const vector dPb = p - C[own];
+                    const scalar aStab =
+                        stabilisationFaceCoeff
+                        (
+                            stabilisationAlpha,
+                            area,
+                            conductivity[own],
+                            n,
+                            dPb
+                        );
+
+                    b[own] +=
+                        aStab/max(V[own], SMALL)*exactVm(p, t, dim);
+                }
             }
         }
 
@@ -921,6 +1322,7 @@ namespace
         const fvMesh& mesh,
         const volTensorField& conductivity,
         const LRE& LREInterp,
+        const scalar stabilisationAlpha,
         const scalar t,
         const label dim
     )
@@ -974,6 +1376,29 @@ namespace
                         area*w*(n & (conductivity[own] & gGhost));
 
                     b[own] += fluxCoeff/max(V[own], SMALL)*Vbc;
+                }
+
+                if (stabilisationAlpha > SMALL)
+                {
+                    const point xf =
+                        mesh.Cf().boundaryField()[patchI][faceI];
+                    const vector Sf =
+                        mesh.Sf().boundaryField()[patchI][faceI];
+                    const scalar area = mag(Sf) + VSMALL;
+                    const vector n = Sf/area;
+                    const vector dPb = xf - mesh.C()[own];
+                    const scalar a =
+                        stabilisationFaceCoeff
+                        (
+                            stabilisationAlpha,
+                            area,
+                            conductivity[own],
+                            n,
+                            dPb
+                        );
+
+                    b[own] +=
+                        a/max(V[own], SMALL)*exactVm(xf, t, dim);
                 }
             }
         }
@@ -1054,6 +1479,65 @@ namespace
         return EigVec();
     }
 
+    void appendTetQuadraturePointsAndWeights
+    (
+        const point& a,
+        const point& b,
+        const point& c,
+        const point& d,
+        DynamicList<point>& qPoints,
+        DynamicList<scalar>& qWeights
+    )
+    {
+        static const scalar xi[4] =
+        {
+            0.06943184420297371,
+            0.33000947820757187,
+            0.6699905217924281,
+            0.9305681557970262
+        };
+
+        static const scalar wi[4] =
+        {
+            0.1739274225687269*0.5,
+            0.3260725774312731*0.5,
+            0.3260725774312731*0.5,
+            0.1739274225687269*0.5
+        };
+
+        const scalar tetVol =
+            mag((b - a) & ((c - a) ^ (d - a)))/6.0;
+
+        if (tetVol <= VSMALL)
+        {
+            return;
+        }
+
+        for (label i = 0; i < 4; ++i)
+        {
+            const scalar r = xi[i];
+            for (label j = 0; j < 4; ++j)
+            {
+                const scalar s = xi[j];
+                for (label k = 0; k < 4; ++k)
+                {
+                    const scalar t = xi[k];
+
+                    const scalar l0 = 1.0 - r;
+                    const scalar l1 = r*(1.0 - s);
+                    const scalar l2 = r*s*(1.0 - t);
+                    const scalar l3 = r*s*t;
+
+                    qPoints.append(l0*a + l1*b + l2*c + l3*d);
+                    qWeights.append
+                    (
+                        tetVol*6.0*wi[i]*wi[j]*wi[k]*sqr(r)*s
+                    );
+                }
+            }
+        }
+    }
+
     void cellQuadraturePointsAndWeights
     (
         const fvMesh& mesh,
@@ -1062,77 +1546,67 @@ namespace
         scalarField& qWeights
     )
     {
-        static const scalar xi[4] =
-        {
-            -0.8611363115940526,
-            -0.3399810435848563,
-             0.3399810435848563,
-             0.8611363115940526
-        };
+        DynamicList<point> qPointDyn;
+        DynamicList<scalar> qWeightDyn;
 
-        static const scalar wi[4] =
-        {
-            0.1739274225687269,
-            0.3260725774312731,
-            0.3260725774312731,
-            0.1739274225687269
-        };
-
-        const label dim = mesh.nGeometricD();
-        const label n1D = 4;
-
-        label nQ = 1;
-        for (label d = 0; d < dim; ++d)
-        {
-            nQ *= n1D;
-        }
-
-        qPoints.setSize(nQ);
-        qWeights.setSize(nQ);
-
-        point pMin(GREAT, GREAT, GREAT);
-        point pMax(-GREAT, -GREAT, -GREAT);
-
-        const labelList& cellPts = mesh.cellPoints()[cellI];
+        const cell& curCell = mesh.cells()[cellI];
+        const faceList& faces = mesh.faces();
         const pointField& pts = mesh.points();
+        const vectorField& faceCentres = mesh.faceCentres();
+        const point& cellCentre = mesh.C()[cellI];
 
-        forAll(cellPts, i)
+        forAll(curCell, cellFaceI)
         {
-            const point& p = pts[cellPts[i]];
+            const label faceI = curCell[cellFaceI];
+            const face& f = faces[faceI];
 
-            pMin.x() = min(pMin.x(), p.x());
-            pMin.y() = min(pMin.y(), p.y());
-            pMin.z() = min(pMin.z(), p.z());
-
-            pMax.x() = max(pMax.x(), p.x());
-            pMax.y() = max(pMax.y(), p.y());
-            pMax.z() = max(pMax.z(), p.z());
-        }
-
-        const point& c = mesh.C()[cellI];
-
-        for (label qI = 0; qI < nQ; ++qI)
-        {
-            label idx = qI;
-            point p = c;
-            scalar w = 1.0;
-
-            for (label d = 0; d < dim; ++d)
+            if (f.size() < 3)
             {
-                const label i = idx % n1D;
-                idx /= n1D;
-
-                const scalar lo = pMin[d];
-                const scalar hi = pMax[d];
-                const scalar mid = 0.5*(lo + hi);
-                const scalar half = 0.5*(hi - lo);
-
-                p[d] = mid + half*xi[i];
-                w *= wi[i];
+                continue;
             }
 
-            qPoints[qI] = p;
-            qWeights[qI] = w;
+            const point& faceCentre = faceCentres[faceI];
+
+            forAll(f, fpI)
+            {
+                const point& p0 = pts[f[fpI]];
+                const point& p1 = pts[f[(fpI + 1) % f.size()]];
+
+                appendTetQuadraturePointsAndWeights
+                (
+                    cellCentre,
+                    faceCentre,
+                    p0,
+                    p1,
+                    qPointDyn,
+                    qWeightDyn
+                );
+            }
+        }
+
+        if (qPointDyn.size() == 0)
+        {
+            qPoints.setSize(1);
+            qWeights.setSize(1);
+            qPoints[0] = cellCentre;
+            qWeights[0] = 1.0;
+            return;
+        }
+
+        scalar wSum = 0.0;
+        forAll(qWeightDyn, qI)
+        {
+            wSum += qWeightDyn[qI];
+        }
+        wSum = max(wSum, SMALL);
+
+        qPoints.setSize(qPointDyn.size());
+        qWeights.setSize(qWeightDyn.size());
+
+        forAll(qPointDyn, qI)
+        {
+            qPoints[qI] = qPointDyn[qI];
+            qWeights[qI] = qWeightDyn[qI]/wSum;
         }
     }
 
@@ -2224,6 +2698,7 @@ namespace
         const word& massMatrixType,
         const bool useHighOrderVm,
         const bool useHighOrderIion,
+        const scalar stabilisationAlpha,
         const label lreN,
         const label lreNn,
         const scalar lreK,
@@ -2282,6 +2757,14 @@ namespace
             nonlinearMethod == "diagonalIion"
          || nonlinearMethod == "diagonal"
          || nonlinearMethod == "localDiagonal";
+        const word stabilisationMethod =
+            stabilisationAlpha <= SMALL
+          ? word("none")
+          : (
+                useHighOrderVm
+              ? word("alphaHighOrder")
+              : word("RhieChow")
+            );
 
         const NonlinearConvergenceRecord* finalNonlinear =
             nonlinearHistory.empty() ? nullptr : &nonlinearHistory.back();
@@ -2367,6 +2850,8 @@ namespace
             << "Implicit scheme       = " << implicitScheme << nl
             << "Mass matrix           = " << massMatrixType << nl
             << "useHighOrder_Vm       = " << (useHighOrderVm ? "true" : "false") << nl
+            << "Stabilisation method  = " << stabilisationMethod << nl
+            << "Stabilisation alpha   = " << stabilisationAlpha << nl
             << "Vm LRE N              = " << lreN << nl
             << "Vm LRE Nn             = " << lreNn << nl
             << "Vm LRE k              = " << lreK << nl
@@ -2566,6 +3051,7 @@ int main(int argc, char* argv[])
         << "nonlinearRelaxation = " << nonlinearRelaxation << nl
         << "useHighOrder_Vm = " << useHighOrder_Vm << nl
         << "useHighOrder_Iion = " << useHighOrder_Iion << nl
+        << "stabilisationAlpha = " << stabilisationAlpha << nl
         << "Iion integration points = " << totalIionIntegrationPoints
         << endl;
 
@@ -2633,11 +3119,25 @@ int main(int argc, char* argv[])
 
     if (useHighOrder_Vm)
     {
-        assembleHighOrderStiffnessMatrix(mesh, conductivity, LREInterp_Vm, K);
+        assembleHighOrderStiffnessMatrix
+        (
+            mesh,
+            conductivity,
+            LREInterp_Vm,
+            stabilisationAlpha,
+            K
+        );
     }
     else
     {
-        assembleStandardOrthogonalStiffnessMatrix(mesh, conductivity, K);
+        assembleStandardOrthogonalStiffnessMatrix
+        (
+            mesh,
+            conductivity,
+            LREInterp_Vm,
+            stabilisationAlpha,
+            K
+        );
     }
 
     L = K;
@@ -2673,6 +3173,47 @@ int main(int argc, char* argv[])
             << "lineSearchIters converged"
             << nl;
     }
+
+    auto updateNumericalLaplacian =
+    [&](const scalar evalTime)
+    {
+        if (useHighOrder_Vm)
+        {
+            computeHighOrderLaplacian
+            (
+                Vm,
+                conductivity,
+                LREInterp_Vm,
+                fluxVm_HO,
+                lapVm
+            );
+        }
+
+        EigVec bcNow =
+                useHighOrder_Vm
+            ? assembleHighOrderBoundaryVector
+              (
+                  mesh,
+                  conductivity,
+                  LREInterp_Vm,
+                  stabilisationAlpha,
+                  evalTime,
+                  dim
+              )
+            : assembleStandardOrthogonalBoundaryVector
+              (
+                  mesh,
+                  conductivity,
+                  LREInterp_Vm,
+                  stabilisationAlpha,
+                  evalTime,
+                  dim
+              );
+
+        EigVec lapNow = K*fieldToEigVec(Vm) + bcNow;
+        eigVecToField(lapNow, lapVm);
+        lapVm.correctBoundaryConditions();
+    };
 
     const auto tEndSetup = std::chrono::steady_clock::now();
     const auto tStartLoop = tEndSetup;
@@ -2796,13 +3337,45 @@ int main(int argc, char* argv[])
 
         EigVec bcN =
                 useHighOrder_Vm
-            ? assembleHighOrderBoundaryVector(mesh, conductivity, LREInterp_Vm, t, dim)
-            : assembleStandardOrthogonalBoundaryVector(mesh, conductivity, t, dim);
+            ? assembleHighOrderBoundaryVector
+              (
+                  mesh,
+                  conductivity,
+                  LREInterp_Vm,
+                  stabilisationAlpha,
+                  t,
+                  dim
+              )
+            : assembleStandardOrthogonalBoundaryVector
+              (
+                  mesh,
+                  conductivity,
+                  LREInterp_Vm,
+                  stabilisationAlpha,
+                  t,
+                  dim
+              );
 
             EigVec bcNp1 =
                 useHighOrder_Vm
-            ? assembleHighOrderBoundaryVector(mesh, conductivity, LREInterp_Vm, t + dt, dim)
-            : assembleStandardOrthogonalBoundaryVector(mesh, conductivity, t + dt, dim);
+            ? assembleHighOrderBoundaryVector
+              (
+                  mesh,
+                  conductivity,
+                  LREInterp_Vm,
+                  stabilisationAlpha,
+                  t + dt,
+                  dim
+              )
+            : assembleStandardOrthogonalBoundaryVector
+              (
+                  mesh,
+                  conductivity,
+                  LREInterp_Vm,
+                  stabilisationAlpha,
+                  t + dt,
+                  dim
+              );
 
 
         bcN *= lapScale;
@@ -3995,15 +4568,7 @@ int main(int argc, char* argv[])
             );
         }
 
-        if (useHighOrder_Vm)
-        {
-            computeHighOrderLaplacian(Vm, conductivity, LREInterp_Vm, fluxVm_HO, lapVm);
-        }
-        else
-        {
-            lapVm = fvc::laplacian(conductivity, Vm);
-        }
-
+        updateNumericalLaplacian(t + dt);
         rhsVm = lapVm/(chi*Cm) - Iion;
 
         ++nSteps;
@@ -4077,15 +4642,7 @@ int main(int argc, char* argv[])
         );
     }
 
-    if (useHighOrder_Vm)
-    {
-        computeHighOrderLaplacian(Vm, conductivity, LREInterp_Vm, fluxVm_HO, lapVm);
-    }
-    else
-    {
-        lapVm = fvc::laplacian(conductivity, Vm);
-    }
-
+    updateNumericalLaplacian(runTime.value());
     rhsVm = lapVm/(chi*Cm) - Iion;
 
     VmError = Vm - VmExact;
@@ -4173,6 +4730,7 @@ int main(int argc, char* argv[])
         massMatrixMode,
         useHighOrder_Vm,
         useHighOrder_Iion,
+        stabilisationAlpha,
         lreN,
         lreNn,
         lreK,
