@@ -8,6 +8,9 @@ LRECoeffs_p1.add("maxStencilSize", 80);
 LRECoeffs_p1.add("useQRDecomposition", true);
 LRECoeffs_p1.add("useGlobalStencils", true);
 LRECoeffs_p1.add("calcConditionNumber", false);
+// Declare zeroGradient boundaries as mirror patches for full high-order
+// convergence at the boundary (replaces the O(1)/clipping fallback).
+LRECoeffs_p1.add("mirrorPatches", wordList(1, word("patch0")));
 
 LRE LREInterp_p1(
     mesh,

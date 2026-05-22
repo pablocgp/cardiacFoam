@@ -1,0 +1,116 @@
+\subsection{Two-dimensional results: conclusions}
+\label{sec:results-2d-conclusions}
+
+The three nonlinear strategies give almost identical convergence orders for a
+fixed spatial, temporal, and mass-matrix configuration. Therefore, in this MMS
+case the main distinction between \code{Picard}, \code{diagonalIion}, and
+\code{JFNK} is computational cost rather than asymptotic accuracy. The clearest
+spatial orders are obtained with \code{crankNicolson}, \code{consistent} mass,
+and $\Delta t=10^{-3}$; for $\Delta t=10^{-2}$ the finest-mesh slopes of the
+high-order state diagnostics are still visibly affected by time error.
+
+\paragraph{Picard.}
+\code{Picard} is the most direct baseline and reproduces the expected
+high-order trends when the rest of the discretisation is chosen appropriately.
+For example, with \code{p3} voltage reconstruction, \code{p2} source/state
+quadrature, \code{crankNicolson}, \code{consistent} mass, and
+$\Delta t=10^{-3}$, the fitted orders are
+$3.538$ for the cell-centred $\Vm$, $3.992$ for $\Vm^G$, and about $4.0$ for
+the reconstructed state errors $u_1^G$ and $u_2^G$
+(Table~\ref{tab:results-2d-picard-1p0em03}). Increasing the source/state level
+from \code{p2} to \code{p3} changes these orders negligibly but increases the
+runtime. The disadvantage is efficiency: the same \code{p3}/\code{p2},
+\code{crankNicolson}, \code{consistent}, $\Delta t=10^{-3}$ sweep takes
+$1730.1$~s with \code{Picard}, compared with $798.27$~s with \code{JFNK}.
+
+\paragraph{\code{diagonalIion}.}
+\code{diagonalIion} produces essentially the same orders as \code{Picard}. Its
+diagonal treatment of the local ionic-current sensitivity can help the
+nonlinear voltage equation behave more implicitly, but for the present
+manufactured problem this does not translate into a systematic gain in either
+accuracy or runtime. In the same \code{p3}/\code{p2}, \code{crankNicolson},
+\code{consistent}, $\Delta t=10^{-3}$ case, the orders again are $3.538$ for
+$\Vm$, $3.992$ for $\Vm^G$, and approximately $4.0$ for $u_1^G,u_2^G$, while
+the accumulated runtime is $1661.8$~s
+(Table~\ref{tab:results-2d-diagonaliion-1p0em03}). Thus, for these 2D MMS
+runs, \code{diagonalIion} is mainly a useful robustness option, not the best
+cost--accuracy choice.
+
+\paragraph{JFNK.}
+\code{JFNK} gives the same convergence orders as the other methods but is the
+most efficient nonlinear coupling in these results. For the recommended
+\code{p3}/\code{p2}, \code{crankNicolson}, \code{consistent},
+$\Delta t=10^{-3}$ configuration, it obtains $3.539$ for $\Vm$, $3.993$ for
+$\Vm^G$, $4.003$ for $u_1^G$, and $4.010$ for $u_2^G$ over $N=10$--$100$; over
+$N=70$--$100$, the reconstructed diagnostics remain close to fourth order
+(Table~\ref{tab:results-2d-jfnk-1p0em03}). The accumulated runtime is
+$798.27$~s, less than half the corresponding \code{Picard} and
+\code{diagonalIion} runs, while the summed peak-RSS cost is comparable. This
+makes \code{JFNK} the best nonlinear method for the 2D manufactured study.
+
+\paragraph{Temporal scheme.}
+For high-order spatial verification, the second-order \code{crankNicolson}
+scheme is preferable. The first-order time error of \code{backwardEuler} masks
+the high-order spatial behaviour on the fine meshes; for example, the
+\code{p3}/\code{p2}, \code{consistent}, $\Delta t=10^{-3}$ \code{backwardEuler}
+case has good full-range reconstructed slopes but the $N=70$--$100$ slopes of
+$\Vm^G$, $u_1^G$, and $u_2^G$ collapse to values below one in
+Table~\ref{tab:results-2d-jfnk-1p0em03}. With \code{crankNicolson}, the same
+spatial configuration recovers fourth-order reconstructed behaviour.
+\code{backwardEuler} is useful as a robustness or comparison run, but it should
+not be used as the primary evidence for high-order spatial convergence.
+
+\paragraph{Mass matrix.}
+The \code{consistent} mass matrix is the better choice for the high-order
+configurations. The effect is especially clear for \code{p3}: with
+\code{JFNK}, \code{crankNicolson}, $\Delta t=10^{-3}$, and \code{p3}/\code{p2},
+the \code{consistent} mass case gives full-range orders $3.539$, $3.993$,
+$4.003$, and $4.010$ for $\Vm$, $\Vm^G$, $u_1^G$, and $u_2^G$, whereas the
+\code{lumped} case gives $2.369$, $3.091$, $3.441$, and $3.435$
+(Table~\ref{tab:results-2d-jfnk-1p0em03}). The lumped matrix remains adequate
+for low-order or second-order comparisons, but it degrades the high-order
+\code{p3} regime.
+
+\paragraph{Matching the voltage and source/state orders.}
+The source/state quadrature should usually be matched to the voltage
+reconstruction level, but the data suggest one important practical refinement:
+\begin{itemize}[leftmargin=*]
+\item \code{NO} voltage should be paired with \code{NO} source/states. Higher
+source quadrature does not improve the second-order voltage result and only
+adds cost.
+\item \code{p1} voltage should be paired with at least \code{p1}
+source/states. The \code{p1}/\code{NO} cases under-resolve the state coupling,
+whereas \code{p1}/\code{p1} gives the expected second-order reconstructed
+state behaviour.
+\item \code{p2} voltage should be paired with \code{p2} source/states.
+Although the formal interpolation expectation for \code{p2} is third order, the
+cell-centred finite-volume unknown often converges with order near two or
+slightly above two; in these data the reconstructed Gauss-point diagnostics and
+source/state quantities show the clearer benefit of the quadratic
+reconstruction.
+\item \code{p3} voltage should be paired with \code{p2} source/states for the
+best cost--accuracy balance. The \code{p3}/\code{p3} option is more symmetric
+and remains a conservative verification choice, but in the present 2D results
+it gives essentially the same orders as \code{p3}/\code{p2} at higher runtime.
+\end{itemize}
+
+\paragraph{Recommended 2D configuration.}
+Considering both convergence and efficiency, the best overall configuration in
+the current 2D MMS data is
+\[
+  \boxed{
+  \code{JFNK}
+  + \code{crankNicolson}
+  + \code{consistent mass}
+  + \Delta t=10^{-3}
+  + \Vm:\code{p3}
+  + \Iion/\mathbf{u}:\code{p2}}
+\]
+This choice reaches fourth-order behaviour in the reconstructed voltage and
+state diagnostics, keeps the cell-centred voltage close to fourth order on the
+fine meshes, and is substantially faster than the equivalent \code{Picard} and
+\code{diagonalIion} runs. For a cheaper second-order study, the consistent
+recommendation is \code{JFNK} with \code{crankNicolson} and matched
+\code{NO}/\code{NO} or \code{p1}/\code{p1} reconstruction, depending on whether
+only the standard finite-volume method or the first high-order reconstruction
+level is being tested.
