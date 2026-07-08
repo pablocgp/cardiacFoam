@@ -365,7 +365,12 @@ const dictionary implicitHOCoeffs
 
 const word implicitLinearSolver
 (
-    implicitHOCoeffs.lookupOrDefault<word>("linearSolver", "BiCGSTAB")
+    implicitHOCoeffs.lookupOrDefault<word>("linearSolver", "GMRES")
+);
+
+const word linearSolverBackend
+(
+    implicitHOCoeffs.lookupOrDefault<word>("linearSolverBackend", "PETSc")
 );
 
 const scalar implicitTolerance
@@ -376,6 +381,39 @@ const scalar implicitTolerance
 const label implicitMaxIterations
 (
     implicitHOCoeffs.lookupOrDefault<label>("maxIterations", 2000)
+);
+
+const word petscLinearKspType
+(
+    implicitHOCoeffs.lookupOrDefault<word>
+    (
+        "petscLinearKspType",
+        implicitLinearSolver
+    )
+);
+
+const word petscLinearPcType
+(
+    implicitHOCoeffs.lookupOrDefault<word>("petscLinearPcType", "ilu")
+);
+
+const label petscLinearRestart
+(
+    implicitHOCoeffs.lookupOrDefault<label>("petscLinearRestart", 50)
+);
+
+const word petscLinearOptionsPrefix
+(
+    implicitHOCoeffs.lookupOrDefault<word>
+    (
+        "petscLinearOptionsPrefix",
+        "fdalinear_"
+    )
+);
+
+const Switch petscUseOptions
+(
+    implicitHOCoeffs.lookupOrDefault<Switch>("petscUseOptions", true)
 );
 
 const label implicitNonlinearIterations
@@ -392,6 +430,45 @@ const word nonlinearMethod
 (
     implicitHOCoeffs.lookupOrDefault<word>("nonlinearMethod", "Picard")
 );
+
+// ----------------------------------------------------------------------- //
+// State (u1,u2,u3) integration strategy for the high-order Iion path.
+//
+//   cellCentredReconstruct (default): the reaction ODE is integrated once per
+//       cell at the cell centre (updateStateFieldsODE); the states are then
+//       reconstructed at the Iion Gauss points with a dedicated high-order LRE
+//       (LREInterp_states, order p1/p2/p3 set by highOrderCoeffs/LRECoeffs_states).
+//       Iion is evaluated at the Gauss points (using the reconstructed Vm and
+//       states) and integrated to the cell by quadrature. Cost: 1 ODE/cell.
+//
+//   gaussPointODE: legacy path. The ODE is integrated independently at every
+//       Iion Gauss point (updateIntegrationPointStatesODE). Cost: Nq ODE/cell.
+//
+// Only relevant when useHighOrder_Iion is true and dim > 1; otherwise the
+// cell-centred path is used regardless.
+const word stateIntegrationMode
+(
+    implicitHOCoeffs.lookupOrDefault<word>
+    (
+        "stateIntegrationMode",
+        "cellCentredReconstruct"
+    )
+);
+
+if
+(
+    stateIntegrationMode != "cellCentredReconstruct"
+ && stateIntegrationMode != "gaussPointODE"
+)
+{
+    FatalErrorInFunction
+        << "Unknown stateIntegrationMode: " << stateIntegrationMode << nl
+        << "Valid options are cellCentredReconstruct (default) and gaussPointODE"
+        << exit(FatalError);
+}
+
+const bool reconstructStatesFromCellCentres =
+    (stateIntegrationMode == "cellCentredReconstruct");
 
 const scalar nonlinearTolerance
 (
@@ -460,6 +537,39 @@ const scalar jfnkLinearTolerance
 const scalar jfnkEpsilon
 (
     implicitHOCoeffs.lookupOrDefault<scalar>("jfnkEpsilon", 1.0e-7)
+);
+
+const word jfnkLinearSolverBackend
+(
+    implicitHOCoeffs.lookupOrDefault<word>("jfnkLinearSolverBackend", "PETSc")
+);
+
+const word jfnkPetscKspType
+(
+    implicitHOCoeffs.lookupOrDefault<word>("jfnkPetscKspType", "gmres")
+);
+
+const word jfnkPetscPcType
+(
+    implicitHOCoeffs.lookupOrDefault<word>("jfnkPetscPcType", "none")
+);
+
+const label jfnkPetscRestart
+(
+    implicitHOCoeffs.lookupOrDefault<label>
+    (
+        "jfnkPetscRestart",
+        jfnkMaxKrylovIterations
+    )
+);
+
+const word jfnkPetscOptionsPrefix
+(
+    implicitHOCoeffs.lookupOrDefault<word>
+    (
+        "jfnkPetscOptionsPrefix",
+        "jfnk_"
+    )
 );
 
 // Initial-guess strategy at the start of each time step:
@@ -552,6 +662,43 @@ const label jfnkPreconditionerUpdateFrequency
     )
 );
 
+const word jfnkPreconditionerKspType
+(
+    implicitHOCoeffs.lookupOrDefault<word>("jfnkPreconditionerKspType", "preonly")
+);
+
+const word jfnkPreconditionerPcType
+(
+    implicitHOCoeffs.lookupOrDefault<word>("jfnkPreconditionerPcType", "ilu")
+);
+
+const scalar jfnkPreconditionerTolerance
+(
+    implicitHOCoeffs.lookupOrDefault<scalar>
+    (
+        "jfnkPreconditionerTolerance",
+        1.0e-10
+    )
+);
+
+const label jfnkPreconditionerMaxIterations
+(
+    implicitHOCoeffs.lookupOrDefault<label>
+    (
+        "jfnkPreconditionerMaxIterations",
+        1
+    )
+);
+
+const word jfnkPreconditionerOptionsPrefix
+(
+    implicitHOCoeffs.lookupOrDefault<word>
+    (
+        "jfnkPreconditionerOptionsPrefix",
+        "jfnkpc_"
+    )
+);
+
 // FD step used by the diagonalIion linearisation (finite-difference Jacobian
 // of Iion w.r.t. Vm, matched to solver2).
 const scalar diagonalIionEpsilon
@@ -567,6 +714,73 @@ const Switch writeNonlinearResiduals
 const Switch profileTimings
 (
     implicitHOCoeffs.lookupOrDefault<Switch>("profileTimings", true)
+);
+
+const word memoryOptimization
+(
+    implicitHOCoeffs.lookupOrDefault<word>("memoryOptimization", "auto")
+);
+
+const label memoryOptimizationCellThreshold
+(
+    max
+    (
+        implicitHOCoeffs.lookupOrDefault<label>
+        (
+            "memoryOptimizationCellThreshold",
+            8000
+        ),
+        label(0)
+    )
+);
+
+const Switch memoryOptimizationAdaptiveTripletReserve
+(
+    implicitHOCoeffs.lookupOrDefault<Switch>
+    (
+        "memoryOptimizationAdaptiveTripletReserve",
+        true
+    )
+);
+
+const label memoryOptimizationFluxTripletsPerFace
+(
+    max
+    (
+        implicitHOCoeffs.lookupOrDefault<label>
+        (
+            "memoryOptimizationFluxTripletsPerFace",
+            200
+        ),
+        label(16)
+    )
+);
+
+const label memoryOptimizationStabilisedTripletsPerFace
+(
+    max
+    (
+        implicitHOCoeffs.lookupOrDefault<label>
+        (
+            "memoryOptimizationStabilisedTripletsPerFace",
+            800
+        ),
+        label(16)
+    )
+);
+
+const Switch memoryOptimizationTrimHeap
+(
+    implicitHOCoeffs.lookupOrDefault<Switch>("memoryOptimizationTrimHeap", true)
+);
+
+const Switch memoryOptimizationCompactMassAssembly
+(
+    implicitHOCoeffs.lookupOrDefault<Switch>
+    (
+        "memoryOptimizationCompactMassAssembly",
+        true
+    )
 );
 
 const word stateODESolver
@@ -619,6 +833,33 @@ const label stateODEMaxSteps
             "maxSteps",
             implicitHOCoeffs.lookupOrDefault<label>("stateODEMaxSubSteps", 1000000000)
         )
+    )
+);
+
+const Switch stateODEUseOpenMP
+(
+    implicitHOCoeffs.lookupOrDefault<Switch>
+    (
+        "stateODEUseOpenMP",
+        true
+    )
+);
+
+const label stateODEOpenMPThreshold
+(
+    implicitHOCoeffs.lookupOrDefault<label>
+    (
+        "stateODEOpenMPThreshold",
+        256
+    )
+);
+
+const label stateODENumThreads
+(
+    implicitHOCoeffs.lookupOrDefault<label>
+    (
+        "stateODENumThreads",
+        0
     )
 );
 
@@ -687,23 +928,17 @@ if (!mirrorPatchNamesVm.empty())
     lreCoeffsVm.set("mirrorPatches", mirrorPatchNamesVm);
 }
 
-word IionCoeffsName("LRECoeffs_Iion");
+// Iion quadrature uses LRECoeffs_Iion exclusively. The legacy fallback that
+// accepted LRECoeffs_states for Iion has been removed: LRECoeffs_states now has
+// a single, distinct meaning (the state-reconstruction interpolator used by
+// stateIntegrationMode = cellCentredReconstruct).
+const word IionCoeffsName("LRECoeffs_Iion");
 if (!highOrderCoeffs.found(IionCoeffsName))
 {
-    if (highOrderCoeffs.found("LRECoeffs_states"))
-    {
-        IionCoeffsName = "LRECoeffs_states";
-        WarningInFunction
-            << "Using legacy highOrderCoeffs/LRECoeffs_states for "
-            << "Iion quadrature. Prefer LRECoeffs_Iion." << nl;
-    }
-    else
-    {
-        FatalErrorInFunction
-            << "highOrderCoeffs contains neither LRECoeffs_Iion nor "
-            << "legacy LRECoeffs_states." << nl
-            << abort(FatalError);
-    }
+    FatalErrorInFunction
+        << "highOrderCoeffs does not contain LRECoeffs_Iion (required for "
+        << "the Iion quadrature)." << nl
+        << abort(FatalError);
 }
 
 const label lreN = lreCoeffsVm.lookupOrDefault<label>("N", -1);
@@ -735,6 +970,71 @@ LRE LREInterp_Iion
     includePatchInIionStencils,
     lreCoeffsIion
 );
+
+// ----------------------------------------------------------------------- //
+// LREInterp_states: high-order interpolator used by
+// stateIntegrationMode = cellCentredReconstruct to reconstruct the
+// cell-centred states (u1,u2,u3) at the Iion Gauss points. Its order
+// (p1/p2/p3) is set independently via highOrderCoeffs/LRECoeffs_states.
+//
+// Only built when actually needed (mode active, high-order Iion, dim > 1);
+// otherwise left null so the legacy gaussPointODE path pays no extra cost.
+// ----------------------------------------------------------------------- //
+const bool buildStateInterp =
+    reconstructStatesFromCellCentres
+ && useHighOrder_Iion
+ && mesh.nGeometricD() > 1;
+
+// Build the include-list for the state stencils from u1's boundary types
+// (the three states share fixedValue Dirichlet BCs in the MMS setup). Mirror
+// the Vm classification: fixedValue -> Dirichlet ghost; zeroGradient -> mirror.
+boolList includePatchInStateStencils(mesh.boundaryMesh().size(), false);
+wordList mirrorPatchNamesStates;
+forAll(mesh.boundaryMesh(), patchI)
+{
+    const word bcType = u1.boundaryField()[patchI].type();
+    const word& patchName = mesh.boundaryMesh()[patchI].name();
+
+    if
+    (
+        bcType == fixedValueFvPatchScalarField::typeName
+     || bcType == "fixedVoltage"
+    )
+    {
+        includePatchInStateStencils[patchI] = true;
+    }
+    else if (bcType == zeroGradientFvPatchScalarField::typeName)
+    {
+        mirrorPatchNamesStates.append(patchName);
+    }
+}
+
+autoPtr<LRE> LREInterp_statesPtr;
+if (buildStateInterp)
+{
+    if (!highOrderCoeffs.found("LRECoeffs_states"))
+    {
+        FatalErrorInFunction
+            << "stateIntegrationMode = cellCentredReconstruct requires "
+            << "highOrderCoeffs/LRECoeffs_states (state-reconstruction "
+            << "interpolator)." << nl
+            << abort(FatalError);
+    }
+
+    dictionary lreCoeffsStates(highOrderCoeffs.subDict("LRECoeffs_states"));
+    if (!mirrorPatchNamesStates.empty())
+    {
+        lreCoeffsStates.set("mirrorPatches", mirrorPatchNamesStates);
+    }
+
+    LREInterp_statesPtr.reset
+    (
+        new LRE(mesh, includePatchInStateStencils, lreCoeffsStates)
+    );
+
+    Info<< "LREInterp_states built (order " << LREInterp_statesPtr().order()
+        << ") for stateIntegrationMode = cellCentredReconstruct" << nl << endl;
+}
 
 label totalIionIntegrationPoints = mesh.nCells();
 if (useHighOrder_Iion)

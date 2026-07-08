@@ -1,0 +1,344 @@
+\documentclass[11pt,a4paper]{article}
+
+% ------------------------------------------------------------------ %
+% Paquetes (replica el preámbulo del report principal del solver)
+% ------------------------------------------------------------------ %
+\usepackage[margin=2.2cm]{geometry}
+\usepackage[spanish,es-noquoting]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{siunitx}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage[hidelinks]{hyperref}
+
+\lstdefinestyle{cfg}{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  rulecolor=\color{black!30},
+  showstringspaces=false,
+}
+\lstset{style=cfg}
+
+% ------------------------------------------------------------------ %
+% Macros de conveniencia
+% ------------------------------------------------------------------ %
+\newcommand{\Vm}{V_{m}}
+\newcommand{\Iion}{I_{\text{ion}}}
+\newcommand{\Iext}{I_{\text{ext}}}
+\newcommand{\Dten}{\mathbf{D}}
+\newcommand{\grad}{\nabla}
+\newcommand{\divg}{\nabla\!\cdot}
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\gpode}{\code{gaussPointODE}}
+\newcommand{\ccrec}{\code{cellCentredReconstruct}}
+\newcommand{\states}{\mathbf{s}}
+\newcommand{\Vbar}{\overline{V}_{m}}
+\newcommand{\Vbarc}{\overline{V}_{m,c}}
+\newcommand{\avg}[1]{\left\langle #1 \right\rangle}
+\newcommand{\Omegac}{\Omega_{c}}
+
+\title{Por qué los \emph{states} de \ccrec\ fallan en un frente TNNP propagante\\
+       mientras \gpode\ funciona\\[2pt]
+       \large Un diagnóstico de la falla de ignición y de conducción en
+       \texttt{highOrderElectroActivationFoamImplicitPETSc}}
+\author{Nota de diagnóstico del solver}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+El solver ofrece dos formas de manejar las variables de estado iónicas
+(\emph{states}) $\states=(s_1,\dots,s_{N})$ en la cuadratura de alto orden de la
+corriente iónica: \gpode\ (el camino heredado, una integración del ODE rígido por
+punto de Gauss) y \ccrec\ (un ODE por centro de celda, y los \emph{states} luego
+reconstruidos en los puntos de Gauss por una LRE de alto orden de orden
+\code{p1}/\code{p2}/\code{p3}). En el benchmark de
+Niederer\,\emph{et al.}~(2012) con el modelo celular TNNP, \ccrec\ no logra
+producir una activación propagante a medida que se refina el paso de tiempo
+($\Delta t=\SI{e-5}{s}$): el frente de onda ni enciende (con el estímulo nominal)
+ni conduce (ni siquiera con un estímulo más fuerte), mientras que \gpode\ enciende
+y propaga en la misma malla y el mismo $\Delta t$. Esta nota muestra, con tres
+corridas controladas de discriminación y un argumento matemático breve, que esto
+\emph{no} es un error de código, ni un artefacto del esquema temporal
+(Crank--Nicolson), ni un error de escala en $\Delta t$. Es una limitación
+intrínseca de precisión al evaluar una cinética iónica fuertemente no lineal en el
+potencial de membrana \emph{promediado en la celda}: por la desigualdad de Jensen,
+la activación de sodio evaluada en el promedio de celda sub-estima el promedio
+puntual, debilitando la corriente regenerativa $I_{\mathrm{Na}}$ en el
+\emph{upstroke} (fase de despolarización rápida) abrupto. Subir el orden de
+reconstrucción (\code{p2}, \code{p3}) no ayuda, porque el orden solo afecta cómo
+se interpolan los \emph{states} ya calculados, no el potencial que manejó el ODE.
+\end{abstract}
+
+% ================================================================== %
+\section{Ecuaciones de gobierno y los dos modos de integración de \emph{states}}
+% ================================================================== %
+
+El problema monodominio resuelto para el potencial transmembrana $\Vm$ es
+\begin{equation}
+  \chi C_m \,\frac{\partial \Vm}{\partial t}
+  \;=\; \divg\!\left(\Dten\,\grad \Vm\right)
+        \;-\; \Iion(\Vm,\states) \;+\; \Iext ,
+  \qquad
+  \frac{\partial \states}{\partial t} \;=\; \mathbf{g}(\Vm,\states),
+  \label{eq:monodomain}
+\end{equation}
+donde $\states$ agrupa las $N$ variables de compuerta (\emph{gating}) y
+concentraciones iónicas del modelo celular ten Tusscher--Noble--Noble--Panfilov
+(TNNP), $\mathbf{g}$ es su lado derecho rígido, y $\Iion=\phi(\Vm,\states)$ es la
+corriente iónica total (algebraica). El término fuente de reacción de
+\eqref{eq:monodomain} se integra sobre cada celda $\Omegac$ con una cuadratura de
+alto orden en los puntos $\{x_q\}$ y pesos normalizados $\{w_q\}$
+($\sum_q w_q=1$; los pesos LRE ya llevan las fracciones de volumen sub-celda, así
+que la cuadratura devuelve directamente el \emph{promedio} de celda),
+\begin{equation}
+  \overline{\Iion}_{,\,c}
+  \;=\; \frac{1}{|\Omegac|}\int_{\Omegac} \Iion \,\mathrm{d}\Omega
+  \;\approx\; \sum_{q} w_q\,\phi\!\big(\Vm(x_q),\,\states(x_q)\big).
+  \label{eq:quad}
+\end{equation}
+El potencial de membrana en los puntos de Gauss, $\Vm(x_q)$, se obtiene en ambos
+modos por la misma reconstrucción de alto orden del campo centrado en celda. Los
+dos modos difieren \emph{solo} en cómo se obtiene el vector de \emph{states}
+$\states(x_q)$ que entra en \eqref{eq:quad}.
+
+\paragraph{\gpode\ (heredado).}
+El ODE rígido se integra \emph{independientemente en cada punto de Gauss},
+manejado por el potencial reconstruido localmente:
+\begin{equation}
+  \states_q^{\,n+1}
+  \;=\; \mathrm{ODEsolve}\!\big(\states_q^{\,n},\,\Vm(x_q);\,\Delta t\big),
+  \qquad
+  \states(x_q) \equiv \states_q^{\,n+1}.
+  \label{eq:gp}
+\end{equation}
+Costo: $N_q$ integraciones rígidas por celda.
+
+\paragraph{\ccrec\ (nuevo).}
+El ODE se integra \emph{una vez por celda}, manejado por el potencial de centro de
+celda $\Vbarc \equiv \Vm(x_c)$, y los \emph{states} centrados en celda resultantes
+se reconstruyen luego en los puntos de Gauss por una LRE de orden $p$:
+\begin{equation}
+  \states_c^{\,n+1}
+  \;=\; \mathrm{ODEsolve}\!\big(\states_c^{\,n},\,\Vbarc;\,\Delta t\big),
+  \qquad
+  \states(x_q) \equiv \widehat{\states}^{\,(p)}(x_q)
+        = \mathcal{R}^{(p)}\!\big[\{\states_{c'}^{\,n+1}\}_{c'\in\text{stencil}}\big](x_q).
+  \label{eq:cc}
+\end{equation}
+Costo: una integración rígida por celda (la motivación: las integraciones TNNP
+limitadas por $I_{\mathrm{Na}}$ dominan el tiempo de corrida, así que $1$ vs $N_q$
+ODEs por celda es un ahorro grande).
+
+El contraste esencial ya es visible en \eqref{eq:gp}--\eqref{eq:cc}: en \gpode\ el
+mapa no lineal $\Vm\!\mapsto\!\states$ se aplica al $\Vm(x_q)$ \emph{puntual}; en
+\ccrec\ se aplica al \emph{promedio de celda} $\Vbarc$, y solo el resultado (ya
+calculado) se interpola.
+
+% ================================================================== %
+\section{Síntoma observado}
+% ================================================================== %
+
+Benchmark: losa 2-D, hexaedros estructurados, $\Delta x=\SI{0.5}{mm}$
+($40\times16$), TNNP, una caja de estímulo en la esquina de \SI{1.5}{mm} con
+intensidad \SI{50000}{A/m^3} durante \SI{2}{ms}, umbral de activación \SI{0}{mV},
+Crank--Nicolson, acoplamiento Picard, RKF45 para los \emph{states}. Con \ccrec\ a
+orden \code{p1} (``CCp1''):
+\begin{itemize}[nosep]
+  \item a $\Delta t=\SI{e-4}{s}$ la activación enciende y propaga
+        (los puntos de la diagonal se activan en secuencia);
+  \item a $\Delta t=\SI{e-5}{s}$ \emph{nada} se activa --- toda muestra de la
+        diagonal, incluido el propio sitio del estímulo, permanece en
+        $t_{\mathrm{act}}=0$.
+\end{itemize}
+Que un paso de tiempo más fino (más preciso) produzca \emph{ninguna} activación es
+la firma contra-intuitiva que hay que explicar.
+
+% ================================================================== %
+\section{Experimentos de discriminación}
+% ================================================================== %
+
+Tres corridas controladas aíslan la causa. Todas usan la misma malla
+($40\times16$, $\Delta x=\SI{0.5}{mm}$), $\Delta t=\SI{e-5}{s}$, tiempo final
+\SI{10}{ms} (suficiente: el sitio del estímulo dispara a ${\sim}\SI{1.3}{ms}$
+cuando se gatilla). ``Ignición'' significa que el sitio del estímulo (índice $0$
+de la diagonal) cruza el umbral; ``conducción'' significa que el frente avanza a
+lo largo de la diagonal.
+
+\begin{table}[h]
+\centering
+\footnotesize
+\begin{tabular}{@{}l l c c p{5.2cm}@{}}
+\toprule
+Corrida & Configuración & Ignición & Conducción & Evidencia \\
+\midrule
+A & \gpode\ (\code{states=NO}), CN            & \textbf{sí} & \textbf{sí}
+  & pto.\ $0$ @ \SI{1.20}{ms}; ptos.\ $0$--$4$ activos, frente ${\sim}\SI{4.5}{mm}$ \\
+--- & \ccrec\ CCp1, CN (original)             & no  & ---
+  & todos $t_{\mathrm{act}}=0$; $\max \Vm=\SI{-27}{mV}$ \\
+B & \ccrec\ CCp1, \textbf{backwardEuler}      & no  & ---
+  & todos $t_{\mathrm{act}}=0$; $\max \Vm=\SI{-27}{mV}$ \\
+C & \ccrec\ CCp1, CN, estímulo $\times 4$     & \textbf{sí} & no
+  & pto.\ $0$ @ \SI{0.60}{ms}; solo ptos.\ $0$--$2$, el frente se estanca ${\sim}\SI{2.3}{mm}$ \\
+\bottomrule
+\end{tabular}
+\caption{Corridas de discriminación a $\Delta t=\SI{e-5}{s}$. \gpode\ enciende y
+conduce; \ccrec\ no hace ninguna de las dos con el estímulo nominal, e incluso un
+estímulo $\times 4$ solo enciende sin sostener la conducción.}
+\label{tab:disc}
+\end{table}
+
+\noindent Las tres corridas descartan los sospechosos ``obvios'' y localizan la causa:
+\begin{description}[style=nextline,leftmargin=1.2em,nosep]
+  \item[No es el esquema temporal.] La Corrida~B reemplaza Crank--Nicolson por el
+    backward Euler totalmente disipativo y aun así falla de forma idéntica
+    ($\max\Vm=\SI{-27}{mV}$). Crank--Nicolson queda exonerado.
+  \item[No es un error de escala en $\Delta t$.] El esquema $\theta$ es
+    $\Delta t$-consistente
+    ($\mathsf{A}=\mathsf{M}/\Delta t-\theta\mathsf{L}$,
+    $\mathsf{B}=\mathsf{M}/\Delta t+(1-\theta)\mathsf{L}$, la fuente ponderada por
+    $\theta,(1-\theta)$ sin factor $\Delta t$ espurio), y el estímulo se aplica
+    sobre una ventana física fija $[t_0,t_0+\SI{2}{ms}]$ independiente de
+    $\Delta t$. Ambos $\Delta t$ inyectan la misma carga.
+  \item[\emph{Sí} es el modo de \emph{states}.] La Corrida~A es idéntica al caso
+    que falla salvo que los \emph{states} se resuelven en los puntos de Gauss
+    (\gpode). Enciende a \SI{1.20}{ms} y conduce. El único ingrediente cambiado es
+    \eqref{eq:gp} vs \eqref{eq:cc}.
+\end{description}
+
+% ================================================================== %
+\section{Causa raíz: promediar una cinética no lineal}
+% ================================================================== %
+
+\subsection{La activación de sodio es convexa en el pie del \emph{upstroke}}
+
+La despolarización rápida la lleva la corriente de sodio
+$I_{\mathrm{Na}}=g_{\mathrm{Na}}\,m^{3}h\,j\,(\Vm-E_{\mathrm{Na}})$, cuya
+compuerta de activación relaja hacia el sigmoide empinado
+\begin{equation}
+  m_\infty(\Vm)=\Big[1+\exp\!\big((V_{1/2}-\Vm)/k\big)\Big]^{-1},
+  \qquad V_{1/2}\approx\SI{-40}{mV},\; k\approx\SI{6}{mV}.
+\end{equation}
+Por debajo de su inflexión ($\Vm<V_{1/2}$) --- exactamente el ``pie''
+sub-umbral donde se decide la ignición --- $m_\infty$ es \emph{convexa}. Sobre una
+celda $\Omegac$ que abarca el frente de onda, $\Vm(x)$ va desde el reposo en el
+lado de atrás hasta fuertemente despolarizado en el lado de adelante.
+
+\subsection{Desigualdad de Jensen: \ccrec\ sub-dispara la corriente reactiva}
+
+Sea $\avg{\cdot}=\sum_q w_q(\cdot)$ (con $\sum_q w_q=1$) el promedio de
+cuadratura de celda, de modo que $\Vbarc=\avg{\Vm}$. \gpode\ evalúa la cinética
+puntualmente y promedia el \emph{resultado}; \ccrec\ promedia la \emph{entrada}
+primero. Para la $m_\infty$ convexa,
+\begin{equation}
+  \underbrace{\avg{\,m_\infty(\Vm)\,}}_{\text{\gpode\ (efectivo)}}
+  \;\;\ge\;\;
+  \underbrace{m_\infty\!\big(\avg{\Vm}\big)}_{\text{\ccrec}}
+  \;=\; m_\infty(\Vbarc).
+  \label{eq:jensen}
+\end{equation}
+Como $I_{\mathrm{Na}}\propto m^{3}$, la brecha en \eqref{eq:jensen} se amplifica al
+cubo. \ccrec\ por lo tanto \emph{sub-estima} sistemáticamente la fracción de sodio
+abierto, y por ende la corriente entrante (despolarizante), justo donde $\Vm$ varía
+más dentro de una celda --- en el borde del estímulo y a lo largo del
+\emph{upstroke}. En \gpode\ los puntos de Gauss situados en el lado despolarizado
+de la celda corren cada uno su propio ODE, ven un $\Vm(x_q)$ local alto, abren sus
+canales de sodio, y aportan una corriente entrante fuerte a \eqref{eq:quad}; esos
+``hot spots'' (puntos calientes sub-celda) son exactamente lo que \ccrec\ promedia
+y elimina antes de que la cinética siquiera los vea.
+
+\subsection{Dos modos de falla}
+
+\begin{enumerate}[leftmargin=1.4em,nosep]
+  \item \textbf{Falla de ignición.} Con el estímulo nominal, el sitio se despolariza
+    solo hasta $\Vm\approx\SI{-27}{mV}$ (Corridas~orig/B) y relaja de vuelta: la
+    $I_{\mathrm{Na}}$ debilitada nunca se vuelve regenerativa, así que el
+    \emph{upstroke} de todo-o-nada no dispara. Un estímulo $\times 4$ (Corrida~C)
+    fuerza a $\Vm$ a cruzar el umbral en el sitio ($\SI{0.60}{ms}$), confirmando
+    que el promediado dejó al estímulo nominal \emph{efectivamente sub-umbral}.
+  \item \textbf{Bloqueo de conducción.} Aun ya encendido (Corrida~C), el frente se
+    estanca luego de $2$--$3$ celdas. La propagación requiere que cada celda que se
+    activa aporte suficiente carga entrante (\emph{source}, fuente) para llevar a
+    las celdas aguas abajo (\emph{sink}, sumidero) al umbral --- el ``factor de
+    seguridad'' cardíaco. Por \eqref{eq:jensen}, \ccrec\ baja la fuente justo en el
+    frente donde se necesita, llevando el factor de seguridad por debajo de uno: un
+    desajuste \emph{source--sink} (fuente--sumidero) inducido numéricamente, es
+    decir bloqueo de conducción.
+\end{enumerate}
+
+% ================================================================== %
+\section{Por qué el paso de tiempo grueso ``funcionaba''}
+% ================================================================== %
+
+A $\Delta t=\SI{e-4}{s}$ el paso implícito avanza la despolarización en un solo
+salto grande: la fuente de reacción/estímulo actúa sobre un incremento grande
+$\Delta t/\mathsf{M}$, produciendo un \emph{over-shoot} (sobre-disparo) transitorio
+de $\Vbarc$ que puede exceder el umbral aun con la $I_{\mathrm{Na}}$ sub-estimada.
+A medida que $\Delta t\to0$ la trayectoria calculada converge a la \emph{verdadera}
+(precisa), que bajo la corriente debilitada de \ccrec\ permanece sub-umbral --- así
+que la deficiencia, enmascarada por el sobre-disparo de paso grueso, queda
+expuesta. En consecuencia, la activación de CCp1 a $\Delta t=\SI{e-4}{s}$ es un
+artefacto de sub-resolución temporal y sus tiempos de activación no deben confiarse;
+conviene verificar que coinciden con \gpode\ al mismo $\Delta t$.
+
+% ================================================================== %
+\section{Por qué un orden de reconstrucción más alto no ayuda}
+% ================================================================== %
+
+Los modos \code{p2} y \code{p3} cambian solo el operador $\mathcal{R}^{(p)}$ en
+\eqref{eq:cc} --- cómo se interpolan a los puntos de Gauss los \emph{states}
+centrados en celda $\states_c^{\,n+1}$. \emph{No} cambian el hecho de que
+$\states_c^{\,n+1}$ se produjo integrando el ODE con la entrada de promedio de
+celda $\Vbarc$. El sesgo en \eqref{eq:jensen} se comete \emph{dentro} de la
+resolución del ODE, antes de cualquier reconstrucción; una interpolación de orden
+más alto solo refina una cantidad ya sesgada. Empíricamente y por construcción,
+CCp2/CCp3 heredan la misma falla de ignición y de conducción que CCp1 en este
+frente.
+
+% ================================================================== %
+\section{Cuándo \ccrec\ es válido, y recomendación}
+% ================================================================== %
+
+\eqref{eq:jensen} es una igualdad cuando $\Vm$ es (casi) lineal a lo largo de la
+celda, es decir cuando la variación sub-celda es pequeña comparada con la escala de
+curvatura de $m_\infty$. Esta es la condición
+\begin{equation}
+  h_{\text{cell}} \;\ll\; w_{\text{front}},
+\end{equation}
+con el tamaño de celda mucho menor que el ancho del \emph{upstroke}. El
+\emph{upstroke} cardíaco tiene ${\sim}\SI{0.5}{}$--$\SI{1}{mm}$ de ancho; a
+$h=\SI{0.5}{mm}$ una celda abarca todo el frente y \ccrec\ falla, mientras que
+$h\lesssim\SI{0.1}{mm}$ lo resolvería --- a un conteo de celdas que erosiona la
+propia ventaja de costo que \ccrec\ debía proveer.
+
+\begin{itemize}[leftmargin=1.4em,nosep]
+  \item \textbf{Propagación con un modelo celular rígido (Niederer/TNNP):} usar
+    \gpode\ (\code{stateIntegrationMode gaussPointODE}, o \code{states="NO"} en el
+    barrido de tríadas). Resuelve la cinética sub-celda y enciende y conduce.
+  \item \textbf{Campos de reacción suaves} (p.\,ej.\ el caso manufacturado MMS del
+    solver FDA, donde $\Vm$ varía poco dentro de una celda): \ccrec\ es preciso y
+    entrega el ahorro de ODE $N_q\!\to\!1$ que se propone.
+  \item \textbf{Híbrido posible (trabajo futuro):} integrar el ODE en los puntos de
+    Gauss solo donde $\lvert\grad\Vm\rvert$ es grande (el frente móvil) y en el
+    centro de celda con reconstrucción en el resto (reposo/meseta). Esto
+    recuperaría la mayor parte del ahorro preservando la precisión en el frente.
+\end{itemize}
+
+\paragraph{Conclusión.} \ccrec\ no está roto y su implementación es correcta;
+simplemente cambia resolución sub-celda de la cinética iónica por velocidad. Ese
+canje es seguro para reacciones suaves pero inválido para el \emph{upstroke}
+empinado y auto-sostenido de un potencial de acción cardíaco real, donde promediar
+el potencial de membrana antes de la cinética de sodio suprime la ignición y
+bloquea la conducción. Para el benchmark de Niederer, \gpode\ es el modo apropiado.
+
+\end{document}

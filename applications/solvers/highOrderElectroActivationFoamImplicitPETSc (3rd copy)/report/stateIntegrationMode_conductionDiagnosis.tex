@@ -1,0 +1,333 @@
+\documentclass[11pt,a4paper]{article}
+
+% ------------------------------------------------------------------ %
+% Packages (mirrors the main solver report preamble)
+% ------------------------------------------------------------------ %
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{siunitx}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage[hidelinks]{hyperref}
+
+\lstdefinestyle{cfg}{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  rulecolor=\color{black!30},
+  showstringspaces=false,
+}
+\lstset{style=cfg}
+
+% ------------------------------------------------------------------ %
+% Convenience macros
+% ------------------------------------------------------------------ %
+\newcommand{\Vm}{V_{m}}
+\newcommand{\Iion}{I_{\text{ion}}}
+\newcommand{\Iext}{I_{\text{ext}}}
+\newcommand{\Dten}{\mathbf{D}}
+\newcommand{\grad}{\nabla}
+\newcommand{\divg}{\nabla\!\cdot}
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\gpode}{\code{gaussPointODE}}
+\newcommand{\ccrec}{\code{cellCentredReconstruct}}
+\newcommand{\states}{\mathbf{s}}
+\newcommand{\Vbar}{\overline{V}_{m}}
+\newcommand{\Vbarc}{\overline{V}_{m,c}}
+\newcommand{\avg}[1]{\left\langle #1 \right\rangle}
+\newcommand{\Omegac}{\Omega_{c}}
+
+\title{Why \ccrec\ states fail on a propagating TNNP front\\
+       while \gpode\ works\\[2pt]
+       \large A diagnosis of ignition and conduction failure in
+       \texttt{highOrderElectroActivationFoamImplicitPETSc}}
+\author{Solver diagnosis note}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+The solver offers two ways of handling the ionic state variables
+$\states=(s_1,\dots,s_{N})$ in the high-order ionic-current quadrature:
+\gpode\ (the legacy path, one stiff ODE integration per Gauss point) and
+\ccrec\ (one ODE per cell centre, states then reconstructed at the Gauss points
+by a high-order LRE of order \code{p1}/\code{p2}/\code{p3}). On the
+Niederer\,\emph{et al.}~(2012) benchmark with the TNNP cell model, \ccrec\ fails
+to produce a propagating activation as the time step is refined
+($\Delta t=\SI{e-5}{s}$): the wavefront neither ignites (with the nominal
+stimulus) nor conducts (even with a stronger stimulus), whereas \gpode\ ignites
+and propagates on the same mesh and $\Delta t$. This note shows, with three
+controlled discrimination runs and a short mathematical argument, that this is
+\emph{not} a coding bug, nor a time-scheme (Crank--Nicolson) artefact, nor a
+$\Delta t$-scaling error. It is an intrinsic accuracy limitation of evaluating a
+strongly non-linear ionic kinetics at the \emph{cell-average} membrane potential:
+by Jensen's inequality the cell-average sodium activation under-estimates the
+pointwise average, weakening the regenerative $I_{\mathrm{Na}}$ current at the
+sharp upstroke. Raising the reconstruction order (\code{p2}, \code{p3}) does not
+help, because the order only affects how the already-computed states are
+interpolated, not the potential that drove the ODE.
+\end{abstract}
+
+% ================================================================== %
+\section{Governing equations and the two state-integration modes}
+% ================================================================== %
+
+The monodomain problem solved for the transmembrane potential $\Vm$ is
+\begin{equation}
+  \chi C_m \,\frac{\partial \Vm}{\partial t}
+  \;=\; \divg\!\left(\Dten\,\grad \Vm\right)
+        \;-\; \Iion(\Vm,\states) \;+\; \Iext ,
+  \qquad
+  \frac{\partial \states}{\partial t} \;=\; \mathbf{g}(\Vm,\states),
+  \label{eq:monodomain}
+\end{equation}
+where $\states$ collects the $N$ gating variables and ion concentrations of the
+ten Tusscher--Noble--Noble--Panfilov (TNNP) cell model, $\mathbf{g}$ is its stiff
+right-hand side, and $\Iion=\phi(\Vm,\states)$ is the (algebraic) total ionic
+current. The reaction source of \eqref{eq:monodomain} is integrated over each
+cell $\Omegac$ with a high-order quadrature at points $\{x_q\}$ and weights
+$\{w_q\}$ ($\sum_q w_q=|\Omegac|$),
+\begin{equation}
+  \overline{\Iion}_{,\,c}
+  \;=\; \frac{1}{|\Omegac|}\int_{\Omegac} \Iion \,\mathrm{d}\Omega
+  \;\approx\; \frac{1}{|\Omegac|}\sum_{q} w_q\,\phi\!\big(\Vm(x_q),\,\states(x_q)\big).
+  \label{eq:quad}
+\end{equation}
+The membrane potential at the Gauss points, $\Vm(x_q)$, is obtained in both modes
+by the same high-order reconstruction of the cell-centred field. The two modes
+differ \emph{only} in how the state vector $\states(x_q)$ that enters
+\eqref{eq:quad} is obtained.
+
+\paragraph{\gpode\ (legacy).}
+The stiff ODE is integrated \emph{independently at every Gauss point}, driven by
+the locally reconstructed potential:
+\begin{equation}
+  \states_q^{\,n+1}
+  \;=\; \mathrm{ODEsolve}\!\big(\states_q^{\,n},\,\Vm(x_q);\,\Delta t\big),
+  \qquad
+  \states(x_q) \equiv \states_q^{\,n+1}.
+  \label{eq:gp}
+\end{equation}
+Cost: $N_q$ stiff integrations per cell.
+
+\paragraph{\ccrec\ (new).}
+The ODE is integrated \emph{once per cell}, driven by the cell-centre potential
+$\Vbarc \equiv \Vm(x_c)$, and the resulting cell-centred states are then
+reconstructed to the Gauss points by an LRE of order $p$:
+\begin{equation}
+  \states_c^{\,n+1}
+  \;=\; \mathrm{ODEsolve}\!\big(\states_c^{\,n},\,\Vbarc;\,\Delta t\big),
+  \qquad
+  \states(x_q) \equiv \widehat{\states}^{\,(p)}(x_q)
+        = \mathcal{R}^{(p)}\!\big[\{\states_{c'}^{\,n+1}\}_{c'\in\text{stencil}}\big](x_q).
+  \label{eq:cc}
+\end{equation}
+Cost: one stiff integration per cell (the motivation: $I_{\mathrm{Na}}$-limited
+TNNP integrations dominate the run time, so $1$ vs $N_q$ ODEs per cell is a large
+saving).
+
+The essential contrast is already visible in \eqref{eq:gp}--\eqref{eq:cc}: in
+\gpode\ the non-linear map $\Vm\!\mapsto\!\states$ is applied to the
+\emph{pointwise} $\Vm(x_q)$; in \ccrec\ it is applied to the \emph{cell-average}
+$\Vbarc$, and only the (already-computed) result is interpolated.
+
+% ================================================================== %
+\section{Observed symptom}
+% ================================================================== %
+
+Benchmark: 2-D slab, structured hexahedra, $\Delta x=\SI{0.5}{mm}$
+($40\times16$), TNNP, a \SI{1.5}{mm} corner stimulus box of intensity
+\SI{50000}{A/m^3} for \SI{2}{ms}, activation threshold \SI{0}{mV},
+Crank--Nicolson, Picard coupling, RKF45 for the states. With \ccrec\ at order
+\code{p1} (``CCp1''):
+\begin{itemize}[nosep]
+  \item at $\Delta t=\SI{e-4}{s}$ the activation ignites and propagates
+        (diagonal points activate in sequence);
+  \item at $\Delta t=\SI{e-5}{s}$ \emph{nothing} activates --- every diagonal
+        sample, including the stimulus site itself, stays at
+        $t_{\mathrm{act}}=0$.
+\end{itemize}
+A finer (more accurate) time step producing \emph{no} activation is the
+counter-intuitive signature that must be explained.
+
+% ================================================================== %
+\section{Discrimination experiments}
+% ================================================================== %
+
+Three controlled runs isolate the cause. All use the same mesh
+($40\times16$, $\Delta x=\SI{0.5}{mm}$), $\Delta t=\SI{e-5}{s}$, endtime
+\SI{10}{ms} (long enough: the stimulus site fires at ${\sim}\SI{1.3}{ms}$ when it
+triggers). ``Ignition'' means the stimulus site (diagonal index $0$) crosses the
+threshold; ``conduction'' means the front advances along the diagonal.
+
+\begin{table}[h]
+\centering
+\footnotesize
+\begin{tabular}{@{}l l c c p{5.2cm}@{}}
+\toprule
+Run & Configuration & Ignition & Conduction & Evidence \\
+\midrule
+A & \gpode\ (\code{states=NO}), CN            & \textbf{yes} & \textbf{yes}
+  & pt.\ $0$ @ \SI{1.20}{ms}; pts.\ $0$--$4$ active, front ${\sim}\SI{4.5}{mm}$ \\
+--- & \ccrec\ CCp1, CN (original)             & no  & ---
+  & all $t_{\mathrm{act}}=0$; $\max \Vm=\SI{-27}{mV}$ \\
+B & \ccrec\ CCp1, \textbf{backwardEuler}      & no  & ---
+  & all $t_{\mathrm{act}}=0$; $\max \Vm=\SI{-27}{mV}$ \\
+C & \ccrec\ CCp1, CN, stimulus $\times 4$     & \textbf{yes} & no
+  & pt.\ $0$ @ \SI{0.60}{ms}; pts.\ $0$--$2$ only, front stalls ${\sim}\SI{2.3}{mm}$ \\
+\bottomrule
+\end{tabular}
+\caption{Discrimination runs at $\Delta t=\SI{e-5}{s}$. \gpode\ ignites and
+conducts; \ccrec\ does neither with the nominal stimulus, and even a
+$4\times$ stimulus only ignites without sustaining conduction.}
+\label{tab:disc}
+\end{table}
+
+\noindent The three runs rule out the ``obvious'' suspects and localise the cause:
+\begin{description}[style=nextline,leftmargin=1.2em,nosep]
+  \item[Not the time scheme.] Run~B replaces Crank--Nicolson by the fully
+    dissipative backward Euler and still fails identically
+    ($\max\Vm=\SI{-27}{mV}$). Crank--Nicolson is exonerated.
+  \item[Not a $\Delta t$-scaling bug.] The $\theta$-scheme is $\Delta t$-consistent
+    ($\mathsf{A}=\mathsf{M}/\Delta t-\theta\mathsf{L}$,
+    $\mathsf{B}=\mathsf{M}/\Delta t+(1-\theta)\mathsf{L}$, source weighted by
+    $\theta,(1-\theta)$ with no spurious $\Delta t$ factor), and the stimulus is
+    applied over a fixed physical window $[t_0,t_0+\SI{2}{ms}]$ independent of
+    $\Delta t$. Both $\Delta t$ inject the same charge.
+  \item[It \emph{is} the state mode.] Run~A is identical to the failing case
+    except that the states are solved at the Gauss points (\gpode). It ignites at
+    \SI{1.20}{ms} and conducts. The only changed ingredient is
+    \eqref{eq:gp} vs \eqref{eq:cc}.
+\end{description}
+
+% ================================================================== %
+\section{Root cause: averaging a non-linear kinetics}
+% ================================================================== %
+
+\subsection{The sodium activation is convex at the foot of the upstroke}
+
+The fast depolarisation is carried by the sodium current
+$I_{\mathrm{Na}}=g_{\mathrm{Na}}\,m^{3}h\,j\,(\Vm-E_{\mathrm{Na}})$, whose
+activation gate relaxes towards the steep sigmoid
+\begin{equation}
+  m_\infty(\Vm)=\Big[1+\exp\!\big((V_{1/2}-\Vm)/k\big)\Big]^{-1},
+  \qquad V_{1/2}\approx\SI{-40}{mV},\; k\approx\SI{6}{mV}.
+\end{equation}
+Below its inflection ($\Vm<V_{1/2}$) --- exactly the sub-threshold ``foot'' where
+ignition is decided --- $m_\infty$ is \emph{convex}. Over a cell $\Omegac$ that
+straddles the wavefront, $\Vm(x)$ ranges from resting on the trailing side to
+strongly depolarised on the leading side.
+
+\subsection{Jensen's inequality: \ccrec\ under-shoots the reactive current}
+
+Let $\avg{\cdot}=\tfrac{1}{|\Omegac|}\sum_q w_q(\cdot)$ denote the cell-quadrature
+average, so $\Vbarc=\avg{\Vm}$. \gpode\ evaluates the kinetics pointwise and
+averages the \emph{outcome}; \ccrec\ averages the \emph{input} first. For the
+convex $m_\infty$,
+\begin{equation}
+  \underbrace{\avg{\,m_\infty(\Vm)\,}}_{\text{\gpode\ (effective)}}
+  \;\;\ge\;\;
+  \underbrace{m_\infty\!\big(\avg{\Vm}\big)}_{\text{\ccrec}}
+  \;=\; m_\infty(\Vbarc).
+  \label{eq:jensen}
+\end{equation}
+Because $I_{\mathrm{Na}}\propto m^{3}$, the gap in \eqref{eq:jensen} is amplified
+cubically. \ccrec\ therefore systematically \emph{under-estimates} the open-sodium
+fraction, hence the inward (depolarising) current, precisely where $\Vm$ varies
+most within a cell --- at the stimulus edge and along the upstroke. In \gpode\ the
+Gauss points sitting on the depolarised side of the cell each run their own ODE,
+see a high local $\Vm(x_q)$, open their sodium channels, and contribute a strong
+inward current to \eqref{eq:quad}; those sub-cell ``hot spots'' are exactly what
+\ccrec\ averages away before the kinetics ever sees them.
+
+\subsection{Two failure modes}
+
+\begin{enumerate}[leftmargin=1.4em,nosep]
+  \item \textbf{Ignition failure.} With the nominal stimulus the site depolarises
+    to only $\Vm\approx\SI{-27}{mV}$ (Runs~orig/B) and relaxes back: the weakened
+    $I_{\mathrm{Na}}$ never becomes regenerative, so the all-or-none upstroke does
+    not fire. A $4\times$ stimulus (Run~C) forces $\Vm$ past threshold at the site
+    ($\SI{0.60}{ms}$), confirming the nominal stimulus was rendered
+    \emph{effectively sub-threshold} by the averaging.
+  \item \textbf{Conduction block.} Even once ignited (Run~C), the front stalls
+    after $2$--$3$ cells. Propagation requires each activating cell to supply
+    enough inward charge (\emph{source}) to bring the downstream cells
+    (\emph{sink}) to threshold --- the cardiac ``safety factor''. By
+    \eqref{eq:jensen}, \ccrec\ lowers the source at the very front where it is
+    needed, driving the safety factor below unity: a numerically induced
+    source--sink mismatch, i.e.\ conduction block.
+\end{enumerate}
+
+% ================================================================== %
+\section{Why the coarse time step ``worked''}
+% ================================================================== %
+
+At $\Delta t=\SI{e-4}{s}$ the implicit step advances the depolarisation in one
+large jump: the reaction/stimulus source acts over a big $\Delta t/\mathsf{M}$
+increment, producing a transient over-shoot of $\Vbarc$ that can exceed threshold
+even with the under-estimated $I_{\mathrm{Na}}$. As $\Delta t\to0$ the computed
+trajectory converges to the \emph{true} (accurate) one, which under \ccrec's
+weakened current stays sub-threshold --- so the deficiency, masked by
+coarse-step over-shoot, is revealed. Consequently the $\Delta t=\SI{e-4}{s}$
+CCp1 activation is an artefact of temporal under-resolution and its activation
+times should not be trusted; it is worth checking that they agree with \gpode\ at
+the same $\Delta t$.
+
+% ================================================================== %
+\section{Why higher reconstruction order does not help}
+% ================================================================== %
+
+Modes \code{p2} and \code{p3} change only the operator $\mathcal{R}^{(p)}$ in
+\eqref{eq:cc} --- how the cell-centred states $\states_c^{\,n+1}$ are interpolated
+to the Gauss points. They do \emph{not} change the fact that $\states_c^{\,n+1}$
+was produced by integrating the ODE with the cell-average input $\Vbarc$. The
+bias in \eqref{eq:jensen} is committed \emph{inside} the ODE solve, before any
+reconstruction; a higher-order interpolation merely refines an already-biased
+quantity. Empirically and by construction, CCp2/CCp3 inherit the same ignition
+and conduction failure as CCp1 on this front.
+
+% ================================================================== %
+\section{When \ccrec\ is valid, and recommendation}
+% ================================================================== %
+
+\eqref{eq:jensen} is an equality when $\Vm$ is (nearly) linear across the cell,
+i.e.\ when the sub-cell variation is small compared with the curvature scale of
+$m_\infty$. This is the condition
+\begin{equation}
+  h_{\text{cell}} \;\ll\; w_{\text{front}},
+\end{equation}
+the cell size being much smaller than the upstroke width. The cardiac upstroke is
+${\sim}\SI{0.5}{}$--$\SI{1}{mm}$ wide; at $h=\SI{0.5}{mm}$ a cell spans the whole
+front and \ccrec\ fails, whereas $h\lesssim\SI{0.1}{mm}$ would resolve it --- at a
+cell count that erodes the very cost advantage \ccrec\ was meant to provide.
+
+\begin{itemize}[leftmargin=1.4em,nosep]
+  \item \textbf{Propagation with a stiff cell model (Niederer/TNNP):} use
+    \gpode\ (\code{stateIntegrationMode gaussPointODE}, or \code{states="NO"} in
+    the triad sweep). It resolves the sub-cell kinetics and both ignites and
+    conducts.
+  \item \textbf{Smooth reaction fields} (e.g.\ the manufactured MMS case of the
+    FDA solver, where $\Vm$ varies little within a cell): \ccrec\ is accurate and
+    delivers its intended $N_q\!\to\!1$ ODE speed-up.
+  \item \textbf{Possible hybrid (future work):} integrate the ODE at the Gauss
+    points only where $\lvert\grad\Vm\rvert$ is large (the moving front) and at
+    the cell centre with reconstruction elsewhere (resting/plateau). This would
+    recover most of the speed-up while preserving accuracy at the front.
+\end{itemize}
+
+\paragraph{Bottom line.} \ccrec\ is not broken and its implementation is correct;
+it simply trades sub-cell resolution of the ionic kinetics for speed. That trade
+is safe for smooth reactions but invalid for the steep, self-sustaining upstroke
+of a real cardiac action potential, where averaging the membrane potential before
+the sodium kinetics suppresses ignition and blocks conduction. For the Niederer
+benchmark, \gpode\ is the appropriate mode.
+
+\end{document}

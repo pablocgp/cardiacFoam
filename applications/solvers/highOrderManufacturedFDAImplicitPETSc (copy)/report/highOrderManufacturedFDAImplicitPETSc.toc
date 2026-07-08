@@ -1,0 +1,40 @@
+\contentsline {section}{\numberline {1}Purpose and notation}{2}{section.1}%
+\contentsline {section}{\numberline {2}Governing equations}{3}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Electrophysiology motivation}{3}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Manufactured PDE--ODE system}{3}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Exact solution and the role of $\beta $}{4}{subsection.2.3}%
+\contentsline {section}{\numberline {3}Spatial discretisation}{4}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Finite-volume integral form}{4}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Standard cell-centred operator}{4}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}High-order LRE operator}{5}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Lumped and consistent mass matrices}{5}{subsection.3.4}%
+\contentsline {subsection}{\numberline {3.5}High-order integration of $I_{\mathrm {ion}}$ and states}{6}{subsection.3.5}%
+\contentsline {section}{\numberline {4}Time integration}{6}{section.4}%
+\contentsline {subsection}{\numberline {4.1}The $\theta $ method}{6}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}ODE states inside one PDE time step}{7}{subsection.4.2}%
+\contentsline {section}{\numberline {5}Nonlinear coupled solve}{7}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Residual and diagnostics}{7}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Picard fixed-point method}{8}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Diagonal-$I_{\mathrm {ion}}$ linearisation}{8}{subsection.5.3}%
+\contentsline {subsection}{\numberline {5.4}Jacobian-free Newton--Krylov}{9}{subsection.5.4}%
+\contentsline {subsection}{\numberline {5.5}Armijo line search and rollback}{9}{subsection.5.5}%
+\contentsline {section}{\numberline {6}Linear-algebra backend and implementation notes}{10}{section.6}%
+\contentsline {subsection}{\numberline {6.1}JFNK preconditioner: \texttt {\small diagonalIion} ILU(T)}{11}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Chunked assembly of $\mathbf {M}$ and $\mathbf {K}$}{11}{subsection.6.2}%
+\contentsline {subsection}{\numberline {6.3}Memory layout in the time loop}{12}{subsection.6.3}%
+\contentsline {section}{\numberline {7}Theoretical accuracy and practical error floors}{13}{section.7}%
+\contentsline {section}{\numberline {8}Solver controls}{13}{section.8}%
+\contentsline {section}{\numberline {9}Output diagnostics}{15}{section.9}%
+\contentsline {section}{\numberline {10}Error Measures and Convergence Rates}{15}{section.10}%
+\contentsline {section}{\numberline {11}Results}{16}{section.11}%
+\contentsline {subsection}{\numberline {11.1}Two-dimensional manufactured problem}{17}{subsection.11.1}%
+\contentsline {subsubsection}{\numberline {11.1.1}\texttt {\small Picard}, \texttt {\small crankNicolson}, \texttt {\small consistent}}{17}{subsubsection.11.1.1}%
+\contentsline {subsubsection}{\numberline {11.1.2}\texttt {\small diagonalIion}, \texttt {\small crankNicolson}, \texttt {\small consistent}}{27}{subsubsection.11.1.2}%
+\contentsline {subsubsection}{\numberline {11.1.3}\texttt {\small JFNK}, \texttt {\small crankNicolson}, \texttt {\small consistent}}{37}{subsubsection.11.1.3}%
+\contentsline {subsection}{\numberline {11.2}Two-dimensional results: comments}{47}{subsection.11.2}%
+\contentsline {subsection}{\numberline {11.3}Three-dimensional manufactured problem}{47}{subsection.11.3}%
+\contentsline {subsubsection}{\numberline {11.3.1}\texttt {\small Picard}, \texttt {\small crankNicolson}, \texttt {\small consistent}}{47}{subsubsection.11.3.1}%
+\contentsline {subsubsection}{\numberline {11.3.2}\texttt {\small diagonalIion}, \texttt {\small crankNicolson}, \texttt {\small consistent}}{58}{subsubsection.11.3.2}%
+\contentsline {subsubsection}{\numberline {11.3.3}\texttt {\small JFNK}, \texttt {\small crankNicolson}, \texttt {\small consistent}}{68}{subsubsection.11.3.3}%
+\contentsline {paragraph}{3D comments and conclusions.}{78}{section*.50}%
+\contentsline {section}{\numberline {12}Notes}{78}{section.12}%

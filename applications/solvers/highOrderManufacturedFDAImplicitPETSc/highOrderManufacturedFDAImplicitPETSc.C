@@ -1,19 +1,872 @@
+#include <cmath>
+#include <petscksp.h>
 #include "fvCFD.H"
 #include "LRE.H"
-#include <cmath>
 #include <chrono>
+#include <algorithm>
+#include <cctype>
 #include <Eigen/Sparse>
 #include <Eigen/SparseLU>
 #include <Eigen/IterativeLinearSolvers>
 #include <Eigen/Dense>
+#include <functional>
 #include <sys/resource.h>
+#include <string>
 #include <vector>
+#ifdef __GLIBC__
+#include <malloc.h>
+#endif
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace
 {
     using SpMat = Eigen::SparseMatrix<scalar, Eigen::RowMajor>;
     using Triplet = Eigen::Triplet<scalar>;
     using EigVec = Eigen::Matrix<scalar, Eigen::Dynamic, 1>;
+
+    void checkPetscError(const PetscErrorCode ierr, const char* context)
+    {
+        if (ierr)
+        {
+            FatalErrorInFunction
+                << "PETSc call failed in " << context
+                << " with error code " << ierr
+                << exit(FatalError);
+        }
+    }
+
+    std::string lowerWord(const word& value)
+    {
+        std::string result(value.c_str());
+        std::transform
+        (
+            result.begin(),
+            result.end(),
+            result.begin(),
+            [](unsigned char c){ return std::tolower(c); }
+        );
+        return result;
+    }
+
+    bool usesPetscBackend(const word& backend)
+    {
+        const std::string b = lowerWord(backend);
+        return b == "petsc" || b == "ksp";
+    }
+
+    std::string petscKspTypeName(const word& kspType)
+    {
+        const std::string s = lowerWord(kspType);
+
+        if
+        (
+            s == "petsc"
+         || s == "gmres"
+         || s == "kspgmres"
+         || s == "jfnk"
+        )
+        {
+            return "gmres";
+        }
+        if (s == "bicgstab" || s == "bcgs")
+        {
+            return "bcgs";
+        }
+        if (s == "sparselu" || s == "lu")
+        {
+            return "preonly";
+        }
+
+        return s;
+    }
+
+    std::string petscPcTypeName(const word& pcType)
+    {
+        const std::string s = lowerWord(pcType);
+
+        if
+        (
+            s == "off"
+         || s == "false"
+         || s == "none"
+         || s == "nopc"
+        )
+        {
+            return "none";
+        }
+        if (s == "ilut")
+        {
+            return "ilu";
+        }
+        if (s == "jakobi")
+        {
+            return "jacobi";
+        }
+        if (s == "lu" || s == "sparselu")
+        {
+            return "lu";
+        }
+
+        return s;
+    }
+
+    bool isGmresType(const word& kspType)
+    {
+        return petscKspTypeName(kspType) == "gmres";
+    }
+
+    class PetscSession
+    {
+        bool ownsSession_;
+
+    public:
+
+        PetscSession(int& argc, char**& argv)
+        :
+            ownsSession_(false)
+        {
+            PetscBool initialized = PETSC_FALSE;
+            checkPetscError(PetscInitialized(&initialized), "PetscInitialized");
+
+            if (!initialized)
+            {
+                checkPetscError
+                (
+                    PetscInitialize(&argc, &argv, nullptr, nullptr),
+                    "PetscInitialize"
+                );
+                ownsSession_ = true;
+            }
+        }
+
+        ~PetscSession()
+        {
+            if (ownsSession_)
+            {
+                PetscBool finalized = PETSC_FALSE;
+                PetscBool initialized = PETSC_FALSE;
+
+                PetscFinalized(&finalized);
+                PetscInitialized(&initialized);
+
+                if (initialized && !finalized)
+                {
+                    PetscFinalize();
+                }
+            }
+        }
+
+        PetscSession(const PetscSession&) = delete;
+        void operator=(const PetscSession&) = delete;
+    };
+
+    void copyEigVecToPetscVec(const EigVec& src, Vec dst)
+    {
+        PetscScalar* values = nullptr;
+        checkPetscError(VecGetArray(dst, &values), "VecGetArray");
+
+        for (PetscInt i = 0; i < src.size(); ++i)
+        {
+            values[i] = static_cast<PetscScalar>(src[i]);
+        }
+
+        checkPetscError(VecRestoreArray(dst, &values), "VecRestoreArray");
+    }
+
+    void copyPetscVecToEigVec(Vec src, EigVec& dst)
+    {
+        const PetscScalar* values = nullptr;
+        checkPetscError(VecGetArrayRead(src, &values), "VecGetArrayRead");
+
+        for (PetscInt i = 0; i < dst.size(); ++i)
+        {
+            dst[i] = static_cast<scalar>(values[i]);
+        }
+
+        checkPetscError
+        (
+            VecRestoreArrayRead(src, &values),
+            "VecRestoreArrayRead"
+        );
+    }
+
+    void setPetscOptionsPrefix(KSP ksp, const word& prefix)
+    {
+        if (prefix.size())
+        {
+            checkPetscError
+            (
+                KSPSetOptionsPrefix(ksp, prefix.c_str()),
+                "KSPSetOptionsPrefix"
+            );
+        }
+    }
+
+    class PetscKspMatrixSolver
+    {
+        Mat A_;
+        KSP ksp_;
+        Vec b_;
+        Vec x_;
+        label n_;
+
+    public:
+
+        PetscKspMatrixSolver()
+        :
+            A_(nullptr),
+            ksp_(nullptr),
+            b_(nullptr),
+            x_(nullptr),
+            n_(0)
+        {}
+
+        ~PetscKspMatrixSolver()
+        {
+            clear();
+        }
+
+        PetscKspMatrixSolver(const PetscKspMatrixSolver&) = delete;
+        void operator=(const PetscKspMatrixSolver&) = delete;
+
+        void clear()
+        {
+            if (ksp_) checkPetscError(KSPDestroy(&ksp_), "KSPDestroy");
+            if (A_) checkPetscError(MatDestroy(&A_), "MatDestroy");
+            if (b_) checkPetscError(VecDestroy(&b_), "VecDestroy");
+            if (x_) checkPetscError(VecDestroy(&x_), "VecDestroy");
+
+            ksp_ = nullptr;
+            A_ = nullptr;
+            b_ = nullptr;
+            x_ = nullptr;
+            n_ = 0;
+        }
+
+        void reset
+        (
+            const SpMat& A,
+            const word& kspType,
+            const word& pcType,
+            const scalar tolerance,
+            const label maxIterations,
+            const label restart,
+            const word& optionsPrefix,
+            const bool useOptions,
+            const scalar factorFill = 1.0,
+            const scalar dropTolerance = 0.0
+        )
+        {
+            clear();
+
+            n_ = A.rows();
+            const PetscInt nRows = static_cast<PetscInt>(A.rows());
+            const PetscInt nCols = static_cast<PetscInt>(A.cols());
+
+            std::vector<PetscInt> rowNnz(nRows, 0);
+            for (PetscInt row = 0; row < nRows; ++row)
+            {
+                rowNnz[row] =
+                    static_cast<PetscInt>(A.outerIndexPtr()[row + 1])
+                  - static_cast<PetscInt>(A.outerIndexPtr()[row]);
+            }
+
+            checkPetscError
+            (
+                MatCreateSeqAIJ
+                (
+                    PETSC_COMM_SELF,
+                    nRows,
+                    nCols,
+                    0,
+                    rowNnz.empty() ? nullptr : rowNnz.data(),
+                    &A_
+                ),
+                "MatCreateSeqAIJ"
+            );
+
+            checkPetscError
+            (
+                MatSetOption(A_, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE),
+                "MatSetOption"
+            );
+
+            for (PetscInt row = 0; row < nRows; ++row)
+            {
+                for (SpMat::InnerIterator it(A, row); it; ++it)
+                {
+                    const PetscInt r = static_cast<PetscInt>(it.row());
+                    const PetscInt c = static_cast<PetscInt>(it.col());
+                    const PetscScalar v = static_cast<PetscScalar>(it.value());
+
+                    checkPetscError
+                    (
+                        MatSetValue(A_, r, c, v, INSERT_VALUES),
+                        "MatSetValue"
+                    );
+                }
+            }
+
+            checkPetscError
+            (
+                MatAssemblyBegin(A_, MAT_FINAL_ASSEMBLY),
+                "MatAssemblyBegin"
+            );
+            checkPetscError
+            (
+                MatAssemblyEnd(A_, MAT_FINAL_ASSEMBLY),
+                "MatAssemblyEnd"
+            );
+
+            checkPetscError(VecCreateSeq(PETSC_COMM_SELF, nRows, &b_), "VecCreateSeq(b)");
+            checkPetscError(VecDuplicate(b_, &x_), "VecDuplicate(x)");
+
+            checkPetscError(KSPCreate(PETSC_COMM_SELF, &ksp_), "KSPCreate");
+            checkPetscError(KSPSetOperators(ksp_, A_, A_), "KSPSetOperators");
+
+            const std::string kspName = petscKspTypeName(kspType);
+            const std::string pcName = petscPcTypeName(pcType);
+            checkPetscError(KSPSetType(ksp_, kspName.c_str()), "KSPSetType");
+
+            PC pc = nullptr;
+            checkPetscError(KSPGetPC(ksp_, &pc), "KSPGetPC");
+            checkPetscError(PCSetType(pc, pcName.c_str()), "PCSetType");
+            if (pcName == "ilu" || pcName == "lu")
+            {
+                checkPetscError
+                (
+                    PCFactorSetFill(pc, max(factorFill, scalar(1.0))),
+                    "PCFactorSetFill"
+                );
+            }
+            if (pcName == "ilu" && dropTolerance > 0.0)
+            {
+                checkPetscError
+                (
+                    PCFactorSetDropTolerance
+                    (
+                        pc,
+                        dropTolerance,
+                        dropTolerance,
+                        1000
+                    ),
+                    "PCFactorSetDropTolerance"
+                );
+            }
+
+            checkPetscError
+            (
+                KSPSetTolerances
+                (
+                    ksp_,
+                    tolerance,
+                    PETSC_DEFAULT,
+                    PETSC_DEFAULT,
+                    max(maxIterations, label(1))
+                ),
+                "KSPSetTolerances"
+            );
+
+            if (isGmresType(kspType))
+            {
+                checkPetscError
+                (
+                    KSPGMRESSetRestart(ksp_, max(restart, label(1))),
+                    "KSPGMRESSetRestart"
+                );
+            }
+
+            setPetscOptionsPrefix(ksp_, optionsPrefix);
+
+            if (useOptions)
+            {
+                checkPetscError(KSPSetFromOptions(ksp_), "KSPSetFromOptions");
+            }
+
+            checkPetscError(KSPSetUp(ksp_), "KSPSetUp");
+        }
+
+        bool isInitialised() const
+        {
+            return ksp_ != nullptr && A_ != nullptr;
+        }
+
+        label size() const
+        {
+            return n_;
+        }
+
+        // Refresh the numerical values of the cached PETSc matrix without
+        // destroying the KSP/PC/factorisation. Assumes the sparsity pattern
+        // of A matches the pattern used in the previous reset(). The flag
+        // MAT_NEW_NONZERO_ALLOCATION_ERR was set to PETSC_FALSE in reset(),
+        // so any (unexpected) new entries will be tolerated, but the fast
+        // path requires the pattern to be invariant.
+        void updateValues(const SpMat& A)
+        {
+            if (!isInitialised())
+            {
+                FatalErrorInFunction
+                    << "PetscKspMatrixSolver::updateValues requires the "
+                    << "solver to have been initialised via reset() first."
+                    << exit(FatalError);
+            }
+
+            if (A.rows() != n_ || A.cols() != n_)
+            {
+                FatalErrorInFunction
+                    << "PetscKspMatrixSolver::updateValues called with "
+                    << "matrix of size " << A.rows() << "x" << A.cols()
+                    << " but the cached PETSc Mat is " << n_ << "x" << n_
+                    << exit(FatalError);
+            }
+
+            checkPetscError
+            (
+                MatZeroEntries(A_),
+                "MatZeroEntries(updateValues)"
+            );
+
+            const PetscInt nRows = static_cast<PetscInt>(A.rows());
+            for (PetscInt row = 0; row < nRows; ++row)
+            {
+                for (SpMat::InnerIterator it(A, row); it; ++it)
+                {
+                    const PetscInt r = static_cast<PetscInt>(it.row());
+                    const PetscInt c = static_cast<PetscInt>(it.col());
+                    const PetscScalar v =
+                        static_cast<PetscScalar>(it.value());
+
+                    checkPetscError
+                    (
+                        MatSetValue(A_, r, c, v, INSERT_VALUES),
+                        "MatSetValue(updateValues)"
+                    );
+                }
+            }
+
+            checkPetscError
+            (
+                MatAssemblyBegin(A_, MAT_FINAL_ASSEMBLY),
+                "MatAssemblyBegin(updateValues)"
+            );
+            checkPetscError
+            (
+                MatAssemblyEnd(A_, MAT_FINAL_ASSEMBLY),
+                "MatAssemblyEnd(updateValues)"
+            );
+
+            // Force the PC to recompute with the new numerical values while
+            // keeping the existing symbolic factorisation cached.
+            checkPetscError
+            (
+                KSPSetReusePreconditioner(ksp_, PETSC_FALSE),
+                "KSPSetReusePreconditioner(updateValues)"
+            );
+            checkPetscError(KSPSetUp(ksp_), "KSPSetUp(updateValues)");
+        }
+
+        EigVec solve
+        (
+            const EigVec& rhs,
+            label& iterations,
+            scalar& estimatedError
+        )
+        {
+            if (!ksp_)
+            {
+                FatalErrorInFunction
+                    << "Attempted to use an unset PETSc KSP solver"
+                    << exit(FatalError);
+            }
+
+            copyEigVecToPetscVec(rhs, b_);
+            checkPetscError(VecSet(x_, 0.0), "VecSet(x)");
+            checkPetscError(KSPSolve(ksp_, b_, x_), "KSPSolve");
+
+            PetscInt petscIterations = 0;
+            PetscReal residualNorm = 0.0;
+            KSPConvergedReason reason;
+
+            checkPetscError
+            (
+                KSPGetIterationNumber(ksp_, &petscIterations),
+                "KSPGetIterationNumber"
+            );
+            checkPetscError
+            (
+                KSPGetResidualNorm(ksp_, &residualNorm),
+                "KSPGetResidualNorm"
+            );
+            checkPetscError
+            (
+                KSPGetConvergedReason(ksp_, &reason),
+                "KSPGetConvergedReason"
+            );
+
+            if (reason < 0)
+            {
+                FatalErrorInFunction
+                    << "PETSc KSP diverged with reason " << reason
+                    << exit(FatalError);
+            }
+
+            EigVec result(rhs.size());
+            copyPetscVecToEigVec(x_, result);
+
+            iterations = static_cast<label>(petscIterations);
+            estimatedError = static_cast<scalar>(residualNorm)
+                /max(rhs.norm(), scalar(SMALL));
+
+            return result;
+        }
+    };
+
+    struct PetscShellMatVecContext
+    {
+        std::function<EigVec(const EigVec&)> matVec;
+        label n;
+    };
+
+    PetscErrorCode petscShellMatMult(Mat A, Vec x, Vec y)
+    {
+        void* rawContext = nullptr;
+        PetscErrorCode ierr = MatShellGetContext(A, &rawContext);
+        if (ierr) return ierr;
+
+        PetscShellMatVecContext* context =
+            static_cast<PetscShellMatVecContext*>(rawContext);
+
+        EigVec xEigen(context->n);
+        copyPetscVecToEigVec(x, xEigen);
+
+        const EigVec yEigen = context->matVec(xEigen);
+        copyEigVecToPetscVec(yEigen, y);
+
+        return 0;
+    }
+
+    struct PetscShellPCContext
+    {
+        std::function<EigVec(const EigVec&)> apply;
+        label n;
+    };
+
+    PetscErrorCode petscShellPCApply(PC pc, Vec x, Vec y)
+    {
+        void* rawContext = nullptr;
+        PetscErrorCode ierr = PCShellGetContext(pc, &rawContext);
+        if (ierr) return ierr;
+
+        PetscShellPCContext* context =
+            static_cast<PetscShellPCContext*>(rawContext);
+
+        EigVec xEigen(context->n);
+        copyPetscVecToEigVec(x, xEigen);
+
+        const EigVec yEigen = context->apply(xEigen);
+        copyEigVecToPetscVec(yEigen, y);
+
+        return 0;
+    }
+
+    // Persistent shell-Krylov solver: keeps Mat (shell), Vec b/x
+    // and KSP alive across solves. The mat-vec / apply-PC lambdas captured
+    // by the JFNK loop change every Newton iteration, but the callback
+    // structs live as members of this class so the Mat/KSP keep a stable
+    // pointer to them; on each solve we just refresh the std::function
+    // payload. Eliminates the per-call alloc/destroy of the Krylov subspace
+    // (~25-40 MB) and reduces heap fragmentation across long runs.
+    class PetscShellKspSolver
+    {
+        Mat A_;
+        KSP ksp_;
+        Vec b_;
+        Vec x_;
+        PetscShellMatVecContext matContext_;
+        PetscShellPCContext pcContext_;
+        label n_;
+        bool initialised_;
+        bool hasShellPC_;
+
+    public:
+
+        PetscShellKspSolver()
+        :
+            A_(nullptr),
+            ksp_(nullptr),
+            b_(nullptr),
+            x_(nullptr),
+            matContext_{},
+            pcContext_{},
+            n_(0),
+            initialised_(false),
+            hasShellPC_(false)
+        {
+            matContext_.n = 0;
+            pcContext_.n = 0;
+        }
+
+        ~PetscShellKspSolver()
+        {
+            clear();
+        }
+
+        PetscShellKspSolver(const PetscShellKspSolver&) = delete;
+        void operator=(const PetscShellKspSolver&) = delete;
+
+        void clear()
+        {
+            if (ksp_) checkPetscError(KSPDestroy(&ksp_), "KSPDestroy(cached shell)");
+            if (A_) checkPetscError(MatDestroy(&A_), "MatDestroy(cached shell)");
+            if (b_) checkPetscError(VecDestroy(&b_), "VecDestroy(cached shell b)");
+            if (x_) checkPetscError(VecDestroy(&x_), "VecDestroy(cached shell x)");
+            ksp_ = nullptr;
+            A_ = nullptr;
+            b_ = nullptr;
+            x_ = nullptr;
+            n_ = 0;
+            initialised_ = false;
+            hasShellPC_ = false;
+            matContext_.matVec = nullptr;
+            pcContext_.apply = nullptr;
+        }
+
+        bool isInitialised() const { return initialised_; }
+
+        void initialise
+        (
+            const label n,
+            const word& kspType,
+            const word& pcType,
+            const label restart,
+            const label maxIterations,
+            const scalar tolerance,
+            const word& optionsPrefix,
+            const bool useOptions,
+            const bool withShellPC
+        )
+        {
+            clear();
+
+            n_ = n;
+            const PetscInt nP = static_cast<PetscInt>(n);
+
+            matContext_.n = n;
+            pcContext_.n = n;
+
+            checkPetscError
+            (
+                MatCreateShell
+                (
+                    PETSC_COMM_SELF,
+                    nP,
+                    nP,
+                    nP,
+                    nP,
+                    &matContext_,
+                    &A_
+                ),
+                "MatCreateShell(cached)"
+            );
+            checkPetscError
+            (
+                MatShellSetOperation
+                (
+                    A_,
+                    MATOP_MULT,
+                    reinterpret_cast<void(*)(void)>(petscShellMatMult)
+                ),
+                "MatShellSetOperation(cached MATOP_MULT)"
+            );
+
+            checkPetscError
+            (
+                VecCreateSeq(PETSC_COMM_SELF, nP, &b_),
+                "VecCreateSeq(cached shell b)"
+            );
+            checkPetscError
+            (
+                VecDuplicate(b_, &x_),
+                "VecDuplicate(cached shell x)"
+            );
+
+            checkPetscError
+            (
+                KSPCreate(PETSC_COMM_SELF, &ksp_),
+                "KSPCreate(cached shell)"
+            );
+            checkPetscError
+            (
+                KSPSetOperators(ksp_, A_, A_),
+                "KSPSetOperators(cached shell)"
+            );
+
+            const std::string kspName = petscKspTypeName(kspType);
+            checkPetscError
+            (
+                KSPSetType(ksp_, kspName.c_str()),
+                "KSPSetType(cached shell)"
+            );
+            checkPetscError
+            (
+                KSPSetTolerances
+                (
+                    ksp_,
+                    tolerance,
+                    PETSC_DEFAULT,
+                    PETSC_DEFAULT,
+                    max(maxIterations, label(1))
+                ),
+                "KSPSetTolerances(cached shell)"
+            );
+
+            if (isGmresType(kspType))
+            {
+                checkPetscError
+                (
+                    KSPGMRESSetRestart(ksp_, max(restart, label(1))),
+                    "KSPGMRESSetRestart(cached shell)"
+                );
+            }
+
+            PC pc = nullptr;
+            checkPetscError(KSPGetPC(ksp_, &pc), "KSPGetPC(cached shell)");
+
+            setPetscOptionsPrefix(ksp_, optionsPrefix);
+
+            if (useOptions)
+            {
+                checkPetscError
+                (
+                    KSPSetFromOptions(ksp_),
+                    "KSPSetFromOptions(cached shell)"
+                );
+                checkPetscError
+                (
+                    KSPGetPC(ksp_, &pc),
+                    "KSPGetPC(cached shell, after options)"
+                );
+            }
+
+            if (withShellPC)
+            {
+                checkPetscError
+                (
+                    PCSetType(pc, PCSHELL),
+                    "PCSetType(cached shell PCSHELL)"
+                );
+                checkPetscError
+                (
+                    PCShellSetContext(pc, &pcContext_),
+                    "PCShellSetContext(cached)"
+                );
+                checkPetscError
+                (
+                    PCShellSetApply(pc, petscShellPCApply),
+                    "PCShellSetApply(cached)"
+                );
+                hasShellPC_ = true;
+            }
+            else
+            {
+                const std::string pcName = petscPcTypeName(pcType);
+                checkPetscError
+                (
+                    PCSetType(pc, pcName.c_str()),
+                    "PCSetType(cached shell scalar PC)"
+                );
+                hasShellPC_ = false;
+            }
+
+            initialised_ = true;
+        }
+
+        EigVec solve
+        (
+            const std::function<EigVec(const EigVec&)>& matVec,
+            const std::function<EigVec(const EigVec&)>* applyPreconditioner,
+            const EigVec& rhs,
+            label& iterations,
+            scalar& estimatedError
+        )
+        {
+            if (!initialised_)
+            {
+                FatalErrorInFunction
+                    << "PetscShellKspSolver::solve called before initialise()"
+                    << exit(FatalError);
+            }
+
+            if (rhs.size() != n_)
+            {
+                FatalErrorInFunction
+                    << "PetscShellKspSolver::solve rhs size " << rhs.size()
+                    << " differs from cached dimension " << n_
+                    << exit(FatalError);
+            }
+
+            if (hasShellPC_ != static_cast<bool>(applyPreconditioner))
+            {
+                FatalErrorInFunction
+                    << "PetscShellKspSolver::solve: shell-PC configuration "
+                    << "changed between initialise() and solve()."
+                    << exit(FatalError);
+            }
+
+            // Refresh callback payloads in place; the persistent Mat / KSP
+            // hold stable pointers to matContext_ / pcContext_.
+            matContext_.matVec = matVec;
+            if (applyPreconditioner)
+            {
+                pcContext_.apply = *applyPreconditioner;
+            }
+
+            copyEigVecToPetscVec(rhs, b_);
+            checkPetscError(VecSet(x_, 0.0), "VecSet(cached shell x)");
+            checkPetscError(KSPSolve(ksp_, b_, x_), "KSPSolve(cached shell)");
+
+            PetscInt petscIterations = 0;
+            PetscReal residualNorm = 0.0;
+            KSPConvergedReason reason;
+
+            checkPetscError
+            (
+                KSPGetIterationNumber(ksp_, &petscIterations),
+                "KSPGetIterationNumber(cached shell)"
+            );
+            checkPetscError
+            (
+                KSPGetResidualNorm(ksp_, &residualNorm),
+                "KSPGetResidualNorm(cached shell)"
+            );
+            checkPetscError
+            (
+                KSPGetConvergedReason(ksp_, &reason),
+                "KSPGetConvergedReason(cached shell)"
+            );
+
+            if (reason < 0)
+            {
+                FatalErrorInFunction
+                    << "PETSc cached shell KSP diverged with reason "
+                    << reason
+                    << exit(FatalError);
+            }
+
+            EigVec result(rhs.size());
+            copyPetscVecToEigVec(x_, result);
+
+            iterations = static_cast<label>(petscIterations);
+            estimatedError =
+                static_cast<scalar>(residualNorm)
+               /max(rhs.norm(), scalar(SMALL));
+
+            return result;
+        }
+    };
 
     enum ManufacturedFieldID
     {
@@ -426,6 +1279,13 @@ namespace
         return -1.0;
     }
 
+    void logMemoryCheckpoint(const char* stage)
+    {
+        const scalar peakMemoryKB = peakResidentSetSizeKB();
+        Info<< "Memory checkpoint [" << stage << "]: peakRSS_MB = "
+            << peakMemoryKB/1024.0 << endl;
+    }
+
     void addDiagonalToMatrix
     (
         const scalarField& diagonal,
@@ -676,9 +1536,14 @@ namespace
         const fvMesh& mesh,
         const LRE& LREInterp,
         const scalar coefficient,
+        const bool compactRows,
         SpMat& M
     )
     {
+        // Chunked assembly mirroring assembleHighOrderStiffnessMatrix.
+        // For ~290K tet cells with p3 + Nn=60, the monolithic triplet vector
+        // would peak at ~270 MB plus reallocation overhead. Chunking caps
+        // the per-chunk triplet buffer at ~50 MB.
         const bool twoD = mesh.nGeometricD() == 2;
         const vectorField& C = mesh.C();
 
@@ -691,79 +1556,195 @@ namespace
         const CompactListList<LRE::symmTensor3Order>& thirdCoeffs =
             LREInterp.cellThirdDerivCoeffs();
 
+        const label nCells = mesh.nCells();
+        const label cellChunk = 50000;
+
         std::vector<Triplet> triplets;
-        triplets.reserve(mesh.nCells()*40);
-
-        forAll(stencils, cellI)
+        if (compactRows)
         {
-            const labelList& curStencil = stencils[cellI];
-            const label selfCoeffI = curStencil.size();
-
-            scalar wSum = 0.0;
-            forAll(cellQW[cellI], qpI)
+            label compactReserve = 0;
+            forAll(stencils, cellI)
             {
-                wSum += cellQW[cellI][qpI];
+                compactReserve += stencils[cellI].size() + 1;
             }
-            wSum = max(wSum, SMALL);
+            triplets.reserve(compactReserve);
+        }
+        else
+        {
+            triplets.reserve(cellChunk * 80);
+        }
 
-            forAll(cellQP[cellI], qpI)
+        SpMat Mlocal(nCells, nCells);
+        bool mInitialised = false;
+
+        auto flushChunk =
+        [&]()
+        {
+            if (triplets.empty())
             {
-                const scalar w = cellQW[cellI][qpI]/wSum;
-                const vector d = cellQP[cellI][qpI] - C[cellI];
+                return;
+            }
+            Mlocal.setZero();
+            Mlocal.setFromTriplets(triplets.begin(), triplets.end());
+            Mlocal.makeCompressed();
 
-                forAll(curStencil, cI)
+            if (!mInitialised)
+            {
+                M.swap(Mlocal);
+                Mlocal.resize(nCells, nCells);
+                mInitialised = true;
+            }
+            else
+            {
+                M += Mlocal;
+            }
+            triplets.clear();
+        };
+
+        const label nStencils = stencils.size();
+
+        for
+        (
+            label cellStart = 0;
+            cellStart < nStencils;
+            cellStart += cellChunk
+        )
+        {
+            const label cellEnd = min(cellStart + cellChunk, nStencils);
+
+            std::vector<scalar> rowValues;
+
+            for (label cellI = cellStart; cellI < cellEnd; ++cellI)
+            {
+                const labelList& curStencil = stencils[cellI];
+                const label selfCoeffI = curStencil.size();
+                if (compactRows)
                 {
-                    scalar coeff = (gradCoeffs[cellI][cI] & d);
+                    rowValues.assign(selfCoeffI + 1, 0.0);
+                }
+
+                scalar wSum = 0.0;
+                forAll(cellQW[cellI], qpI)
+                {
+                    wSum += cellQW[cellI][qpI];
+                }
+                wSum = max(wSum, SMALL);
+
+                forAll(cellQP[cellI], qpI)
+                {
+                    const scalar w = cellQW[cellI][qpI]/wSum;
+                    const vector d = cellQP[cellI][qpI] - C[cellI];
+
+                    forAll(curStencil, cI)
+                    {
+                        scalar coeff = (gradCoeffs[cellI][cI] & d);
+
+                        if (LREInterp.order() >= 2)
+                        {
+                            coeff +=
+                                0.5*quadraticForm(hessCoeffs[cellI][cI], d);
+                        }
+
+                        if (LREInterp.order() >= 3)
+                        {
+                            coeff +=
+                                (1.0/6.0)
+                               *LRE::cubicForm
+                                (
+                                    thirdCoeffs[cellI][cI],
+                                    d,
+                                    twoD
+                                );
+                        }
+
+                        if (compactRows)
+                        {
+                            rowValues[cI] += coefficient*w*coeff;
+                        }
+                        else
+                        {
+                            addTripletIfNeeded
+                            (
+                                triplets,
+                                cellI,
+                                curStencil[cI],
+                                coefficient*w*coeff
+                            );
+                        }
+                    }
+
+                    scalar selfCoeff =
+                        1.0 + (gradCoeffs[cellI][selfCoeffI] & d);
 
                     if (LREInterp.order() >= 2)
                     {
-                        coeff += 0.5*quadraticForm(hessCoeffs[cellI][cI], d);
+                        selfCoeff +=
+                            0.5
+                           *quadraticForm(hessCoeffs[cellI][selfCoeffI], d);
                     }
 
                     if (LREInterp.order() >= 3)
                     {
-                        coeff +=
+                        selfCoeff +=
                             (1.0/6.0)
-                           *LRE::cubicForm(thirdCoeffs[cellI][cI], d, twoD);
+                           *LRE::cubicForm
+                            (
+                                thirdCoeffs[cellI][selfCoeffI],
+                                d,
+                                twoD
+                            );
+                    }
+
+                    if (compactRows)
+                    {
+                        rowValues[selfCoeffI] += coefficient*w*selfCoeff;
+                    }
+                    else
+                    {
+                        addTripletIfNeeded
+                        (
+                            triplets,
+                            cellI,
+                            cellI,
+                            coefficient*w*selfCoeff
+                        );
+                    }
+                }
+
+                if (compactRows)
+                {
+                    forAll(curStencil, cI)
+                    {
+                        addTripletIfNeeded
+                        (
+                            triplets,
+                            cellI,
+                            curStencil[cI],
+                            rowValues[cI]
+                        );
                     }
 
                     addTripletIfNeeded
                     (
                         triplets,
                         cellI,
-                        curStencil[cI],
-                        coefficient*w*coeff
+                        cellI,
+                        rowValues[selfCoeffI]
                     );
                 }
-
-                scalar selfCoeff = 1.0 + (gradCoeffs[cellI][selfCoeffI] & d);
-
-                if (LREInterp.order() >= 2)
-                {
-                    selfCoeff +=
-                        0.5*quadraticForm(hessCoeffs[cellI][selfCoeffI], d);
-                }
-
-                if (LREInterp.order() >= 3)
-                {
-                    selfCoeff +=
-                        (1.0/6.0)
-                       *LRE::cubicForm(thirdCoeffs[cellI][selfCoeffI], d, twoD);
-                }
-
-                addTripletIfNeeded
-                (
-                    triplets,
-                    cellI,
-                    cellI,
-                    coefficient*w*selfCoeff
-                );
             }
+
+            flushChunk();
         }
 
-        M.resize(mesh.nCells(), mesh.nCells());
-        M.setFromTriplets(triplets.begin(), triplets.end());
+        if (!mInitialised)
+        {
+            M.resize(nCells, nCells);
+            M.setZero();
+        }
+
         M.makeCompressed();
+        std::vector<Triplet>().swap(triplets);
     }
 
     scalar orthogonalDiffusionCoeff
@@ -1114,6 +2095,7 @@ namespace
         K.resize(mesh.nCells(), mesh.nCells());
         K.setFromTriplets(triplets.begin(), triplets.end());
         K.makeCompressed();
+        std::vector<Triplet>().swap(triplets);
     }
 
     void assembleHighOrderStiffnessMatrix
@@ -1122,9 +2104,19 @@ namespace
         const volTensorField& conductivity,
         const LRE& LREInterp,
         const scalar stabilisationAlpha,
+        const label tripletsPerFaceReserve,
         SpMat& K
     )
     {
+        // Chunked assembly: avoids accumulating ~434M triplets in a single
+        // std::vector (which would peak at ~19 GB transient due to repeated
+        // capacity-doubling reallocations on large 3D unstructured tet
+        // meshes). The chunked variant bounds the triplet buffer to a fixed
+        // size per chunk and folds each chunk into the global K via sparse
+        // matrix addition. Numerically equivalent to the monolithic version:
+        // K = sum_i K_chunk_i, and addTripletIfNeeded filters by individual
+        // value magnitude (not by accumulated value), so the chunking is
+        // transparent to the final result.
         const bool twoD = mesh.nGeometricD() == 2;
         const vectorField& C = mesh.C();
         const surfaceVectorField& Cf = mesh.Cf();
@@ -1138,54 +2130,56 @@ namespace
         const labelUList& owner = mesh.owner();
         const labelUList& neighbour = mesh.neighbour();
 
+        const label nCells = mesh.nCells();
+        const label nInternalFaces = neighbour.size();
+        const label faceChunk = 50000;
+
         std::vector<Triplet> triplets;
-        triplets.reserve(mesh.nFaces()*40);
+        // Reserve for a full chunk without forcing the tet/stabilised worst
+        // case on flux-only hex runs. The cap is selected by the caller from
+        // memoryOptimization controls; it changes capacity only, not assembly.
+        triplets.reserve(faceChunk * tripletsPerFaceReserve);
 
-        forAll(neighbour, faceI)
+        SpMat Klocal(nCells, nCells);
+        bool kInitialised = false;
+
+        auto flushChunk =
+        [&]()
         {
-            const label own = owner[faceI];
-            const label nei = neighbour[faceI];
-
-            const vector Sf = mesh.Sf()[faceI];
-            const scalar area = mag(Sf) + VSMALL;
-            const vector n = Sf/area;
-
-            const labelList& curStencil = faceStencils[faceI];
-
-            forAll(faceQP[faceI], qpI)
+            if (triplets.empty())
             {
-                const scalar w = faceQW[faceI][qpI];
-
-                forAll(curStencil, cI)
-                {
-                    const label col = curStencil[cI];
-                    const vector gCoeff = faceGradCoeffs[faceI][qpI][cI];
-
-                    const scalar fluxCoeff =
-                        area*w*(n & (conductivity[own] & gCoeff));
-
-                    addTripletIfNeeded
-                    (
-                        triplets,
-                        own,
-                        col,
-                        fluxCoeff/max(V[own], SMALL)
-                    );
-
-                    addTripletIfNeeded
-                    (
-                        triplets,
-                        nei,
-                        col,
-                        -fluxCoeff/max(V[nei], SMALL)
-                    );
-                }
+                return;
             }
-        }
+            Klocal.setZero();
+            Klocal.setFromTriplets(triplets.begin(), triplets.end());
+            Klocal.makeCompressed();
 
-        if (stabilisationAlpha > SMALL)
+            if (!kInitialised)
+            {
+                K.swap(Klocal);
+                Klocal.resize(nCells, nCells);
+                kInitialised = true;
+            }
+            else
+            {
+                K += Klocal;
+            }
+            triplets.clear();
+        };
+
+        // --- Internal faces, processed in chunks ---
+        for
+        (
+            label faceStart = 0;
+            faceStart < nInternalFaces;
+            faceStart += faceChunk
+        )
         {
-            forAll(neighbour, faceI)
+            const label faceEnd =
+                min(faceStart + faceChunk, nInternalFaces);
+
+            // Flux contribution
+            for (label faceI = faceStart; faceI < faceEnd; ++faceI)
             {
                 const label own = owner[faceI];
                 const label nei = neighbour[faceI];
@@ -1193,66 +2187,117 @@ namespace
                 const vector Sf = mesh.Sf()[faceI];
                 const scalar area = mag(Sf) + VSMALL;
                 const vector n = Sf/area;
-                const vector dPN = C[nei] - C[own];
-                const tensor Df = 0.5*(conductivity[own] + conductivity[nei]);
-                const scalar a =
-                    stabilisationFaceCoeff
-                    (
-                        stabilisationAlpha,
-                        area,
-                        Df,
-                        n,
-                        dPN
-                    );
-                const point xf = Cf[faceI];
 
-                addCellTaylorExtrapolationCoeffs
-                (
-                    triplets,
-                    own,
-                    a/max(V[own], SMALL),
-                    nei,
-                    xf,
-                    LREInterp,
-                    C,
-                    twoD
-                );
-                addCellTaylorExtrapolationCoeffs
-                (
-                    triplets,
-                    own,
-                    -a/max(V[own], SMALL),
-                    own,
-                    xf,
-                    LREInterp,
-                    C,
-                    twoD
-                );
-                addCellTaylorExtrapolationCoeffs
-                (
-                    triplets,
-                    nei,
-                    -a/max(V[nei], SMALL),
-                    nei,
-                    xf,
-                    LREInterp,
-                    C,
-                    twoD
-                );
-                addCellTaylorExtrapolationCoeffs
-                (
-                    triplets,
-                    nei,
-                    a/max(V[nei], SMALL),
-                    own,
-                    xf,
-                    LREInterp,
-                    C,
-                    twoD
-                );
+                const labelList& curStencil = faceStencils[faceI];
+
+                forAll(faceQP[faceI], qpI)
+                {
+                    const scalar w = faceQW[faceI][qpI];
+
+                    forAll(curStencil, cI)
+                    {
+                        const label col = curStencil[cI];
+                        const vector gCoeff = faceGradCoeffs[faceI][qpI][cI];
+
+                        const scalar fluxCoeff =
+                            area*w*(n & (conductivity[own] & gCoeff));
+
+                        addTripletIfNeeded
+                        (
+                            triplets,
+                            own,
+                            col,
+                            fluxCoeff/max(V[own], SMALL)
+                        );
+
+                        addTripletIfNeeded
+                        (
+                            triplets,
+                            nei,
+                            col,
+                            -fluxCoeff/max(V[nei], SMALL)
+                        );
+                    }
+                }
             }
+
+            // Stabilisation contribution (same chunk range)
+            if (stabilisationAlpha > SMALL)
+            {
+                for (label faceI = faceStart; faceI < faceEnd; ++faceI)
+                {
+                    const label own = owner[faceI];
+                    const label nei = neighbour[faceI];
+
+                    const vector Sf = mesh.Sf()[faceI];
+                    const scalar area = mag(Sf) + VSMALL;
+                    const vector n = Sf/area;
+                    const vector dPN = C[nei] - C[own];
+                    const tensor Df =
+                        0.5*(conductivity[own] + conductivity[nei]);
+                    const scalar a =
+                        stabilisationFaceCoeff
+                        (
+                            stabilisationAlpha,
+                            area,
+                            Df,
+                            n,
+                            dPN
+                        );
+                    const point xf = Cf[faceI];
+
+                    addCellTaylorExtrapolationCoeffs
+                    (
+                        triplets,
+                        own,
+                        a/max(V[own], SMALL),
+                        nei,
+                        xf,
+                        LREInterp,
+                        C,
+                        twoD
+                    );
+                    addCellTaylorExtrapolationCoeffs
+                    (
+                        triplets,
+                        own,
+                        -a/max(V[own], SMALL),
+                        own,
+                        xf,
+                        LREInterp,
+                        C,
+                        twoD
+                    );
+                    addCellTaylorExtrapolationCoeffs
+                    (
+                        triplets,
+                        nei,
+                        -a/max(V[nei], SMALL),
+                        nei,
+                        xf,
+                        LREInterp,
+                        C,
+                        twoD
+                    );
+                    addCellTaylorExtrapolationCoeffs
+                    (
+                        triplets,
+                        nei,
+                        a/max(V[nei], SMALL),
+                        own,
+                        xf,
+                        LREInterp,
+                        C,
+                        twoD
+                    );
+                }
+            }
+
+            flushChunk();
         }
 
+        // --- Boundary faces in a single pass (peak is small: ~50K faces
+        // × ~300 triplets ≈ 250 MB, manageable without chunking) ---
         forAll(mesh.boundary(), patchI)
         {
             const fvPatch& patch = mesh.boundary()[patchI];
@@ -1341,9 +2386,18 @@ namespace
             }
         }
 
-        K.resize(mesh.nCells(), mesh.nCells());
-        K.setFromTriplets(triplets.begin(), triplets.end());
+        flushChunk();
+
+        // Ensure K has the correct shape even if there were no triplets
+        // anywhere (degenerate case).
+        if (!kInitialised)
+        {
+            K.resize(nCells, nCells);
+            K.setZero();
+        }
+
         K.makeCompressed();
+        std::vector<Triplet>().swap(triplets);
     }
 
     EigVec assembleStandardOrthogonalBoundaryVector
@@ -1505,7 +2559,7 @@ namespace
         return b;
     }
 
-    EigVec solveSparseSystem
+    EigVec solveSparseSystemEigen
     (
         const SpMat& A,
         const EigVec& b,
@@ -1576,6 +2630,70 @@ namespace
             << exit(FatalError);
 
         return EigVec();
+    }
+
+    EigVec solveSparseSystem
+    (
+        const SpMat& A,
+        const EigVec& b,
+        const word& linearSolverBackend,
+        const word& linearSolver,
+        const word& petscKspType,
+        const word& petscPcType,
+        const label petscRestart,
+        const word& petscOptionsPrefix,
+        const bool petscUseOptions,
+        const scalar tol,
+        const label maxIter,
+        label& linearIterations,
+        scalar& linearError
+    )
+    {
+        if (usesPetscBackend(linearSolverBackend))
+        {
+            word kspType(petscKspType);
+            word pcType(petscPcType);
+
+            if (linearSolver == "SparseLU" || linearSolver == "LU")
+            {
+                kspType = "preonly";
+                pcType = "lu";
+            }
+            else if
+            (
+                linearSolver == "BiCGSTAB"
+             && petscKspType == linearSolver
+            )
+            {
+                kspType = "bcgs";
+            }
+
+            PetscKspMatrixSolver solver;
+            solver.reset
+            (
+                A,
+                kspType,
+                pcType,
+                tol,
+                maxIter,
+                petscRestart,
+                petscOptionsPrefix,
+                petscUseOptions
+            );
+
+            return solver.solve(b, linearIterations, linearError);
+        }
+
+        return solveSparseSystemEigen
+        (
+            A,
+            b,
+            linearSolver,
+            tol,
+            maxIter,
+            linearIterations,
+            linearError
+        );
     }
 
     void appendTetQuadraturePointsAndWeights
@@ -1934,10 +3052,15 @@ namespace
         const scalar beta,
         const scalar chiVal,
         const scalar CmVal,
-        volScalarField& Iion
+        volScalarField& Iion,
+        const bool useOpenMP = false,
+        const label openMPThreshold = 256
     )
     {
-        forAll(Vm.internalField(), cellI)
+        const label nCells = Vm.internalField().size();
+
+        #pragma omp parallel for schedule(static) if(useOpenMP && nCells >= openMPThreshold)
+        for (label cellI = 0; cellI < nCells; ++cellI)
         {
             Iion[cellI] =
                 ionicCurrentPDE
@@ -1964,10 +3087,15 @@ namespace
         const scalar beta,
         const scalar chiVal,
         const scalar CmVal,
-        volScalarField& sourceVm
+        volScalarField& sourceVm,
+        const bool useOpenMP = false,
+        const label openMPThreshold = 256
     )
     {
-        forAll(Vm.internalField(), cellI)
+        const label nCells = Vm.internalField().size();
+
+        #pragma omp parallel for schedule(static) if(useOpenMP && nCells >= openMPThreshold)
+        for (label cellI = 0; cellI < nCells; ++cellI)
         {
             sourceVm[cellI] =
                 vmSourcePDE
@@ -2064,6 +3192,104 @@ namespace
         }
     }
 
+    // Reconstruct the cell-centred states (u1,u2,u3) at the Iion Gauss points
+    // using a dedicated high-order LRE (LREInterp_states). Mirrors the
+    // high-order branch of reconstructVmAtIionIntegrationPoints, but evaluates
+    // the three state fields in a single pass over the cells. Used by
+    // stateIntegrationMode = cellCentredReconstruct.
+    void reconstructStatesAtIionIntegrationPoints
+    (
+        const volScalarField& u1,
+        const volScalarField& u2,
+        const volScalarField& u3,
+        const LRE& LREInterp_states,
+        const LRE& LREInterp_Iion,
+        scalarField& u1IntegrationPoints,
+        scalarField& u2IntegrationPoints,
+        scalarField& u3IntegrationPoints
+    )
+    {
+        const fvMesh& mesh = u1.mesh();
+        const vectorField& C = mesh.C();
+        const bool twoD = mesh.nGeometricD() == 2;
+        const CompactListList<point>& cellIionQuadP =
+            LREInterp_Iion.cellQuadPoints();
+
+        // Gradients (always), Hessians (order >= 2), third derivs (order >= 3)
+        // of each state field from the state interpolator.
+        tmp<volVectorField> tGradU1 = LREInterp_states.grad(u1);
+        tmp<volVectorField> tGradU2 = LREInterp_states.grad(u2);
+        tmp<volVectorField> tGradU3 = LREInterp_states.grad(u3);
+        const vectorField& gradU1 = tGradU1->internalField();
+        const vectorField& gradU2 = tGradU2->internalField();
+        const vectorField& gradU3 = tGradU3->internalField();
+
+        tmp<volSymmTensorField> tHessU1, tHessU2, tHessU3;
+        const symmTensorField* hessU1 = nullptr;
+        const symmTensorField* hessU2 = nullptr;
+        const symmTensorField* hessU3 = nullptr;
+        if (LREInterp_states.order() >= 2)
+        {
+            tHessU1 = LREInterp_states.hessian(u1);
+            tHessU2 = LREInterp_states.hessian(u2);
+            tHessU3 = LREInterp_states.hessian(u3);
+            hessU1 = &(tHessU1->internalField());
+            hessU2 = &(tHessU2->internalField());
+            hessU3 = &(tHessU3->internalField());
+        }
+
+        autoPtr<List<LRE::symmTensor3Order>> thirdU1Ptr, thirdU2Ptr, thirdU3Ptr;
+        const List<LRE::symmTensor3Order>* thirdU1 = nullptr;
+        const List<LRE::symmTensor3Order>* thirdU2 = nullptr;
+        const List<LRE::symmTensor3Order>* thirdU3 = nullptr;
+        if (LREInterp_states.order() >= 3)
+        {
+            thirdU1Ptr = LREInterp_states.thirdDeriv(u1);
+            thirdU2Ptr = LREInterp_states.thirdDeriv(u2);
+            thirdU3Ptr = LREInterp_states.thirdDeriv(u3);
+            thirdU1 = &thirdU1Ptr();
+            thirdU2 = &thirdU2Ptr();
+            thirdU3 = &thirdU3Ptr();
+        }
+
+        label integrationPointI = 0;
+        forAll(mesh.cells(), cellI)
+        {
+            const vector& xc = C[cellI];
+
+            const scalar u1c = u1[cellI];
+            const scalar u2c = u2[cellI];
+            const scalar u3c = u3[cellI];
+
+            const vector& gU1 = gradU1[cellI];
+            const vector& gU2 = gradU2[cellI];
+            const vector& gU3 = gradU3[cellI];
+
+            const symmTensor* HU1 = hessU1 ? &((*hessU1)[cellI]) : nullptr;
+            const symmTensor* HU2 = hessU2 ? &((*hessU2)[cellI]) : nullptr;
+            const symmTensor* HU3 = hessU3 ? &((*hessU3)[cellI]) : nullptr;
+
+            const LRE::symmTensor3Order* TU1 =
+                thirdU1 ? &((*thirdU1)[cellI]) : nullptr;
+            const LRE::symmTensor3Order* TU2 =
+                thirdU2 ? &((*thirdU2)[cellI]) : nullptr;
+            const LRE::symmTensor3Order* TU3 =
+                thirdU3 ? &((*thirdU3)[cellI]) : nullptr;
+
+            forAll(cellIionQuadP[cellI], qI)
+            {
+                const vector d = cellIionQuadP[cellI][qI] - xc;
+                u1IntegrationPoints[integrationPointI] =
+                    reconstructFromTaylor(u1c, gU1, HU1, TU1, d, twoD);
+                u2IntegrationPoints[integrationPointI] =
+                    reconstructFromTaylor(u2c, gU2, HU2, TU2, d, twoD);
+                u3IntegrationPoints[integrationPointI] =
+                    reconstructFromTaylor(u3c, gU3, HU3, TU3, d, twoD);
+                ++integrationPointI;
+            }
+        }
+    }
+
     void averageIntegrationPointFieldToCells
     (
         const scalarField& integrationPointValues,
@@ -2147,10 +3373,15 @@ namespace
         const scalar beta,
         const scalar chiVal,
         const scalar CmVal,
-        scalarField& IionIntegrationPoints
+        scalarField& IionIntegrationPoints,
+        const bool useOpenMP = false,
+        const label openMPThreshold = 256
     )
     {
-        forAll(IionIntegrationPoints, integrationPointI)
+        const label nIntegrationPoints = IionIntegrationPoints.size();
+
+        #pragma omp parallel for schedule(static) if(useOpenMP && nIntegrationPoints >= openMPThreshold)
+        for (label integrationPointI = 0; integrationPointI < nIntegrationPoints; ++integrationPointI)
         {
             IionIntegrationPoints[integrationPointI] =
                 ionicCurrentPDE
@@ -2175,10 +3406,15 @@ namespace
         const scalar beta,
         const scalar chiVal,
         const scalar CmVal,
-        scalarField& sourceIntegrationPoints
+        scalarField& sourceIntegrationPoints,
+        const bool useOpenMP = false,
+        const label openMPThreshold = 256
     )
     {
-        forAll(sourceIntegrationPoints, integrationPointI)
+        const label nIntegrationPoints = sourceIntegrationPoints.size();
+
+        #pragma omp parallel for schedule(static) if(useOpenMP && nIntegrationPoints >= openMPThreshold)
+        for (label integrationPointI = 0; integrationPointI < nIntegrationPoints; ++integrationPointI)
         {
             sourceIntegrationPoints[integrationPointI] =
                 vmSourcePDE
@@ -2513,10 +3749,15 @@ namespace
         const scalar stateODEInitialStep,
         const scalar stateODEAbsTol,
         const scalar stateODERelTol,
-        const label stateODEMaxSteps
+        const label stateODEMaxSteps,
+        const bool useOpenMP = false,
+        const label openMPThreshold = 256
     )
     {
-        forAll(u1NewIntegrationPoints, integrationPointI)
+        const label nIntegrationPoints = u1NewIntegrationPoints.size();
+
+        #pragma omp parallel for schedule(static) if(useOpenMP && nIntegrationPoints >= openMPThreshold)
+        for (label integrationPointI = 0; integrationPointI < nIntegrationPoints; ++integrationPointI)
         {
             advanceStateODE
             (
@@ -2553,7 +3794,9 @@ namespace
         const scalar stateODEInitialStep,
         const scalar stateODEAbsTol,
         const scalar stateODERelTol,
-        const label stateODEMaxSteps
+        const label stateODEMaxSteps,
+        const bool useOpenMP = false,
+        const label openMPThreshold = 256
     )
     {
         scalarField& u1NI = u1New.primitiveFieldRef();
@@ -2566,7 +3809,10 @@ namespace
         const scalarField& u2O = u2Old.primitiveField();
         const scalarField& u3O = u3Old.primitiveField();
 
-        forAll(u1NI, cellI)
+        const label nCells = u1NI.size();
+
+        #pragma omp parallel for schedule(static) if(useOpenMP && nCells >= openMPThreshold)
+        for (label cellI = 0; cellI < nCells; ++cellI)
         {
             advanceStateODE
             (
@@ -2798,6 +4044,17 @@ namespace
         const bool useHighOrderVm,
         const bool useHighOrderIion,
         const scalar stabilisationAlpha,
+        const word& memoryOptimization,
+        const bool memoryOptimizationEffective,
+        const label memoryOptimizationCellThreshold,
+        const Switch memoryOptimizationAdaptiveTripletReserve,
+        const label memoryOptimizationFluxTripletsPerFace,
+        const label memoryOptimizationStabilisedTripletsPerFace,
+        const Switch memoryOptimizationTrimHeap,
+        const Switch memoryOptimizationCompactMassAssembly,
+        const bool compactMassAssembly,
+        const label stiffnessTripletsPerFaceReserve,
+        const label allocatedIionIntegrationPoints,
         const label lreN,
         const label lreNn,
         const scalar lreK,
@@ -2806,7 +4063,10 @@ namespace
         const label lreIionNn,
         const scalar lreIionK,
         const label lreIionMaxStencilSize,
+        const word& linearSolverBackend,
         const word& implicitLinearSolver,
+        const word& petscLinearKspType,
+        const word& petscLinearPcType,
         const scalar implicitTolerance,
         const label implicitMaxIterations,
         const label maxNonlinearIterations,
@@ -2822,6 +4082,9 @@ namespace
         const label jfnkMaxRestarts,
         const scalar jfnkLinearTolerance,
         const scalar jfnkEpsilon,
+        const word& jfnkLinearSolverBackend,
+        const word& jfnkPetscKspType,
+        const word& jfnkPetscPcType,
         const label jfnkInitGuessOrder,
         const scalar jfnkInitGuessVmMin,
         const scalar jfnkInitGuessVmMax,
@@ -2840,6 +4103,8 @@ namespace
         const scalar stateODEAbsTol,
         const scalar stateODERelTol,
         const label stateODEMaxSteps,
+        const Switch stateODEUseOpenMP,
+        const label stateODENumThreads,
         const std::vector<NonlinearConvergenceRecord>& nonlinearHistory,
         const scalar peakMemoryKB,
         const scalar setupWallTime,
@@ -2946,11 +4211,31 @@ namespace
             << "Mass matrix           = " << massMatrixType << nl
             << "useHighOrder_Vm       = " << (useHighOrderVm ? "true" : "false") << nl
             << "Stabilisation alpha   = " << stabilisationAlpha << nl
+            << "memoryOptimization    = " << memoryOptimization << nl
+            << "memoryOptimization effective = "
+            << (memoryOptimizationEffective ? "true" : "false") << nl
+            << "memoryOptimization cellThreshold = "
+            << memoryOptimizationCellThreshold << nl
+            << "adaptive triplet reserve = "
+            << (memoryOptimizationAdaptiveTripletReserve ? "true" : "false") << nl
+            << "flux triplets/face reserve = "
+            << memoryOptimizationFluxTripletsPerFace << nl
+            << "stabilised triplets/face reserve = "
+            << memoryOptimizationStabilisedTripletsPerFace << nl
+            << "memoryOptimization trimHeap = "
+            << (memoryOptimizationTrimHeap ? "true" : "false") << nl
+            << "memoryOptimization compactMassAssembly = "
+            << (memoryOptimizationCompactMassAssembly ? "true" : "false") << nl
+            << "compact mass assembly = "
+            << (compactMassAssembly ? "true" : "false") << nl
+            << "stiffness triplets/face reserve = "
+            << stiffnessTripletsPerFaceReserve << nl
             << "Vm LRE N              = " << lreN << nl
             << "Vm LRE Nn             = " << lreNn << nl
             << "Vm LRE k              = " << lreK << nl
             << "Vm LRE maxStencilSize = " << lreMaxStencilSize << nl
             << "useHighOrder_Iion     = " << (useHighOrderIion ? "true" : "false") << nl
+            << "allocated Iion IPs    = " << allocatedIionIntegrationPoints << nl
             << "Iion LRE N            = " << lreIionN << nl
             << "Iion LRE Nn           = " << lreIionNn << nl
             << "Iion LRE k            = " << lreIionK << nl
@@ -2958,14 +4243,20 @@ namespace
             << "Nonlinear method      = " << nonlinearMethod << nl
             << "Max nonlinear iterations = " << maxNonlinearIterations << nl
             << "Min nonlinear iterations = " << minNonlinearIterations << nl
+            << "Linear backend        = " << linearSolverBackend << nl
             << "Linear PDE solver     = " << implicitLinearSolver << nl
+            << "PETSc linear KSP      = " << petscLinearKspType << nl
+            << "PETSc linear PC       = " << petscLinearPcType << nl
             << "Linear PDE tolerance  = " << implicitTolerance << nl
             << "Linear PDE maxIter    = " << implicitMaxIterations << nl
             << "State ODE solver      = " << stateODESolver << nl
             << "State ODE initial step= " << stateODEInitialStep << nl
             << "State ODE absTol      = " << stateODEAbsTol << nl
             << "State ODE relTol      = " << stateODERelTol << nl
-            << "State ODE maxSteps    = " << stateODEMaxSteps << nl;
+            << "State ODE maxSteps    = " << stateODEMaxSteps << nl
+            << "State ODE OpenMP      = "
+            << (stateODEUseOpenMP ? "true" : "false") << nl
+            << "State ODE threads     = " << stateODENumThreads << nl;
 
         if (isPicard)
         {
@@ -2992,6 +4283,9 @@ namespace
                 << "JFNK GMRES restarts   = " << jfnkMaxRestarts << nl
                 << "JFNK GMRES tolerance  = " << jfnkLinearTolerance << nl
                 << "JFNK epsilon          = " << jfnkEpsilon << nl
+                << "JFNK backend          = " << jfnkLinearSolverBackend << nl
+                << "JFNK PETSc KSP        = " << jfnkPetscKspType << nl
+                << "JFNK PETSc PC         = " << jfnkPetscPcType << nl
                 << "JFNK initGuessOrder   = " << jfnkInitGuessOrder << nl
                 << "JFNK initGuessVmMin   = " << jfnkInitGuessVmMin << nl
                 << "JFNK initGuessVmMax   = " << jfnkInitGuessVmMax << nl
@@ -3115,7 +4409,26 @@ namespace
 
 int main(int argc, char* argv[])
 {
+#ifdef __GLIBC__
+    // Tighten the glibc allocator before any large allocation. The LRE
+    // construction runs ~2.3M QR factorisations on a 3D unstructured tet
+    // mesh with N=40 / p3; without these tunables glibc grows the heap by
+    // several GB of unreclaimed fragments and the run OOMs on a 16 GB box.
+    //   - M_ARENA_MAX=2: prevents glibc from creating ~64 arenas (one set
+    //     per ODE OpenMP thread). LRE setup is serial; multiple arenas
+    //     just inflate the RSS.
+    //   - M_MMAP_THRESHOLD=64 KB: routes mid-sized allocations (Eigen
+    //     temporaries during QR) through mmap so they are returned to
+    //     the kernel individually when freed.
+    //   - M_TRIM_THRESHOLD=64 KB: lets glibc release sbrk-heap padding
+    //     back to the OS more aggressively.
+    mallopt(M_ARENA_MAX, 2);
+    mallopt(M_MMAP_THRESHOLD, 64*1024);
+    mallopt(M_TRIM_THRESHOLD, 64*1024);
+#endif
+
     #include "setRootCaseLists.H"
+    PetscSession petscSession(argc, argv);
     #include "createTime.H"
     #include "createMesh.H"
     #include "createFields.H"
@@ -3132,14 +4445,68 @@ int main(int argc, char* argv[])
     const scalar lapScale = 1.0/max(chiCmVal, SMALL);
     const scalar theta = thetaFromScheme(implicitScheme);
     const word massMatrixMode = normalizedMassMatrixType(massMatrixType);
+    const std::string memoryOptimizationMode = lowerWord(memoryOptimization);
 
-    scalarField VmOldIntegrationPoints(totalIionIntegrationPoints, 0.0);
-    scalarField VmGuessIntegrationPoints(totalIionIntegrationPoints, 0.0);
-    scalarField sourceIntegrationPoints(totalIionIntegrationPoints, 0.0);
-    scalarField IionIntegrationPoints(totalIionIntegrationPoints, 0.0);
-    scalarField u1IntegrationPoints(totalIionIntegrationPoints, 0.0);
-    scalarField u2IntegrationPoints(totalIionIntegrationPoints, 0.0);
-    scalarField u3IntegrationPoints(totalIionIntegrationPoints, 0.0);
+    if
+    (
+        memoryOptimizationMode != "auto"
+     && memoryOptimizationMode != "on"
+     && memoryOptimizationMode != "off"
+    )
+    {
+        FatalErrorInFunction
+            << "Unknown memoryOptimization '" << memoryOptimization << "'. "
+            << "Valid options are auto, on and off."
+            << abort(FatalError);
+    }
+
+    const bool memoryOptimizationEffective =
+        memoryOptimizationMode == "on"
+     || (
+            memoryOptimizationMode == "auto"
+         && useHighOrder_Vm
+         && dim == 3
+         && mesh.nCells() >= memoryOptimizationCellThreshold
+        );
+
+    const bool useAdaptiveTripletReserve =
+        memoryOptimizationEffective
+     && memoryOptimizationAdaptiveTripletReserve;
+
+    const label stiffnessTripletsPerFaceReserve =
+            useAdaptiveTripletReserve
+        ? (
+                stabilisationAlpha > SMALL
+              ? memoryOptimizationStabilisedTripletsPerFace
+              : memoryOptimizationFluxTripletsPerFace
+          )
+        : label(800);
+
+    const bool trimHeapAfterLargeSetup =
+        memoryOptimizationEffective && memoryOptimizationTrimHeap;
+
+    const bool compactMassAssembly =
+        memoryOptimizationEffective && memoryOptimizationCompactMassAssembly;
+
+    const label allocatedIionIntegrationPoints =
+            useHighOrder_Iion && dim > 1
+        ? totalIionIntegrationPoints
+        : label(0);
+
+#ifdef _OPENMP
+    if (stateODENumThreads > 0)
+    {
+        omp_set_num_threads(stateODENumThreads);
+    }
+#endif
+
+    scalarField VmOldIntegrationPoints(allocatedIionIntegrationPoints, 0.0);
+    scalarField VmGuessIntegrationPoints(allocatedIionIntegrationPoints, 0.0);
+    scalarField sourceIntegrationPoints(allocatedIionIntegrationPoints, 0.0);
+    scalarField IionIntegrationPoints(allocatedIionIntegrationPoints, 0.0);
+    scalarField u1IntegrationPoints(allocatedIionIntegrationPoints, 0.0);
+    scalarField u2IntegrationPoints(allocatedIionIntegrationPoints, 0.0);
+    scalarField u3IntegrationPoints(allocatedIionIntegrationPoints, 0.0);
 
     Info<< "Running high-order manufactured FDA implicit PETSc solver" << nl
         << "Dimension = " << dim << nl
@@ -3147,17 +4514,41 @@ int main(int argc, char* argv[])
         << "dt = " << dt << nl
         << "implicitScheme = " << implicitScheme << nl
         << "massMatrix = " << massMatrixMode << nl
+        << "linearSolverBackend = " << linearSolverBackend << nl
+        << "PETSc linear KSP = " << petscLinearKspType
+        << ", PC = " << petscLinearPcType << nl
         << "nonlinearMethod = " << nonlinearMethod << nl
+        << "JFNK linear backend = " << jfnkLinearSolverBackend << nl
+        << "JFNK PETSc KSP = " << jfnkPetscKspType
+        << ", PC = " << jfnkPetscPcType << nl
         << "stateODESolver = " << stateODESolver << nl
+        << "stateODEUseOpenMP = " << stateODEUseOpenMP
+        << ", stateODENumThreads = " << stateODENumThreads << nl
         << "nonlinearRelaxation = " << nonlinearRelaxation << nl
         << "useHighOrder_Vm = " << useHighOrder_Vm << nl
         << "useHighOrder_Iion = " << useHighOrder_Iion << nl
+        << "stateIntegrationMode = " << stateIntegrationMode << nl
         << "stabilisationAlpha = " << stabilisationAlpha << nl
+        << "memoryOptimization = " << memoryOptimization
+        << " (effective: "
+        << (memoryOptimizationEffective ? "true" : "false") << ")" << nl
+        << "stiffnessTripletsPerFaceReserve = "
+        << stiffnessTripletsPerFaceReserve << nl
+        << "compactMassAssembly = "
+        << (compactMassAssembly ? "true" : "false") << nl
         << "jfnkPreconditioner = " << jfnkPreconditioner << nl
         << "jfnkPreconditionerUpdateFrequency = "
         << jfnkPreconditionerUpdateFrequency << nl
         << "Iion integration points = " << totalIionIntegrationPoints
+        << " (allocated: " << allocatedIionIntegrationPoints << ")"
         << endl;
+
+    if (reconstructStatesFromCellCentres && useHighOrder_Iion && dim > 1)
+    {
+        Info<< "LREInterp_states order = " << LREInterp_statesPtr().order()
+            << " (states evolved at cell centres, reconstructed at Gauss points)"
+            << endl;
+    }
 
     const bool usePicard =
         nonlinearMethod == "Picard"
@@ -3237,9 +4628,13 @@ int main(int argc, char* argv[])
 
     SpMat M;
     SpMat K;
-    SpMat L;
     SpMat AImplicit;
     SpMat BImplicit;
+
+    if (profileTimings)
+    {
+        logMemoryCheckpoint("before mass assembly");
+    }
 
     if (!useHighOrder_Vm || massMatrixMode == "lumped")
     {
@@ -3247,7 +4642,34 @@ int main(int argc, char* argv[])
     }
     else
     {
-        assembleConsistentMassMatrixHO(mesh, LREInterp_Vm, 1.0, M);
+        assembleConsistentMassMatrixHO
+        (
+            mesh,
+            LREInterp_Vm,
+            1.0,
+            compactMassAssembly,
+            M
+        );
+    }
+
+    if (profileTimings)
+    {
+        logMemoryCheckpoint("after mass assembly");
+    }
+
+#ifdef __GLIBC__
+    // Reclaim the heap fragmentation left by the ~290k per-cell QR
+    // factorisations triggered when LREInterp_Vm populated its cell
+    // gradient / Hessian / 3rd-derivative coefficient tables.
+    if (trimHeapAfterLargeSetup)
+    {
+        malloc_trim(0);
+    }
+#endif
+
+    if (profileTimings)
+    {
+        logMemoryCheckpoint("before stiffness assembly");
     }
 
     if (useHighOrder_Vm)
@@ -3258,6 +4680,7 @@ int main(int argc, char* argv[])
             conductivity,
             LREInterp_Vm,
             stabilisationAlpha,
+            stiffnessTripletsPerFaceReserve,
             K
         );
     }
@@ -3273,20 +4696,82 @@ int main(int argc, char* argv[])
         );
     }
 
-    L = K;
-    L *= lapScale;
+    if (profileTimings)
+    {
+        logMemoryCheckpoint("after stiffness assembly");
+    }
+
+#ifdef __GLIBC__
+    // Reclaim the heap fragmentation from the ~2.3M per-(face, GP) QR
+    // factorisations during LREInterp_Vm.QRGradFaceGPCoeffs() population.
+    if (trimHeapAfterLargeSetup)
+    {
+        malloc_trim(0);
+    }
+#endif
 
     AImplicit = M;
     AImplicit *= (1.0/dt);
-    AImplicit -= theta*L;
+    AImplicit -= (theta*lapScale)*K;
 
-    BImplicit = M;
+    // Move M into BImplicit instead of copying: M is not referenced again
+    // after this block, so we can hand its storage over and free the
+    // ~280 MB it occupied as a separate matrix.
+    BImplicit = std::move(M);
     BImplicit *= (1.0/dt);
 
     if (theta < 1.0 - SMALL)
     {
-        BImplicit += (1.0 - theta)*L;
+        BImplicit += ((1.0 - theta)*lapScale)*K;
     }
+
+    if (profileTimings)
+    {
+        logMemoryCheckpoint("after implicit matrix assembly");
+    }
+
+#ifdef __GLIBC__
+    if (trimHeapAfterLargeSetup)
+    {
+        malloc_trim(0);
+    }
+#endif
+
+    PetscKspMatrixSolver cachedPicardPetscSolver;
+    const bool useCachedPicardPetscSolver =
+        usePicard && usesPetscBackend(linearSolverBackend);
+
+    if (useCachedPicardPetscSolver)
+    {
+        cachedPicardPetscSolver.reset
+        (
+            AImplicit,
+            petscLinearKspType,
+            petscLinearPcType,
+            implicitTolerance,
+            implicitMaxIterations,
+            petscLinearRestart,
+            petscLinearOptionsPrefix,
+            petscUseOptions
+        );
+    }
+
+    // Persistent JFNK preconditioner state, kept across the time loop so that
+    // the PETSc Mat, KSP and ILUT symbolic factorisation are reused. Memory
+    // peak per PC update is dominated by the freshly allocated ILUT factor
+    // (~fillFactor * nnz(AImplicit)); reusing the cached factor avoids
+    // repeated alloc/free that fragments the glibc heap on long runs.
+    Eigen::IncompleteLUT<scalar> jfnkIlu;
+    PetscKspMatrixSolver jfnkPetscPcSolver;
+    SpMat jfnkP;
+    bool jfnkPMatInitialised = false;
+
+    // Persistent JFNK shell-Krylov solver (PETSc MatShell + KSP). The Krylov
+    // subspace and KSP structures are allocated once and reused across every
+    // Newton iteration, avoiding the ~25-40 MB alloc/free cycle that was
+    // happening once per Newton step in the old solvePetscShellSystem call.
+    // The mat-vec / apply-PC callback payloads are refreshed per solve().
+    PetscShellKspSolver jfnkPetscShellSolver;
 
     autoPtr<OFstream> nonlinearResidualFilePtr;
     if (writeNonlinearResiduals)
@@ -3308,9 +4793,9 @@ int main(int argc, char* argv[])
     }
 
     auto updateNumericalLaplacian =
-    [&](const scalar evalTime)
+    [&](const scalar evalTime, const bool updateFluxField)
     {
-        if (useHighOrder_Vm)
+        if (useHighOrder_Vm && updateFluxField)
         {
             computeHighOrderLaplacian
             (
@@ -3451,7 +4936,9 @@ int main(int argc, char* argv[])
                 beta,
                 chiVal,
                 CmVal,
-                sourceIntegrationPoints
+                sourceIntegrationPoints,
+                stateODEUseOpenMP,
+                stateODEOpenMPThreshold
             );
 
             averageIntegrationPointFieldToCells
@@ -3472,7 +4959,9 @@ int main(int argc, char* argv[])
                 beta,
                 chiVal,
                 CmVal,
-                sourceVm
+                sourceVm,
+                stateODEUseOpenMP,
+                stateODEOpenMPThreshold
             );
         }
 
@@ -3665,42 +5154,93 @@ int main(int argc, char* argv[])
                     );
                 }
 
-                updateIntegrationPointStatesODE
-                (
-                    VmOldIntegrationPoints,
-                    VmCandidateIntegrationPoints,
-                    u1OldIntegrationPoints,
-                    u2OldIntegrationPoints,
-                    u3OldIntegrationPoints,
-                    u1CandidateIntegrationPoints,
-                    u2CandidateIntegrationPoints,
-                    u3CandidateIntegrationPoints,
-                    dt,
-                    stateODESolver,
-                    stateODEInitialStep,
-                    stateODEAbsTol,
-                    stateODERelTol,
-                    stateODEMaxSteps
-                );
+                if (reconstructStatesFromCellCentres)
+                {
+                    // ODE once per cell (cell-centred), then reconstruct the
+                    // states at the Iion Gauss points with LREInterp_states.
+                    updateStateFieldsODE
+                    (
+                        VmOld,
+                        VmCandidate,
+                        u1Old,
+                        u2Old,
+                        u3Old,
+                        u1Candidate,
+                        u2Candidate,
+                        u3Candidate,
+                        dt,
+                        stateODESolver,
+                        stateODEInitialStep,
+                        stateODEAbsTol,
+                        stateODERelTol,
+                        stateODEMaxSteps,
+                        stateODEUseOpenMP,
+                        stateODEOpenMPThreshold
+                    );
 
-                averageIntegrationPointFieldToCells
-                (
-                    u1CandidateIntegrationPoints,
-                    LREInterp_Iion,
-                    u1Candidate
-                );
-                averageIntegrationPointFieldToCells
-                (
-                    u2CandidateIntegrationPoints,
-                    LREInterp_Iion,
-                    u2Candidate
-                );
-                averageIntegrationPointFieldToCells
-                (
-                    u3CandidateIntegrationPoints,
-                    LREInterp_Iion,
-                    u3Candidate
-                );
+                    updateStateBoundaryValues
+                    (
+                        u1Candidate, u2Candidate, u3Candidate, t + dt, dim
+                    );
+                    u1Candidate.correctBoundaryConditions();
+                    u2Candidate.correctBoundaryConditions();
+                    u3Candidate.correctBoundaryConditions();
+
+                    reconstructStatesAtIionIntegrationPoints
+                    (
+                        u1Candidate,
+                        u2Candidate,
+                        u3Candidate,
+                        LREInterp_statesPtr(),
+                        LREInterp_Iion,
+                        u1CandidateIntegrationPoints,
+                        u2CandidateIntegrationPoints,
+                        u3CandidateIntegrationPoints
+                    );
+                }
+                else
+                {
+                    // Legacy: integrate the ODE independently at every Gauss
+                    // point, then average the states back to the cell centres.
+                    updateIntegrationPointStatesODE
+                    (
+                        VmOldIntegrationPoints,
+                        VmCandidateIntegrationPoints,
+                        u1OldIntegrationPoints,
+                        u2OldIntegrationPoints,
+                        u3OldIntegrationPoints,
+                        u1CandidateIntegrationPoints,
+                        u2CandidateIntegrationPoints,
+                        u3CandidateIntegrationPoints,
+                        dt,
+                        stateODESolver,
+                        stateODEInitialStep,
+                        stateODEAbsTol,
+                        stateODERelTol,
+                        stateODEMaxSteps,
+                        stateODEUseOpenMP,
+                        stateODEOpenMPThreshold
+                    );
+
+                    averageIntegrationPointFieldToCells
+                    (
+                        u1CandidateIntegrationPoints,
+                        LREInterp_Iion,
+                        u1Candidate
+                    );
+                    averageIntegrationPointFieldToCells
+                    (
+                        u2CandidateIntegrationPoints,
+                        LREInterp_Iion,
+                        u2Candidate
+                    );
+                    averageIntegrationPointFieldToCells
+                    (
+                        u3CandidateIntegrationPoints,
+                        LREInterp_Iion,
+                        u3Candidate
+                    );
+                }
 
                 computeVmSourceFromIntegrationPoints
                 (
@@ -3711,7 +5251,9 @@ int main(int argc, char* argv[])
                     beta,
                     chiVal,
                     CmVal,
-                    sourceIntegrationPoints
+                    sourceIntegrationPoints,
+                    stateODEUseOpenMP,
+                    stateODEOpenMPThreshold
                 );
                 averageIntegrationPointFieldToCells
                 (
@@ -3729,7 +5271,9 @@ int main(int argc, char* argv[])
                     beta,
                     chiVal,
                     CmVal,
-                    IionIntegrationPoints
+                    IionIntegrationPoints,
+                    stateODEUseOpenMP,
+                    stateODEOpenMPThreshold
                 );
                 averageIntegrationPointFieldToCells
                 (
@@ -3780,7 +5324,9 @@ int main(int argc, char* argv[])
                         stateODEInitialStep,
                         stateODEAbsTol,
                         stateODERelTol,
-                        stateODEMaxSteps
+                        stateODEMaxSteps,
+                        stateODEUseOpenMP,
+                        stateODEOpenMPThreshold
                     );
 
                     computeCellCentredVmSource
@@ -3792,7 +5338,9 @@ int main(int argc, char* argv[])
                         beta,
                         chiVal,
                         CmVal,
-                        sourceCandidate
+                        sourceCandidate,
+                        stateODEUseOpenMP,
+                        stateODEOpenMPThreshold
                     );
 
                     computeCellCentredIion
@@ -3804,7 +5352,9 @@ int main(int argc, char* argv[])
                         beta,
                         chiVal,
                         CmVal,
-                        IionCandidate
+                        IionCandidate,
+                        stateODEUseOpenMP,
+                        stateODEOpenMPThreshold
                     );
                 }
                 else
@@ -3824,7 +5374,9 @@ int main(int argc, char* argv[])
                         stateODEInitialStep,
                         stateODEAbsTol,
                         stateODERelTol,
-                        stateODEMaxSteps
+                        stateODEMaxSteps,
+                        stateODEUseOpenMP,
+                        stateODEOpenMPThreshold
                     );
 
                     computeCellCentredVmSource
@@ -3836,7 +5388,9 @@ int main(int argc, char* argv[])
                         beta,
                         chiVal,
                         CmVal,
-                        sourceCandidate
+                        sourceCandidate,
+                        stateODEUseOpenMP,
+                        stateODEOpenMPThreshold
                     );
 
                     computeCellCentredIion
@@ -3848,7 +5402,9 @@ int main(int argc, char* argv[])
                         beta,
                         chiVal,
                         CmVal,
-                        IionCandidate
+                        IionCandidate,
+                        stateODEUseOpenMP,
+                        stateODEOpenMPThreshold
                     );
                 }
             }
@@ -3946,7 +5502,11 @@ int main(int argc, char* argv[])
                 IionGuess
             );
 
-            scalarField VmPlusIntegrationPoints(totalIionIntegrationPoints, 0.0);
+            scalarField VmPlusIntegrationPoints
+            (
+                allocatedIionIntegrationPoints,
+                0.0
+            );
             scalarField u1PlusIntegrationPoints(u1OldIntegrationPoints);
             scalarField u2PlusIntegrationPoints(u2OldIntegrationPoints);
             scalarField u3PlusIntegrationPoints(u3OldIntegrationPoints);
@@ -4154,7 +5714,11 @@ int main(int argc, char* argv[])
                 IionGuess
             );
 
-            scalarField VmTmpIntegrationPoints(totalIionIntegrationPoints, 0.0);
+            scalarField VmTmpIntegrationPoints
+            (
+                allocatedIionIntegrationPoints,
+                0.0
+            );
             scalarField u1TmpIntegrationPoints(u1OldIntegrationPoints);
             scalarField u2TmpIntegrationPoints(u2OldIntegrationPoints);
             scalarField u3TmpIntegrationPoints(u3OldIntegrationPoints);
@@ -4217,9 +5781,17 @@ int main(int argc, char* argv[])
                 return AImplicit*xApplied - rhsFromSource(sourceTmp);
             };
 
-            Eigen::IncompleteLUT<scalar> jfnkIlu;
-            bool jfnkIluReady = false;
-            label jfnkIluSetupCorr = -1;
+            const bool usePetscJfnkBackend =
+                usesPetscBackend(jfnkLinearSolverBackend);
+
+            // Track when the persistent JFNK PC was last refreshed within
+            // the current timestep so that jfnkPreconditionerUpdateFrequency
+            // throttling still works on a per-timestep basis. The Eigen ILUT
+            // (fallback path) is reused across timesteps only via PETSc;
+            // Eigen has no in-place refactor, so the Eigen branch still pays
+            // the full compute() cost on each update.
+            bool jfnkPcReadyThisStep = false;
+            label jfnkPcSetupCorr = -1;
 
             for
             (
@@ -4245,7 +5817,7 @@ int main(int argc, char* argv[])
                 scalar u1ResidualInitial = GREAT;
                 scalar u2ResidualInitial = GREAT;
                 scalar u3ResidualInitial = GREAT;
-                if (useHighOrder_Iion && dim > 1)
+                if (useHighOrder_Iion && dim > 1 && !reconstructStatesFromCellCentres)
                 {
                     u1ResidualInitial =
                         relativeL2Difference(u1GuessIntegrationPoints, u1IPPrevious);
@@ -4256,6 +5828,8 @@ int main(int argc, char* argv[])
                 }
                 else
                 {
+                    // cellCentredReconstruct (and the low-order path) carry the
+                    // authoritative states at cell centres -> measure there.
                     u1ResidualInitial =
                         relativeL2Difference(u1Guess.primitiveField(), u1Previous);
                     u2ResidualInitial =
@@ -4317,9 +5891,9 @@ int main(int argc, char* argv[])
                 if (useJfnkPreconditioner)
                 {
                     const bool updatePreconditioner =
-                        !jfnkIluReady
+                        !jfnkPcReadyThisStep
                      || (
-                            corr - jfnkIluSetupCorr
+                            corr - jfnkPcSetupCorr
                          >= jfnkPreconditionerUpdateFrequency
                         );
 
@@ -4328,7 +5902,30 @@ int main(int argc, char* argv[])
                         const auto pcSetupStart =
                             std::chrono::steady_clock::now();
 
-                        SpMat P = AImplicit;
+                        // Reuse the persistent jfnkP buffer. On the first
+                        // update we materialise it as a full copy of
+                        // AImplicit; afterwards we overwrite just the value
+                        // array (the sparsity pattern is invariant because
+                        // M, K and AImplicit are time-constant and the
+                        // diagonalIion correction only touches existing
+                        // diagonal entries).
+                        if (!jfnkPMatInitialised)
+                        {
+                            jfnkP = AImplicit;
+                            jfnkPMatInitialised = true;
+                        }
+                        else
+                        {
+                            // Same sparsity pattern: copy only the value
+                            // buffer. Avoids the ~50 MB allocation that
+                            // "SpMat P = AImplicit" used to incur per update.
+                            std::copy
+                            (
+                                AImplicit.valuePtr(),
+                                AImplicit.valuePtr() + AImplicit.nonZeros(),
+                                jfnkP.valuePtr()
+                            );
+                        }
 
                         if (useJfnkDiagonalIionPreconditioner)
                         {
@@ -4337,23 +5934,58 @@ int main(int argc, char* argv[])
                             (
                                 sourceDerivative.primitiveField(),
                                -theta,
-                                P
+                                jfnkP
                             );
                         }
 
-                        jfnkIlu.setDroptol(jfnkPreconditionerDropTolerance);
-                        jfnkIlu.setFillfactor(jfnkPreconditionerFillFactor);
-                        jfnkIlu.compute(P);
-
-                        if (jfnkIlu.info() != Eigen::Success)
+                        if (usePetscJfnkBackend)
                         {
-                            FatalErrorInFunction
-                                << "JFNK ILUT preconditioner setup failed"
-                                << exit(FatalError);
+                            if (!jfnkPetscPcSolver.isInitialised())
+                            {
+                                // First-ever setup: full reset() builds the
+                                // PETSc Mat, KSP, PC and ILUT factor.
+                                jfnkPetscPcSolver.reset
+                                (
+                                    jfnkP,
+                                    jfnkPreconditionerKspType,
+                                    jfnkPreconditionerPcType,
+                                    jfnkPreconditionerTolerance,
+                                    jfnkPreconditionerMaxIterations,
+                                    jfnkMaxKrylovIterations,
+                                    jfnkPreconditionerOptionsPrefix,
+                                    petscUseOptions,
+                                    scalar(jfnkPreconditionerFillFactor),
+                                    jfnkPreconditionerDropTolerance
+                                );
+                            }
+                            else
+                            {
+                                // Subsequent updates: refresh values in the
+                                // cached PETSc Mat and force the PC to
+                                // recompute. The ILUT symbolic factorisation
+                                // is reused — only the numerical factor is
+                                // recomputed. Eliminates the per-update
+                                // alloc/free of ~500-700 MB that otherwise
+                                // fragments the heap on long runs.
+                                jfnkPetscPcSolver.updateValues(jfnkP);
+                            }
+                        }
+                        else
+                        {
+                            jfnkIlu.setDroptol(jfnkPreconditionerDropTolerance);
+                            jfnkIlu.setFillfactor(jfnkPreconditionerFillFactor);
+                            jfnkIlu.compute(jfnkP);
+
+                            if (jfnkIlu.info() != Eigen::Success)
+                            {
+                                FatalErrorInFunction
+                                    << "JFNK ILUT preconditioner setup failed"
+                                    << exit(FatalError);
+                            }
                         }
 
-                        jfnkIluReady = true;
-                        jfnkIluSetupCorr = corr;
+                        jfnkPcReadyThisStep = true;
+                        jfnkPcSetupCorr = corr;
 
                         if (profileTimings)
                         {
@@ -4368,13 +6000,28 @@ int main(int argc, char* argv[])
                         }
                     }
 
-                    auto applyPreconditioner =
+                    std::function<EigVec(const EigVec&)> applyPreconditioner =
                     [&](const EigVec& r) -> EigVec
                     {
                         const auto pcApplyStart =
                             std::chrono::steady_clock::now();
 
-                        EigVec z = jfnkIlu.solve(r);
+                        EigVec z(r.size());
+                        if (usePetscJfnkBackend)
+                        {
+                            label pcIterations = 0;
+                            scalar pcError = GREAT;
+                            z = jfnkPetscPcSolver.solve
+                            (
+                                r,
+                                pcIterations,
+                                pcError
+                            );
+                        }
+                        else
+                        {
+                            z = jfnkIlu.solve(r);
+                        }
 
                         if (profileTimings)
                         {
@@ -4391,30 +6038,100 @@ int main(int argc, char* argv[])
                         return z;
                     };
 
-                    delta = solveLeftPreconditionedGMRES
-                    (
-                        matVec,
-                        applyPreconditioner,
-                        -R,
-                        jfnkMaxKrylovIterations,
-                        jfnkMaxRestarts,
-                        jfnkLinearTolerance,
-                        gmresIterations,
-                        gmresError
-                    );
+                    if (usePetscJfnkBackend)
+                    {
+                        if (!jfnkPetscShellSolver.isInitialised())
+                        {
+                            jfnkPetscShellSolver.initialise
+                            (
+                                static_cast<label>(R.size()),
+                                jfnkPetscKspType,
+                                jfnkPetscPcType,
+                                jfnkPetscRestart,
+                                max
+                                (
+                                    jfnkMaxKrylovIterations
+                                   *(jfnkMaxRestarts + 1),
+                                    label(1)
+                                ),
+                                jfnkLinearTolerance,
+                                jfnkPetscOptionsPrefix,
+                                petscUseOptions,
+                                true /* withShellPC */
+                            );
+                        }
+
+                        delta = jfnkPetscShellSolver.solve
+                        (
+                            matVec,
+                            &applyPreconditioner,
+                            -R,
+                            gmresIterations,
+                            gmresError
+                        );
+                    }
+                    else
+                    {
+                        delta = solveLeftPreconditionedGMRES
+                        (
+                            matVec,
+                            applyPreconditioner,
+                            -R,
+                            jfnkMaxKrylovIterations,
+                            jfnkMaxRestarts,
+                            jfnkLinearTolerance,
+                            gmresIterations,
+                            gmresError
+                        );
+                    }
                 }
                 else
                 {
-                    delta = solveGMRES
-                    (
-                        matVec,
-                        -R,
-                        jfnkMaxKrylovIterations,
-                        jfnkMaxRestarts,
-                        jfnkLinearTolerance,
-                        gmresIterations,
-                        gmresError
-                    );
+                    if (usePetscJfnkBackend)
+                    {
+                        if (!jfnkPetscShellSolver.isInitialised())
+                        {
+                            jfnkPetscShellSolver.initialise
+                            (
+                                static_cast<label>(R.size()),
+                                jfnkPetscKspType,
+                                jfnkPetscPcType,
+                                jfnkPetscRestart,
+                                max
+                                (
+                                    jfnkMaxKrylovIterations
+                                   *(jfnkMaxRestarts + 1),
+                                    label(1)
+                                ),
+                                jfnkLinearTolerance,
+                                jfnkPetscOptionsPrefix,
+                                petscUseOptions,
+                                false /* withShellPC */
+                            );
+                        }
+
+                        delta = jfnkPetscShellSolver.solve
+                        (
+                            matVec,
+                            nullptr,
+                            -R,
+                            gmresIterations,
+                            gmresError
+                        );
+                    }
+                    else
+                    {
+                        delta = solveGMRES
+                        (
+                            matVec,
+                            -R,
+                            jfnkMaxKrylovIterations,
+                            jfnkMaxRestarts,
+                            jfnkLinearTolerance,
+                            gmresIterations,
+                            gmresError
+                        );
+                    }
                 }
 
                 if (profileTimings)
@@ -4479,7 +6196,7 @@ int main(int argc, char* argv[])
                 scalar u1Residual = GREAT;
                 scalar u2Residual = GREAT;
                 scalar u3Residual = GREAT;
-                if (useHighOrder_Iion && dim > 1)
+                if (useHighOrder_Iion && dim > 1 && !reconstructStatesFromCellCentres)
                 {
                     u1Residual =
                         relativeL2Difference(u1GuessIntegrationPoints, u1IPPrevious);
@@ -4490,6 +6207,8 @@ int main(int argc, char* argv[])
                 }
                 else
                 {
+                    // cellCentredReconstruct (and the low-order path) carry the
+                    // authoritative states at cell centres -> measure there.
                     u1Residual =
                         relativeL2Difference(u1Guess.primitiveField(), u1Previous);
                     u2Residual =
@@ -4539,6 +6258,18 @@ int main(int argc, char* argv[])
         }
         else if (usePicard || useDiagonalIion)
         {
+            // Persistent ACurrent buffer reused across the corr iterations
+            // (and across timesteps). Only allocated when actually needed —
+            // pure Picard with a cached PETSc solver never touches it. For
+            // useDiagonalIion the value buffer is refreshed each iter from
+            // AImplicit and then the diagonal source derivative correction
+            // is applied in-place; sparsity is invariant.
+            SpMat ACurrent;
+            bool ACurrentInitialised = false;
+            const bool needsACurrent =
+                useDiagonalIion
+             || (usePicard && !useCachedPicardPetscSolver);
+
             for
             (
                 label corr = 0;
@@ -4570,7 +6301,27 @@ int main(int argc, char* argv[])
                 );
 
                 EigVec rhs = rhsFromSource(sourceVm);
-                SpMat ACurrent = AImplicit;
+
+                if (needsACurrent)
+                {
+                    if (!ACurrentInitialised)
+                    {
+                        ACurrent = AImplicit;
+                        ACurrentInitialised = true;
+                    }
+                    else
+                    {
+                        // Refresh values only; sparsity pattern is invariant
+                        // (M, K and AImplicit are time-constant and only the
+                        // diagonal source term gets added below).
+                        std::copy
+                        (
+                            AImplicit.valuePtr(),
+                            AImplicit.valuePtr() + AImplicit.nonZeros(),
+                            ACurrent.valuePtr()
+                        );
+                    }
+                }
 
                 if (useDiagonalIion)
                 {
@@ -4596,17 +6347,36 @@ int main(int argc, char* argv[])
 
                 const auto sparseSolveStart =
                     std::chrono::steady_clock::now();
-                const EigVec Vsol =
-                    solveSparseSystem
+                EigVec Vsol(rhs.size());
+                if (useCachedPicardPetscSolver && usePicard)
+                {
+                    Vsol = cachedPicardPetscSolver.solve
                     (
-                        ACurrent,
                         rhs,
-                        implicitLinearSolver,
-                        implicitTolerance,
-                        implicitMaxIterations,
                         linearIterations,
                         linearError
                     );
+                }
+                else
+                {
+                    Vsol =
+                        solveSparseSystem
+                        (
+                            ACurrent,
+                            rhs,
+                            linearSolverBackend,
+                            implicitLinearSolver,
+                            petscLinearKspType,
+                            petscLinearPcType,
+                            petscLinearRestart,
+                            petscLinearOptionsPrefix,
+                            petscUseOptions,
+                            implicitTolerance,
+                            implicitMaxIterations,
+                            linearIterations,
+                            linearError
+                        );
+                }
                 if (profileTimings)
                 {
                     const auto sparseSolveEnd =
@@ -4660,7 +6430,7 @@ int main(int argc, char* argv[])
                 scalar u1Residual = GREAT;
                 scalar u2Residual = GREAT;
                 scalar u3Residual = GREAT;
-                if (useHighOrder_Iion && dim > 1)
+                if (useHighOrder_Iion && dim > 1 && !reconstructStatesFromCellCentres)
                 {
                     u1Residual =
                         relativeL2Difference(u1GuessIntegrationPoints, u1IPPrevious);
@@ -4671,6 +6441,8 @@ int main(int argc, char* argv[])
                 }
                 else
                 {
+                    // cellCentredReconstruct (and the low-order path) carry the
+                    // authoritative states at cell centres -> measure there.
                     u1Residual =
                         relativeL2Difference(u1Guess.primitiveField(), u1Previous);
                     u2Residual =
@@ -4825,6 +6597,23 @@ int main(int argc, char* argv[])
                 VmGuessIntegrationPoints
             );
 
+            if (reconstructStatesFromCellCentres)
+            {
+                // Keep the Gauss-point states consistent with the committed
+                // cell-centred states (matters after a rollback too).
+                reconstructStatesAtIionIntegrationPoints
+                (
+                    u1,
+                    u2,
+                    u3,
+                    LREInterp_statesPtr(),
+                    LREInterp_Iion,
+                    u1IntegrationPoints,
+                    u2IntegrationPoints,
+                    u3IntegrationPoints
+                );
+            }
+
             computeIionFromIntegrationPoints
             (
                 VmGuessIntegrationPoints,
@@ -4834,7 +6623,9 @@ int main(int argc, char* argv[])
                 beta,
                 chiVal,
                 CmVal,
-                IionIntegrationPoints
+                IionIntegrationPoints,
+                stateODEUseOpenMP,
+                stateODEOpenMPThreshold
             );
 
             averageIntegrationPointFieldToCells
@@ -4855,15 +6646,23 @@ int main(int argc, char* argv[])
                 beta,
                 chiVal,
                 CmVal,
-                Iion
+                Iion,
+                stateODEUseOpenMP,
+                stateODEOpenMPThreshold
             );
         }
 
-        updateNumericalLaplacian(t + dt);
-        rhsVm = lapVm/(chi*Cm) - Iion;
-
         ++nSteps;
         ++runTime;
+
+        const bool needsRhsVm =
+            nSteps % 50 == 0 || nSteps <= 5 || runTime.outputTime();
+
+        if (needsRhsVm)
+        {
+            updateNumericalLaplacian(t + dt, runTime.outputTime());
+            rhsVm = lapVm/(chi*Cm) - Iion;
+        }
 
         if (nSteps % 50 == 0 || nSteps <= 5)
         {
@@ -4908,7 +6707,9 @@ int main(int argc, char* argv[])
             beta,
             chiVal,
             CmVal,
-            IionIntegrationPoints
+            IionIntegrationPoints,
+            stateODEUseOpenMP,
+            stateODEOpenMPThreshold
         );
 
         averageIntegrationPointFieldToCells
@@ -4929,11 +6730,13 @@ int main(int argc, char* argv[])
             beta,
             chiVal,
             CmVal,
-            Iion
+            Iion,
+            stateODEUseOpenMP,
+            stateODEOpenMPThreshold
         );
     }
 
-    updateNumericalLaplacian(runTime.value());
+    updateNumericalLaplacian(runTime.value(), true);
     rhsVm = lapVm/(chi*Cm) - Iion;
 
     VmError = Vm - VmExact;
@@ -5006,7 +6809,7 @@ int main(int argc, char* argv[])
         Info<< "Fine-grained timing [s]:" << nl
             << "  nonlinear evaluations: calls = " << nonlinearEvalCalls
             << ", wall = " << nonlinearEvalWallTime << nl
-            << "  JFNK GMRES: calls = " << gmresCalls
+            << "  JFNK KSP/GMRES: calls = " << gmresCalls
             << ", wall = " << gmresWallTime << nl
             << "  JFNK preconditioner setup: calls = " << preconditionerSetups
             << ", wall = " << preconditionerSetupWallTime << nl
@@ -5038,6 +6841,17 @@ int main(int argc, char* argv[])
         useHighOrder_Vm,
         useHighOrder_Iion,
         stabilisationAlpha,
+        memoryOptimization,
+        memoryOptimizationEffective,
+        memoryOptimizationCellThreshold,
+        memoryOptimizationAdaptiveTripletReserve,
+        memoryOptimizationFluxTripletsPerFace,
+        memoryOptimizationStabilisedTripletsPerFace,
+        memoryOptimizationTrimHeap,
+        memoryOptimizationCompactMassAssembly,
+        compactMassAssembly,
+        stiffnessTripletsPerFaceReserve,
+        allocatedIionIntegrationPoints,
         lreN,
         lreNn,
         lreK,
@@ -5046,7 +6860,10 @@ int main(int argc, char* argv[])
         lreIionNn,
         lreIionK,
         lreIionMaxStencil,
+        linearSolverBackend,
         implicitLinearSolver,
+        petscLinearKspType,
+        petscLinearPcType,
         implicitTolerance,
         implicitMaxIterations,
         max(implicitNonlinearIterations, label(1)),
@@ -5062,6 +6879,9 @@ int main(int argc, char* argv[])
         jfnkMaxRestarts,
         jfnkLinearTolerance,
         jfnkEpsilon,
+        jfnkLinearSolverBackend,
+        jfnkPetscKspType,
+        jfnkPetscPcType,
         jfnkInitGuessOrder,
         jfnkInitGuessVmMin,
         jfnkInitGuessVmMax,
@@ -5080,6 +6900,8 @@ int main(int argc, char* argv[])
         stateODEAbsTol,
         stateODERelTol,
         stateODEMaxSteps,
+        stateODEUseOpenMP,
+        stateODENumThreads,
         nonlinearHistory,
         peakResidentSetSizeKB(),
         setupWallTime,

@@ -1,0 +1,209 @@
+\subsection{Two-dimensional manufactured problem}
+The 2D tables and figures in this subsection are generated from
+\path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderManufacturedFDAImplicitPETSc/results/example0/2D_run_20260522_034403/}.
+All entries use \code{crankNicolson} time integration and the \code{consistent} mass matrix. Figures are split by nonlinear method, mesh family, stabilisation parameter, and time step; the model pair is also written directly on the curves.
+
+\subsubsection{\code{Picard}, \code{crankNicolson}, \code{consistent}}
+
+\input{tables/results_2D_Picard_dt_1p0em02.tex}
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_Picard_CN_cons_hexa_alpha_0p0e00_dt_1p0em02.pdf}
+\caption{2D convergence block for \code{Picard}, hexa mesh, $\alpha=0$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-picard-hexa-alpha-0p0e00-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_Picard_CN_cons_hexa_alpha_0p0e00_dt_1p0em03.pdf}
+\caption{2D convergence block for \code{Picard}, hexa mesh, $\alpha=0$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-picard-hexa-alpha-0p0e00-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_Picard_CN_cons_hexa_alpha_1p0em01_dt_1p0em02.pdf}
+\caption{2D convergence block for \code{Picard}, hexa mesh, $\alpha=0.1$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-picard-hexa-alpha-1p0em01-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_Picard_CN_cons_hexa_alpha_1p0em01_dt_1p0em03.pdf}
+\caption{2D convergence block for \code{Picard}, hexa mesh, $\alpha=0.1$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-picard-hexa-alpha-1p0em01-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_Picard_CN_cons_triangular_Unstr_alpha_0p0e00_dt_1p0em02.pdf}
+\caption{2D convergence block for \code{Picard}, triangular unstr mesh, $\alpha=0$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-picard-triangular-unstr-alpha-0p0e00-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_Picard_CN_cons_triangular_Unstr_alpha_0p0e00_dt_1p0em03.pdf}
+\caption{2D convergence block for \code{Picard}, triangular unstr mesh, $\alpha=0$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-picard-triangular-unstr-alpha-0p0e00-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_Picard_CN_cons_triangular_Unstr_alpha_1p0em01_dt_1p0em02.pdf}
+\caption{2D convergence block for \code{Picard}, triangular unstr mesh, $\alpha=0.1$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-picard-triangular-unstr-alpha-1p0em01-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_Picard_CN_cons_triangular_Unstr_alpha_1p0em01_dt_1p0em03.pdf}
+\caption{2D convergence block for \code{Picard}, triangular unstr mesh, $\alpha=0.1$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-picard-triangular-unstr-alpha-1p0em01-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\subsubsection{\code{diagonalIion}, \code{crankNicolson}, \code{consistent}}
+
+\input{tables/results_2D_diagonalIion_dt_1p0em02.tex}
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_diagonalIion_CN_cons_hexa_alpha_0p0e00_dt_1p0em02.pdf}
+\caption{2D convergence block for \code{diagonalIion}, hexa mesh, $\alpha=0$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-diagonaliion-hexa-alpha-0p0e00-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_diagonalIion_CN_cons_hexa_alpha_0p0e00_dt_1p0em03.pdf}
+\caption{2D convergence block for \code{diagonalIion}, hexa mesh, $\alpha=0$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-diagonaliion-hexa-alpha-0p0e00-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_diagonalIion_CN_cons_hexa_alpha_1p0em01_dt_1p0em02.pdf}
+\caption{2D convergence block for \code{diagonalIion}, hexa mesh, $\alpha=0.1$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-diagonaliion-hexa-alpha-1p0em01-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_diagonalIion_CN_cons_hexa_alpha_1p0em01_dt_1p0em03.pdf}
+\caption{2D convergence block for \code{diagonalIion}, hexa mesh, $\alpha=0.1$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-diagonaliion-hexa-alpha-1p0em01-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_diagonalIion_CN_cons_triangular_Unstr_alpha_0p0e00_dt_1p0em02.pdf}
+\caption{2D convergence block for \code{diagonalIion}, triangular unstr mesh, $\alpha=0$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-diagonaliion-triangular-unstr-alpha-0p0e00-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_diagonalIion_CN_cons_triangular_Unstr_alpha_0p0e00_dt_1p0em03.pdf}
+\caption{2D convergence block for \code{diagonalIion}, triangular unstr mesh, $\alpha=0$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-diagonaliion-triangular-unstr-alpha-0p0e00-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_diagonalIion_CN_cons_triangular_Unstr_alpha_1p0em01_dt_1p0em02.pdf}
+\caption{2D convergence block for \code{diagonalIion}, triangular unstr mesh, $\alpha=0.1$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-diagonaliion-triangular-unstr-alpha-1p0em01-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_diagonalIion_CN_cons_triangular_Unstr_alpha_1p0em01_dt_1p0em03.pdf}
+\caption{2D convergence block for \code{diagonalIion}, triangular unstr mesh, $\alpha=0.1$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-diagonaliion-triangular-unstr-alpha-1p0em01-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\subsubsection{\code{JFNK}, \code{crankNicolson}, \code{consistent}}
+
+\input{tables/results_2D_JFNK_dt_1p0em02.tex}
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_JFNK_CN_cons_hexa_alpha_0p0e00_dt_1p0em02.pdf}
+\caption{2D convergence block for \code{JFNK}, hexa mesh, $\alpha=0$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-jfnk-hexa-alpha-0p0e00-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_JFNK_CN_cons_hexa_alpha_0p0e00_dt_1p0em03.pdf}
+\caption{2D convergence block for \code{JFNK}, hexa mesh, $\alpha=0$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-jfnk-hexa-alpha-0p0e00-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_JFNK_CN_cons_hexa_alpha_1p0em01_dt_1p0em02.pdf}
+\caption{2D convergence block for \code{JFNK}, hexa mesh, $\alpha=0.1$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-jfnk-hexa-alpha-1p0em01-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_JFNK_CN_cons_hexa_alpha_1p0em01_dt_1p0em03.pdf}
+\caption{2D convergence block for \code{JFNK}, hexa mesh, $\alpha=0.1$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-jfnk-hexa-alpha-1p0em01-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_JFNK_CN_cons_triangular_Unstr_alpha_0p0e00_dt_1p0em02.pdf}
+\caption{2D convergence block for \code{JFNK}, triangular unstr mesh, $\alpha=0$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-jfnk-triangular-unstr-alpha-0p0e00-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_JFNK_CN_cons_triangular_Unstr_alpha_0p0e00_dt_1p0em03.pdf}
+\caption{2D convergence block for \code{JFNK}, triangular unstr mesh, $\alpha=0$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-jfnk-triangular-unstr-alpha-0p0e00-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_JFNK_CN_cons_triangular_Unstr_alpha_1p0em01_dt_1p0em02.pdf}
+\caption{2D convergence block for \code{JFNK}, triangular unstr mesh, $\alpha=0.1$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-jfnk-triangular-unstr-alpha-1p0em01-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_2D_JFNK_CN_cons_triangular_Unstr_alpha_1p0em01_dt_1p0em03.pdf}
+\caption{2D convergence block for \code{JFNK}, triangular unstr mesh, $\alpha=0.1$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-2d-jfnk-triangular-unstr-alpha-1p0em01-1p0em03}
+\end{figure}
+\FloatBarrier
+

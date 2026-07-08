@@ -1,0 +1,8 @@
+\subsection{Two-dimensional results: comments}
+\label{sec:results-2d-conclusions}
+
+The current 2D tables fix the time scheme and mass matrix to \code{crankNicolson} and \code{consistent}. Under that fixed discretisation, \code{Picard}, \code{diagonalIion}, and \code{JFNK} produce the same observed convergence orders to the precision reported in the tables. The practical distinction in this MMS sweep is therefore computational cost and nonlinear robustness rather than asymptotic accuracy.
+
+On the structured hexa mesh, the clearest high-order verification remains \code{p3} voltage reconstruction paired with \code{p2} or \code{p3} source/state quadrature. With $\Delta t=10^{-3}$ these rows recover approximately fourth-order reconstructed voltage and state diagnostics over $N=10$--$100$, and the fine-mesh fits stay close to fourth order.
+
+The unstructured triangular mesh is more sensitive to the selected reconstruction pair and to the time step. Splitting the plots by $\alpha$ makes this easier to read: the $\alpha=0$ and $\alpha=0.1$ cases no longer share the same axes, while the inline labels keep the model pair visible without relying only on the legend.

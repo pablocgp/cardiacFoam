@@ -1,0 +1,212 @@
+\subsection{Three-dimensional manufactured problem}
+The 3D tables and figures in this subsection are generated from
+\path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderManufacturedFDAImplicitPETSc/results/example0/3D_run_20260522_235518/}.
+All entries use \code{crankNicolson} time integration and the \code{consistent} mass matrix. The convergence fits use $N=10$--$30$ and $N=20$--$30$, since the 3D sweep does not reach the finer 2D meshes.
+
+\subsubsection{\code{Picard}, \code{crankNicolson}, \code{consistent}}
+
+\input{tables/results_3D_Picard_dt_1p0em02.tex}
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_Picard_CN_cons_hexa_alpha_0p0e00_dt_1p0em02.pdf}
+\caption{3D convergence block for \code{Picard}, hexa mesh, $\alpha=0$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-picard-hexa-alpha-0p0e00-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_Picard_CN_cons_hexa_alpha_0p0e00_dt_1p0em03.pdf}
+\caption{3D convergence block for \code{Picard}, hexa mesh, $\alpha=0$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-picard-hexa-alpha-0p0e00-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_Picard_CN_cons_hexa_alpha_1p0em01_dt_1p0em02.pdf}
+\caption{3D convergence block for \code{Picard}, hexa mesh, $\alpha=0.1$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-picard-hexa-alpha-1p0em01-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_Picard_CN_cons_hexa_alpha_1p0em01_dt_1p0em03.pdf}
+\caption{3D convergence block for \code{Picard}, hexa mesh, $\alpha=0.1$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-picard-hexa-alpha-1p0em01-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_Picard_CN_cons_triangular_Unstr_alpha_0p0e00_dt_1p0em02.pdf}
+\caption{3D convergence block for \code{Picard}, tetra unstr mesh, $\alpha=0$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-picard-triangular-unstr-alpha-0p0e00-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_Picard_CN_cons_triangular_Unstr_alpha_0p0e00_dt_1p0em03.pdf}
+\caption{3D convergence block for \code{Picard}, tetra unstr mesh, $\alpha=0$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-picard-triangular-unstr-alpha-0p0e00-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_Picard_CN_cons_triangular_Unstr_alpha_1p0em01_dt_1p0em02.pdf}
+\caption{3D convergence block for \code{Picard}, tetra unstr mesh, $\alpha=0.1$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-picard-triangular-unstr-alpha-1p0em01-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_Picard_CN_cons_triangular_Unstr_alpha_1p0em01_dt_1p0em03.pdf}
+\caption{3D convergence block for \code{Picard}, tetra unstr mesh, $\alpha=0.1$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-picard-triangular-unstr-alpha-1p0em01-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\subsubsection{\code{diagonalIion}, \code{crankNicolson}, \code{consistent}}
+
+\input{tables/results_3D_diagonalIion_dt_1p0em02.tex}
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_diagonalIion_CN_cons_hexa_alpha_0p0e00_dt_1p0em02.pdf}
+\caption{3D convergence block for \code{diagonalIion}, hexa mesh, $\alpha=0$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-diagonaliion-hexa-alpha-0p0e00-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_diagonalIion_CN_cons_hexa_alpha_0p0e00_dt_1p0em03.pdf}
+\caption{3D convergence block for \code{diagonalIion}, hexa mesh, $\alpha=0$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-diagonaliion-hexa-alpha-0p0e00-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_diagonalIion_CN_cons_hexa_alpha_1p0em01_dt_1p0em02.pdf}
+\caption{3D convergence block for \code{diagonalIion}, hexa mesh, $\alpha=0.1$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-diagonaliion-hexa-alpha-1p0em01-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_diagonalIion_CN_cons_hexa_alpha_1p0em01_dt_1p0em03.pdf}
+\caption{3D convergence block for \code{diagonalIion}, hexa mesh, $\alpha=0.1$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-diagonaliion-hexa-alpha-1p0em01-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_diagonalIion_CN_cons_triangular_Unstr_alpha_0p0e00_dt_1p0em02.pdf}
+\caption{3D convergence block for \code{diagonalIion}, tetra unstr mesh, $\alpha=0$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-diagonaliion-triangular-unstr-alpha-0p0e00-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_diagonalIion_CN_cons_triangular_Unstr_alpha_0p0e00_dt_1p0em03.pdf}
+\caption{3D convergence block for \code{diagonalIion}, tetra unstr mesh, $\alpha=0$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-diagonaliion-triangular-unstr-alpha-0p0e00-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_diagonalIion_CN_cons_triangular_Unstr_alpha_1p0em01_dt_1p0em02.pdf}
+\caption{3D convergence block for \code{diagonalIion}, tetra unstr mesh, $\alpha=0.1$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-diagonaliion-triangular-unstr-alpha-1p0em01-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_diagonalIion_CN_cons_triangular_Unstr_alpha_1p0em01_dt_1p0em03.pdf}
+\caption{3D convergence block for \code{diagonalIion}, tetra unstr mesh, $\alpha=0.1$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-diagonaliion-triangular-unstr-alpha-1p0em01-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\subsubsection{\code{JFNK}, \code{crankNicolson}, \code{consistent}}
+
+\input{tables/results_3D_JFNK_dt_1p0em02.tex}
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_JFNK_CN_cons_hexa_alpha_0p0e00_dt_1p0em02.pdf}
+\caption{3D convergence block for \code{JFNK}, hexa mesh, $\alpha=0$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-jfnk-hexa-alpha-0p0e00-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_JFNK_CN_cons_hexa_alpha_0p0e00_dt_1p0em03.pdf}
+\caption{3D convergence block for \code{JFNK}, hexa mesh, $\alpha=0$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-jfnk-hexa-alpha-0p0e00-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_JFNK_CN_cons_hexa_alpha_1p0em01_dt_1p0em02.pdf}
+\caption{3D convergence block for \code{JFNK}, hexa mesh, $\alpha=0.1$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-jfnk-hexa-alpha-1p0em01-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_JFNK_CN_cons_hexa_alpha_1p0em01_dt_1p0em03.pdf}
+\caption{3D convergence block for \code{JFNK}, hexa mesh, $\alpha=0.1$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-jfnk-hexa-alpha-1p0em01-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_JFNK_CN_cons_triangular_Unstr_alpha_0p0e00_dt_1p0em02.pdf}
+\caption{3D convergence block for \code{JFNK}, tetra unstr mesh, $\alpha=0$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-jfnk-triangular-unstr-alpha-0p0e00-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_JFNK_CN_cons_triangular_Unstr_alpha_0p0e00_dt_1p0em03.pdf}
+\caption{3D convergence block for \code{JFNK}, tetra unstr mesh, $\alpha=0$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-jfnk-triangular-unstr-alpha-0p0e00-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_JFNK_CN_cons_triangular_Unstr_alpha_1p0em01_dt_1p0em02.pdf}
+\caption{3D convergence block for \code{JFNK}, tetra unstr mesh, $\alpha=0.1$, $\Delta t=10^{-2}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-jfnk-triangular-unstr-alpha-1p0em01-1p0em02}
+\end{figure}
+\FloatBarrier
+
+\begin{figure}[p]
+\centering
+\maybeincludegraphics[width=0.98\linewidth]{figures/implicit_3D_JFNK_CN_cons_triangular_Unstr_alpha_1p0em01_dt_1p0em03.pdf}
+\caption{3D convergence block for \code{JFNK}, tetra unstr mesh, $\alpha=0.1$, $\Delta t=10^{-3}$, \code{crankNicolson} time integration, and \code{consistent} mass matrix. The six panels match the six order columns in the table; inline labels identify the $V_m$--$I_{\mathrm{ion}}$ model pair.}
+\label{fig:results-3d-jfnk-triangular-unstr-alpha-1p0em01-1p0em03}
+\end{figure}
+\FloatBarrier
+
+\paragraph{3D comments and conclusions.}
+The three nonlinear strategies give indistinguishable convergence orders in the 3D MMS data when the same spatial, temporal, and mass-matrix settings are used. For the structured hexa mesh, the \code{p3}/\code{p2} and \code{p3}/\code{p3} configurations with $\Delta t=10^{-3}$ recover approximately fourth-order reconstructed diagnostics, while the cell-centred voltage remains slightly below fourth order over $N=10$--$30$. The unstructured simplex mesh is more sensitive to $\alpha$ and to the available mesh range, but the same high-order configurations remain the clearest verification cases. Runtime and RSS columns should be read as accumulated sweep costs, not single-run costs.
+
