@@ -44,6 +44,8 @@ Foam::ionicModel::ionicModel
 :
     ODESystem(),
     odeSolver_(),
+    odeSolverPool_(),
+    parallelODE_(dict.lookupOrDefault<Switch>("parallelODE", false)),
     dict_(dict),
     step_(num, initialDeltaT),
     tissue_(-1),

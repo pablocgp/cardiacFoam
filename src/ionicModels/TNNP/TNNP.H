@@ -114,8 +114,11 @@ class TNNP
         //- Maximum number of unique protection event types written to disk
         label maxProtectionLogEntries_;
 
-        //- Integration point currently being processed by the ODE solver
-        mutable label activeIntegrationPoint_;
+        //- Integration point currently being processed by the ODE solver,
+        //  stored per thread (index = OpenMP thread id; size 1 in serial) so
+        //  the diagnostic point index passed to protectState() stays correct
+        //  under parallel ODE integration (Phase C1).
+        mutable labelList activeIntegrationPoint_;
 
         //- Number of applied numerical corrections
         mutable label protectionCorrections_;

@@ -1,0 +1,88 @@
+\babel@toc {english}{}\relax 
+\contentsline {section}{\numberline {1}Notation}{3}{section.1}%
+\contentsline {section}{\numberline {2}Governing equations}{4}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Monodomain PDE}{4}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Ionic ODE}{4}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Manufactured MMS equation used for convergence transfer}{4}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}External stimulus}{5}{subsection.2.4}%
+\contentsline {section}{\numberline {3}Time discretisation: the $\theta $-scheme}{5}{section.3}%
+\contentsline {section}{\numberline {4}Spatial discretisation}{5}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Standard orthogonal FV Laplacian}{5}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}High-order LRE diffusion}{6}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Mass matrices}{6}{subsection.4.3}%
+\contentsline {paragraph}{Lumped (\texttt {\small massMatrix lumped}).}{6}{section*.2}%
+\contentsline {paragraph}{Consistent HO (\texttt {\small massMatrix consistent}).}{6}{section*.3}%
+\contentsline {subsection}{\numberline {4.4}High-order reconstruction at ionic quadrature points}{6}{subsection.4.4}%
+\contentsline {subsection}{\numberline {4.5}High-order cell averaging of $I_{\mathrm {ion}}$}{6}{subsection.4.5}%
+\contentsline {section}{\numberline {5}State integration at the ionic quadrature points}{6}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Two modes}{6}{subsection.5.1}%
+\contentsline {paragraph}{\texttt {\small gaussPointODE} (legacy).}{7}{section*.4}%
+\contentsline {paragraph}{\texttt {\small cellCentredReconstruct}.}{7}{section*.5}%
+\contentsline {subsection}{\numberline {5.2}Front-aware hybrid}{7}{subsection.5.2}%
+\contentsline {paragraph}{Freezing per time step (avoiding a limit cycle).}{7}{section*.6}%
+\contentsline {subsection}{\numberline {5.3}State reconstruction limiter}{7}{subsection.5.3}%
+\contentsline {subsection}{\numberline {5.4}Dictionary keys}{8}{subsection.5.4}%
+\contentsline {section}{\numberline {6}Nonlinear solver}{8}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Shared residuals and stopping tests}{8}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Picard fixed-point method}{9}{subsection.6.2}%
+\contentsline {paragraph}{Advantages.}{9}{section*.7}%
+\contentsline {paragraph}{Disadvantages.}{9}{section*.8}%
+\contentsline {subsection}{\numberline {6.3}Diagonal $I_{\mathrm {ion}}$ linearisation}{9}{subsection.6.3}%
+\contentsline {paragraph}{Advantages.}{9}{section*.9}%
+\contentsline {paragraph}{Disadvantages.}{9}{section*.10}%
+\contentsline {subsection}{\numberline {6.4}Jacobian-Free Newton--Krylov}{9}{subsection.6.4}%
+\contentsline {subsection}{\numberline {6.5}JFNK inner Krylov}{10}{subsection.6.5}%
+\contentsline {paragraph}{Preconditioner (optional).}{10}{section*.11}%
+\contentsline {paragraph}{Advantages.}{10}{section*.12}%
+\contentsline {paragraph}{Disadvantages.}{10}{section*.13}%
+\contentsline {subsection}{\numberline {6.6}Armijo backtracking line search}{10}{subsection.6.6}%
+\contentsline {subsection}{\numberline {6.7}Initial guess, ODE clamp and rollback}{10}{subsection.6.7}%
+\contentsline {section}{\numberline {7}Linear solver: Eigen and PETSc back-ends}{11}{section.7}%
+\contentsline {paragraph}{Factorisation reuse.}{11}{section*.14}%
+\contentsline {paragraph}{JFNK.}{11}{section*.15}%
+\contentsline {section}{\numberline {8}Ionic ODE integration}{11}{section.8}%
+\contentsline {section}{\numberline {9}TNNP numerical protection}{12}{section.9}%
+\contentsline {section}{\numberline {10}Activation tracking and benchmarks}{12}{section.10}%
+\contentsline {paragraph}{Activation time per cell.}{12}{section*.16}%
+\contentsline {paragraph}{Early termination on P8.}{12}{section*.17}%
+\contentsline {paragraph}{Diagonal sampling.}{12}{section*.18}%
+\contentsline {paragraph}{Live activation output.}{13}{section*.19}%
+\contentsline {paragraph}{Activation-failure detection.}{13}{section*.20}%
+\contentsline {section}{\numberline {11}Solver flow chart}{13}{section.11}%
+\contentsline {section}{\numberline {12}Manufactured driver: \texttt {run\_convergence.py}}{15}{section.12}%
+\contentsline {subsection}{\numberline {12.1}Geometry and parameter sweep}{15}{subsection.12.1}%
+\contentsline {subsection}{\numberline {12.2}Nonlinear method and convergence controls}{16}{subsection.12.2}%
+\contentsline {subsection}{\numberline {12.3}JFNK and diagonal-Iion controls}{17}{subsection.12.3}%
+\contentsline {subsection}{\numberline {12.4}Linear PDE solver}{17}{subsection.12.4}%
+\contentsline {subsection}{\numberline {12.5}State ODE integrator}{18}{subsection.12.5}%
+\contentsline {subsection}{\numberline {12.6}LRE high-order parameters per p-level}{18}{subsection.12.6}%
+\contentsline {subsection}{\numberline {12.7}Diagnostics and run-control}{18}{subsection.12.7}%
+\contentsline {section}{\numberline {13}Results}{19}{section.13}%
+\contentsline {subsection}{\numberline {13.1}2D Niederer-style benchmark}{19}{subsection.13.1}%
+\contentsline {subsubsection}{\numberline {13.1.1}Computational cost quantities}{19}{subsubsection.13.1.1}%
+\contentsline {subsubsection}{\numberline {13.1.2}Structured hexahedral mesh, no hybrid (\texttt {\small frontAwareHybrid false})}{20}{subsubsection.13.1.2}%
+\contentsline {subsubsection}{\numberline {13.1.3}Structured hexahedral mesh, front-aware hybrid (\texttt {\small frontAwareHybrid true})}{22}{subsubsection.13.1.3}%
+\contentsline {subsubsection}{\numberline {13.1.4}Unstructured triangular mesh, no hybrid}{23}{subsubsection.13.1.4}%
+\contentsline {subsubsection}{\numberline {13.1.5}Unstructured triangular mesh, front-aware hybrid}{24}{subsubsection.13.1.5}%
+\contentsline {paragraph}{Discussion of the 2D results (\texttt {\small Picard}).}{25}{section*.21}%
+\contentsline {subparagraph}{Converged reference value.}{25}{section*.22}%
+\contentsline {subparagraph}{Recommended configuration.}{27}{section*.23}%
+\contentsline {subsection}{\numberline {13.2}3D Niederer-style benchmark}{27}{subsection.13.2}%
+\contentsline {paragraph}{Discussion of the 3D results.}{28}{section*.24}%
+\contentsline {section}{\numberline {A}Dimension table}{28}{appendix.A}%
+\contentsline {section}{\numberline {B}File map}{29}{appendix.B}%
+\contentsline {section}{\numberline {C}Linear-algebra back-ends and sibling solver}{29}{appendix.C}%
+\contentsline {paragraph}{Sibling solver \texttt {\small highOrderElectroActivationFoamImplicit}.}{29}{section*.25}%
+\contentsline {section}{\numberline {D}Performance optimisations}{30}{appendix.D}%
+\contentsline {subsection}{\numberline {D.1}Matrix and factorisation reuse (Phase B)}{30}{subsection.D.1}%
+\contentsline {subsection}{\numberline {D.2}Diffusion preconditioner for JFNK (A3)}{30}{subsection.D.2}%
+\contentsline {subsection}{\numberline {D.3}Parallel ionic ODE integration (C1)}{30}{subsection.D.3}%
+\contentsline {subsection}{\numberline {D.4}AMG preconditioners (C3)}{31}{subsection.D.4}%
+\contentsline {paragraph}{Summary of new keys.}{31}{section*.26}%
+\contentsline {section}{\numberline {E}Performance experiments}{31}{appendix.E}%
+\contentsline {subsection}{\numberline {E.1}Phase B: identical and faster in Picard}{31}{subsection.E.1}%
+\contentsline {subsection}{\numberline {E.2}A3: diffusion preconditioner in JFNK}{31}{subsection.E.2}%
+\contentsline {subsection}{\numberline {E.3}C1: ODE parallelisation (does not help in this problem)}{32}{subsection.E.3}%
+\contentsline {subsection}{\numberline {E.4}Internal PETSc/BLAS threading (counterproductive in Picard)}{32}{subsection.E.4}%
+\contentsline {subsection}{\numberline {E.5}Linear solver: AMG vs.\ ILU (the solve is not the bottleneck)}{32}{subsection.E.5}%
+\contentsline {subsection}{\numberline {E.6}Synthesis and recommendations}{33}{subsection.E.6}%

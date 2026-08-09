@@ -1,0 +1,17 @@
+highOrderElectroActivationFoamImplicitPETScDistributed.C
+
+/* Added for cardiacFoam.
+
+   Two copies exist on purpose, mirroring the MMS solver:
+
+     ...Parallel     the LRE -> movingLeastSquares port, plus global matrix
+                     columns. Serial-only linear algebra (Eigen, PETSC_COMM_SELF).
+                     Frozen: it is the VERIFIED baseline, reproducing the
+                     pre-port archive to machine precision and R1 exactly.
+
+     ...Distributed  this one. Adds distributed linear algebra and the parallel
+                     correctness fixes on top. Every stage here is checked bit
+                     for bit against ...Parallel's R1 on one rank before its
+                     parallel behaviour is exercised, which is only possible
+                     because the frozen copy still exists. */
+EXE = $(FOAM_USER_APPBIN)/highOrderElectroActivationFoamImplicitPETScDistributed

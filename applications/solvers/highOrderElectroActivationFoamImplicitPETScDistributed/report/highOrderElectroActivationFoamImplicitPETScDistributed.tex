@@ -1,0 +1,2784 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{placeins}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{listings}
+\usepackage{siunitx}
+\usepackage{microtype}
+\usepackage{multirow}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
+
+\lstdefinestyle{cfg}{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  rulecolor=\color{black!30},
+  showstringspaces=false,
+}
+\lstset{style=cfg}
+
+\algrenewcommand\algorithmicrequire{\textbf{Input:}}
+\algrenewcommand\algorithmicensure{\textbf{Output:}}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\Vm}{V_{\text{m}}}
+\newcommand{\Iion}{I_{\mathrm{ion}}}
+\newcommand{\Dten}{\mathbf{D}}
+\newcommand{\grad}{\nabla}
+\newcommand{\divg}{\nabla\!\cdot}
+\newcommand{\Mmass}{\mathbf{M}}
+\newcommand{\Kstif}{\mathbf{K}}
+\newcommand{\Lop}{\mathbf{L}}
+\newcommand{\Aimp}{\mathbf{A}}
+\newcommand{\Bimp}{\mathbf{B}}
+\newcommand{\Fres}{\mathsf{F}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\Vmsub}[1]{V_{\text{m},#1}}
+\newcommand{\Iionsub}[1]{I_{\mathrm{ion},#1}}
+\newcommand{\Iext}{I_{\mathrm{ext}}}
+\newcommand{\pyconst}[1]{\textcolor{black!60!blue}{\texttt{\footnotesize #1}}}
+\newcommand{\dictkey}[1]{\textcolor{black!60!green}{\texttt{\footnotesize #1}}}
+\title{Solver specification:\\
+       \texorpdfstring{\code{highOrderElectroActivationFoamImplicitPETScDistributed}}{highOrderElectroActivationFoamImplicitPETScDistributed}\\
+       \large A high-order, implicit, Jacobian-free Newton--Krylov monodomain
+       solver in OpenFOAM with a switchable Eigen/PETSc linear-algebra
+       back-end and distributed-memory linear algebra}
+\author{Pablo}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report specifies the algorithms implemented in the OpenFOAM solver:
+
+\begin{center}
+\code{highOrderElectroActivationFoamImplicitPETSc}.
+\end{center}
+
+The solver advances the monodomain equations
+of cardiac electrophysiology coupled to the
+ten Tusscher--Noble--Noble--Panfilov (TNNP, 2004) cellular ionic model. The solver
+has several features:
+\begin{itemize}
+\item The diffusion operator is
+discretised with the OpenFOAM cell-centred finite-volume framework,
+optionally enhanced to a high-order Local
+Regression Estimators (LRE) reconstruction;
+\item The ionic source is evaluated either at cell
+centres or at the cell quadrature points (required for high order);
+\item There are different ways to integrate the reaction ODE equations:
+\begin{itemize}
+\item[(i)] at each quadrature point used to evaluate the ionic source;
+\item[(ii)] only at the centres, reconstructing them afterwards wherever the ionic source has to be evaluated;
+\item[(iii)] a front-aware hybrid that does (i) only on the propagating front and (ii) everywhere else (Section~\ref{sec:stateint});
+\end{itemize}
+\item Time integration follows a $\theta$ scheme (backward Euler or Crank--Nicolson);
+\item the per-cell ionic
+ODE uses the OpenFOAM adaptive RKF45 integrator with configurable
+tolerances;
+\item The mass operator can be \code{lumped} or high-order \code{consistent};
+\item the resulting coupled nonlinear system can be solved by Picard fixed-point
+iteration, a diagonal linearisation of $\Iion$, or a Jacobian-Free
+Newton--Krylov (JFNK) method with Armijo backtracking line search,
+an initial guess by linear extrapolation and a physical bracket \emph{clamp}
+on the input to the ionic ODE;
+\item the linear system of the assembled branches (Picard / diagonalIion) and the
+JFNK inner system are solved with a \emph{switchable} back-end via the
+\code{linearSolverBackend} key: either Eigen's sparse factorisations
+(\code{SparseLU}/\code{BiCGSTAB}) and an in-house restarted GMRES with modified
+Gram--Schmidt, or PETSc's KSP/PC solvers (including a GMRES over a matrix-free
+\code{MatShell} for JFNK). Matrix assembly and storage always use
+\code{Eigen::SparseMatrix};
+\item activation times are recorded by linear interpolation
+across the first threshold crossing and the benchmark points are sampled by
+inverse-distance weighting.
+\end{itemize}
+ 
+All algorithmic parameters are exposed
+through the \code{constant/spatialIntegrationProperties} and
+\code{constant/timeIntegrationProperties} dictionaries, and the Python driver
+\code{run\_convergence.py} generates these dictionaries from a single
+configuration file. This solver integrates both linear-algebra back-ends (Eigen and
+PETSc) in a single executable, selectable at run time with
+\code{linearSolverBackend} / \code{jfnkLinearSolverBackend}
+(Section~\ref{sec:linalg}). There is also a simpler sibling solver,
+\code{highOrderElectroActivationFoamImplicit}, with an Eigen-only back-end and a
+semi-implicit single-Picard-iteration scheme (Section~\ref{sec:optim} for the
+performance differences).
+
+This \code{...Distributed} variant additionally makes the linear algebra
+\emph{genuinely distributed}: the mesh is decomposed with \code{decomposePar},
+the operators are assembled with local rows and global columns and become PETSc
+\code{MPIAIJ} matrices on \code{PETSC\_COMM\_WORLD}, and every matrix--vector
+product goes through \code{MatMult} instead of Eigen. The algorithms of
+Sections~\ref{sec:stateint}--\ref{sec:linalg} are unchanged;
+Section~\ref{sec:distributed} describes what the decomposition requires, how a
+parallel operator is verified, and the one inconsistency that remains --- a
+stencil selection in the high-order library that is not invariant under
+partitioning (Section~\ref{sec:dist-stencils}).
+\end{abstract}
+
+\tableofcontents
+\bigskip
+% ================================================================== %
+\section{Notation}
+% ================================================================== %
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Symbol & Meaning & Units \\
+\midrule
+$\Omega \subset \R^{d}$ & Spatial domain ($d \in \{2,3\}$) & \si{\meter} \\
+$\partial\Omega$ & Insulated boundary (zero-flux Neumann) & --- \\
+$t \in (0, T]$ & Time & \si{\second} \\
+$\Vm(\mathbf{x}, t)$ & Transmembrane voltage & \si{\volt} \\
+$\mathbf{s}(\mathbf{x}, t) \in \R^{17}$ & TNNP ionic states & mixed \\
+$\Iion(\Vm, \mathbf{s})$ & Total ionic current density & \si{\volt\per\second} \\
+$\Iext(\mathbf{x}, t)$ & External stimulus current density & \si{\ampere\per\meter\cubed} \\
+$\chi$ & Membrane surface-to-volume ratio & \si{\per\meter} \\
+$C_{m}$ & Membrane capacitance per unit area & \si{\farad\per\meter\squared} \\
+$\Dten(\mathbf{x})$ & Bulk conductivity tensor & \si{\siemens\per\meter} \\
+$\theta \in \{0.5, 1\}$ & Time-stepping parameter (CN or BE) & --- \\
+$\Delta t$ & Outer time-step length & \si{\second} \\
+$N_{c}$ & Number of mesh cells & --- \\
+$\mathsf{V}^{n} \in \R^{N_{c}}$ & Vector of cell-averaged $\Vm$ at time $t^{n}$ & \si{\volt} \\
+$\Mmass, \Kstif, \Lop$ & Mass, stiffness, scaled diffusion matrix & --- \\
+$\Aimp, \Bimp$ & Implicit LHS / RHS operators of the $\theta$-scheme & --- \\
+$\Fres(\mathsf{x})$ & Discrete nonlinear residual to be zeroed & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ================================================================== %
+\section{Governing equations}
+% ================================================================== %
+
+\subsection{Monodomain PDE}
+
+The bulk voltage is propagated by the standard monodomain
+reaction--diffusion equation~\cite{ttp2004,niederer2012}. In physical
+current-density notation one may write
+\begin{equation}
+  \chi \, C_{m} \, \frac{\partial \Vm}{\partial t}
+   \;=\;
+   \divg\!\bigl( \Dten \grad \Vm \bigr)
+   - \chi C_m\,\Iion(\Vm, \mathbf{s})
+   + \Iext
+   \quad \text{in } \Omega \times (0, T],
+   \label{eq:monodomain}
+\end{equation}
+subject to insulated boundaries
+$\mathbf{n} \cdot ( \Dten \grad \Vm ) = 0$ on
+$\partial \Omega \times (0, T]$, and initial condition
+$\Vm(\mathbf{x}, 0) = -\SI{84}{\milli\volt}$. The conductivity tensor
+$\Dten$ is symmetric positive-definite and either uniform or read as a
+\code{volTensorField} from disk. The factor $\chi C_m$ multiplying
+$\Iion$ in~\eqref{eq:monodomain} reflects the convention used by the
+ionic-model interface: the solver stores \code{Iion} as a voltage rate
+with dimensions \si{\volt\per\second}, not as an
+\si{\ampere\per\meter\cubed} volumetric current.
+
+Dividing~\eqref{eq:monodomain} by $\chi C_{m}$ gives the form actually
+used inside the solver,
+\begin{equation}
+  \frac{\partial \Vm}{\partial t}
+   \;=\;
+   \mathcal{L} \Vm
+   \;+\;
+   s(\Vm, \mathbf{s}),
+   \qquad
+   \mathcal{L} \;=\; \frac{1}{\chi C_{m}}\,\divg(\Dten \grad \cdot),
+   \quad
+   s \;=\; -\Iion + \frac{\Iext}{\chi C_{m}}.
+   \label{eq:semi-discrete}
+\end{equation}
+This is exactly what \code{rhsFromIion} assembles in the solver.
+
+\subsection{Ionic ODE}
+
+At every spatial sampling point the TNNP state vector
+$\mathbf{s} \in \R^{17}$ evolves according to
+\begin{equation}
+  \frac{\mathrm{d}\mathbf{s}}{\mathrm{d}t}
+   \;=\;
+   \mathbf{f}_{\text{TNNP}}\!\bigl(\Vm, \mathbf{s}; \texttt{tissue}\bigr),
+   \qquad \mathbf{s}(0) = \mathbf{s}_{0},
+   \label{eq:tnnp}
+\end{equation}
+where \code{tissue} selects \code{epicardialCells}, \code{mCells} or
+\code{endocardialCells}. The 17 tracked states are
+\[
+  \mathbf{s} = (V,\ K_{i},\ Na_{i},\ Ca_{i},\ Xr_{1},\ Xr_{2},\ Xs,\ m,\ h,\ j,\ d,\ f,\ fCa,\ s,\ r,\ g,\ Ca_{SR}).
+\]
+The total ionic current returned to the PDE is the algebraic
+\code{Iion\_cm} of TNNP~\cite{ttp2004}.
+
+\subsection{Manufactured MMS equation used for convergence transfer}
+
+The convergence driver in
+\code{tutorials\_electro/highOrderManufacturedFDAImplicitJfNK} solves a
+manufactured problem with the same numerical structure as the
+electro-activation solver: implicit monodomain-like PDE, local state
+ODEs, nonlinear ionic source, optional LRE reconstruction for $\Vm$ and
+$\Iion$, and selectable \code{Picard}/\code{diagonalIion}/\code{JFNK}
+nonlinear coupling. The analytical fields are
+\begin{align}
+  \Vm^{\star}(\mathbf{x},t) &= \sqrt{1+t}\,F(\mathbf{x}),\\
+  u_1^{\star}(\mathbf{x},t) &= (1+t)\,G(\mathbf{x})+\Vm^{\star}(\mathbf{x},t),\\
+  u_2^{\star}(\mathbf{x},t) &=
+      \frac{1}{(1+t)\sqrt{G(\mathbf{x})}},\\
+  u_3^{\star}(\mathbf{x},t) &= 0,
+\end{align}
+with, for example,
+$F=\cos(\pi x)\cos(2\pi y)$ and $G=1+x\,y^2$ in 2D. In 3D,
+$F=\cos(\pi x)\cos(2\pi y)\cos(3\pi z)$ and
+$G=1+x\,y^2 z^3$. The state equations are
+\begin{align}
+  \dot u_1 &=
+      (u_1+u_3-\Vm)^2 u_2^2
+    + \frac{1}{2}(u_1+u_3-\Vm)u_2^2(\Vm-u_3),\\
+  \dot u_2 &= -(u_1+u_3-\Vm)u_2^3,\\
+  \dot u_3 &= 0.
+\end{align}
+The manufactured ionic source is
+\begin{equation}
+  \Iion^{\mathrm{MMS}}(\Vm,\mathbf{u})
+  =
+  -\frac{1}{2}(u_1+u_3-\Vm)u_2^2(\Vm-u_3)
+  + \frac{\beta}{\chi C_m}(\Vm-u_3),
+\end{equation}
+and the PDE source used by the manufactured solver is
+$-\Iion^{\mathrm{MMS}}$. The coefficient $\beta$ is the spatial
+eigenvalue of the trigonometric manufactured field under the constant
+conductivity tensor:
+\[
+  \beta =
+  \begin{cases}
+    -\pi^2 D_{xx}, & d=1,\\
+    -\pi^2(D_{xx}+4D_{yy}), & d=2,\\
+    -\pi^2(D_{xx}+4D_{yy}+9D_{zz}), & d=3.
+  \end{cases}
+\]
+Thus the MMS case is not intended to reproduce TNNP physiology; it is a
+controlled problem with a known exact solution that exercises the same
+discrete operators and nonlinear solution paths used by this solver.
+
+\subsection{External stimulus}
+
+The external current is a time- and region-windowed step:
+\begin{equation}
+  \Iext(\mathbf{x}, t) \;=\;
+  \begin{cases}
+    I_{0} & \mathbf{x} \in \Omega_{\text{stim}}^{(b)},
+            \;\; t \in [t_{0}^{(b)},\, t_{0}^{(b)} + \tau],
+            \;\; b = 1, \dots, B, \\
+    0     & \text{otherwise},
+  \end{cases}
+\end{equation}
+with $I_{0} = \SI{50000}{\ampere\per\meter\cubed}$ and
+$\tau = \SI{2}{\milli\second}$ as Niederer-benchmark defaults.
+
+% ================================================================== %
+\section{Time discretisation: the $\theta$-scheme}
+% ================================================================== %
+
+Time is advanced from $t^{n}$ to $t^{n+1} = t^{n} + \Delta t$ by
+\begin{equation}
+  \frac{\mathsf{V}^{n+1} - \mathsf{V}^{n}}{\Delta t}
+   \;=\;
+   \theta\, \Lop\, \mathsf{V}^{n+1}
+   + (1-\theta)\, \Lop\, \mathsf{V}^{n}
+   + \theta\, \mathbf{s}^{n+1}
+   + (1-\theta)\, \mathbf{s}^{n}.
+   \label{eq:theta}
+\end{equation}
+
+\begin{center}
+\begin{tabular}{@{}lcl@{}}
+\toprule
+\code{implicitScheme} & $\theta$ & Scheme \\
+\midrule
+\code{backwardEuler} & $1$   & First-order, L-stable \\
+\code{crankNicolson} & $1/2$ & Second-order, A-stable \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+After multiplication by $\Delta t^{-1}$ the implementation forms
+\begin{equation}
+  \bigl[\Mmass/\Delta t \,-\, \theta\, \Lop\bigr]\, \mathsf{V}^{n+1}
+   \;=\;
+   \bigl[\Mmass/\Delta t \,+\, (1-\theta)\, \Lop\bigr]\, \mathsf{V}^{n}
+   \;+\; \theta\, \mathbf{s}^{n+1}
+   \;+\; (1-\theta)\, \mathbf{s}^{n},
+   \label{eq:implicit-system}
+\end{equation}
+with the two Eigen \code{SparseMatrix<scalar,RowMajor>} operators
+\begin{equation}
+  \Aimp \;=\; \Mmass/\Delta t \,-\, \theta\, \Lop,
+   \qquad
+  \Bimp \;=\; \Mmass/\Delta t \,+\, (1-\theta)\, \Lop.
+   \label{eq:AB}
+\end{equation}
+$\Aimp$ and $\Bimp$ are rebuilt at every time step by copying $\Mmass$,
+scaling by $\Delta t^{-1}$ and adding $\pm \theta \Lop$. When
+$\theta = 1$ (BE) the explicit half of the diffusion vanishes and
+$\Bimp = \Mmass/\Delta t$. The scaled diffusion is
+$\Lop = \Kstif / (\chi C_{m})$.
+
+% ================================================================== %
+\section{Spatial discretisation}
+% ================================================================== %
+
+\subsection{Standard orthogonal FV Laplacian}
+
+\code{assembleStandardOrthogonalStiffnessMatrix} computes the classical
+5/7-point Laplacian. Per internal face $f$ with face area $\mathbf{S}_{f}$,
+\begin{equation}
+  a_{f} \;=\;
+   \frac{ \lvert \mathbf{S}_{f} \rvert\,
+          \bigl( \mathbf{n}_{f} \cdot \Dten_{f} \cdot \hat{\mathbf{d}}_{f} \bigr) }
+        { \lvert \mathbf{d}_{f} \rvert },
+   \quad
+   \Dten_{f} = \tfrac{1}{2}\,(\Dten_{\text{own}} + \Dten_{\text{nei}}),
+\end{equation}
+contributing $-a_{f}/V_{\text{own}}$ to $\Kstif[\text{own},\text{own}]$,
+$+a_{f}/V_{\text{own}}$ to $\Kstif[\text{own},\text{nei}]$, and the
+transposed pair to the neighbour row. \code{zeroGradient}/\code{empty}
+patches contribute zero flux. \code{fixedValue} patches contribute to
+the owner diagonal only.
+
+\subsection{High-order LRE diffusion}
+
+When \code{useHighOrder\_Vm = true} and $d>1$,
+\code{assembleHighOrderStiffnessMatrix} integrates the flux on a face
+quadrature with reconstructed gradients:
+\begin{equation}
+  \Phi_{f} \;=\;
+   \sum_{q \in \mathcal{Q}_{f}}
+       w_{q}\, \lvert \mathbf{S}_{f} \rvert\,
+       \mathbf{n}_{f} \cdot \Dten_{f} \cdot
+       \Bigl(
+         \sum_{j \in \mathcal{S}_{f}}
+            \mathbf{g}_{f,q,j}\, \mathsf{V}_{j}
+       \Bigr),
+   \label{eq:HO-flux}
+\end{equation}
+where $\mathcal{S}_{f}$ is the LRE face stencil ($\sim 15$--$50$ cells)
+and $\mathbf{g}_{f,q,j} = $~\code{QRGradFaceGPCoeffs}. The
+contribution of each $\mathsf{V}_{j}$ is added to row \code{own} with
+weight $+\Phi_{f,j}/V_{\text{own}}$ and to row \code{nei} with weight
+$-\Phi_{f,j}/V_{\text{nei}}$, yielding a negative semi-definite
+Laplacian.
+
+\subsection{Mass matrices}
+
+Two options:
+\paragraph{Lumped (\code{massMatrix lumped}).}
+\code{assembleDiagonalMassMatrix} writes $\Mmass = I$.
+
+\paragraph{Consistent HO (\code{massMatrix consistent}).}
+\code{assembleConsistentMassMatrixHO} fills
+\begin{equation}
+  \Mmass[i, j] \;=\;
+   \sum_{q \in \mathcal{Q}_{i}}
+       \frac{w_{q}}{\sum_{q'} w_{q'}}\,
+       \phi_{j}(\mathbf{x}_{q}),
+   \quad
+   \phi_{j}(\mathbf{x}_{q})
+    = \delta_{ij}
+    + \mathbf{g}_{i,j} \cdot \mathbf{d}_{q}
+    + \tfrac{1}{2}\, \mathbf{H}_{i,j} \!:\! (\mathbf{d}_{q} \otimes \mathbf{d}_{q})
+    + \tfrac{1}{6}\, \mathbf{T}^{(3)}_{i,j} \!\vdots\!
+        (\mathbf{d}_{q} \otimes \mathbf{d}_{q} \otimes \mathbf{d}_{q}),
+   \label{eq:HO-mass}
+\end{equation}
+with $\mathbf{d}_{q} = \mathbf{x}_{q} - \mathbf{C}_{i}$. A safety guard
+silently downgrades to the lumped form when
+\code{useHighOrder\_Vm = false} or $d \le 1$.
+
+\subsection{High-order reconstruction at ionic quadrature points}
+
+If \code{useHighOrder\_Iion = true}, the ionic ODE is integrated at
+cell quadrature points. Vm is reconstructed there by the same Taylor
+expansion as in~\eqref{eq:HO-mass}:
+\begin{equation}
+  \Vm(\mathbf{x}_{q})
+   \;\approx\;
+   \Vmsub{c} + (\grad \Vm)_{c} \cdot \mathbf{d}_{q}
+   + \tfrac{1}{2}\, \mathbf{H}_{c} \!:\! (\mathbf{d}_{q} \otimes \mathbf{d}_{q})
+   + \tfrac{1}{6}\, \mathbf{T}^{(3)}_{c} \!\vdots\!
+       (\mathbf{d}_{q} \otimes \mathbf{d}_{q} \otimes \mathbf{d}_{q}),
+   \label{eq:HO-vm}
+\end{equation}
+implemented in \code{reconstructVmAtIionIntegrationPoints}.
+
+\subsection{High-order cell averaging of $\Iion$}
+
+\code{averageIionIntegrationPointsToCells} contracts the per-QP $\Iion$
+back to cells:
+\begin{equation}
+  \Iionsub{i} \;=\;
+   \frac{\sum_{q \in \mathcal{Q}_{i}} w_{q}\, \Iionsub{q}}
+        {\sum_{q \in \mathcal{Q}_{i}} w_{q}}.
+\end{equation}
+
+% ================================================================== %
+\section{State integration at the ionic quadrature points}
+\label{sec:stateint}
+% ================================================================== %
+
+The high-order quadrature~\eqref{eq:HO-vm} evaluates $\Iion(\Vm,\mathbf{s})$
+at the cell quadrature points $\mathbf{x}_q$, so it needs the ionic state
+vector $\mathbf{s}$ there as well. \emph{How} the states reach the quadrature
+points is governed by \dictkey{stateIntegrationMode} and, orthogonally, by
+\dictkey{frontAwareHybrid}. This choice turns out to be decisive for a
+propagating cardiac front, and this section documents both the algorithm and
+the reason it matters.
+
+% ------------------------------------------------------------------ %
+\subsection{Two modes}
+% ------------------------------------------------------------------ %
+
+Let $\mathcal{Q}_i=\{\mathbf{x}_q\}$ be the quadrature set of cell $\Omega_i$
+with weights $w_q$, and let $\mathbf{s}_c$ denote a cell-centred state.
+
+\paragraph{\code{gaussPointODE} (legacy).}
+The stiff ODE~\eqref{eq:tnnp} is integrated \emph{independently at every
+quadrature point}, driven by the locally reconstructed potential:
+\begin{equation}
+  \mathbf{s}_q^{\,n+1}
+   = \mathrm{ODEsolve}\!\bigl(\mathbf{s}_q^{\,n},\,\Vm(\mathbf{x}_q);\Delta t\bigr),
+  \qquad
+  \Iionsub{q}=\phi\bigl(\Vm(\mathbf{x}_q),\mathbf{s}_q^{\,n+1}\bigr).
+  \label{eq:gpode}
+\end{equation}
+Cost: $N_q$ stiff integrations per cell.
+
+\paragraph{\code{cellCentredReconstruct}.}
+The ODE is integrated \emph{once per cell} at the cell centre, and the
+resulting cell-centred states are reconstructed to the quadrature points by a
+dedicated LRE (\code{LREInterp\_states}, order set by
+\dictkey{highOrderCoeffs/LRECoeffs\_states}):
+\begin{equation}
+  \mathbf{s}_c^{\,n+1}
+   = \mathrm{ODEsolve}\!\bigl(\mathbf{s}_c^{\,n},\,\overline{V}_{m,c};\Delta t\bigr),
+  \quad
+  \widehat{\mathbf{s}}(\mathbf{x}_q)
+   = \mathcal{R}^{(p)}\!\bigl[\{\mathbf{s}_{c'}^{\,n+1}\}\bigr](\mathbf{x}_q),
+  \quad
+  \Iionsub{q}=\phi\bigl(\Vm(\mathbf{x}_q),\widehat{\mathbf{s}}(\mathbf{x}_q)\bigr).
+  \label{eq:ccrec}
+\end{equation}
+Cost: one stiff integration per cell -- a factor $N_q$ cheaper, which for the
+expensive TNNP integrations is the motivation. The two modes differ only in the
+argument of the non-linear map $\Vm\!\mapsto\!\mathbf{s}$: pointwise
+$\Vm(\mathbf{x}_q)$ in~\eqref{eq:gpode}, versus the cell average
+$\overline{V}_{m,c}$ in~\eqref{eq:ccrec}.
+
+% ------------------------------------------------------------------ %
+\subsection{Front-aware hybrid}
+\label{sec:hybrid}
+% ------------------------------------------------------------------ %
+
+\dictkey{frontAwareHybrid} (default \code{false}, orthogonal to
+\dictkey{stateIntegrationMode}) combines the two modes: it solves the
+ODE at the Gauss points in the thin band of \emph{front} cells and at the cell
+centre (with reconstruction) everywhere else. A cell $i$ is a \emph{front} cell
+when its sub-cell $\Vm$ range exceeds \dictkey{hybridFrontVmRange} or it is
+stimulated,
+\begin{equation}
+  \text{front}_i \;\Longleftrightarrow\;
+  \Bigl(\max_q\Vm(\mathbf{x}_q)-\min_q\Vm(\mathbf{x}_q)\Bigr)
+     > \dictkey{hybridFrontVmRange}
+  \;\;\vee\;\; (\Iext)_i\neq 0 .
+  \label{eq:frontflag}
+\end{equation}
+The persistent states are carried at the Gauss points (as in
+\code{gaussPointODE}); the smooth-cell reconstruction derives its cell values
+by quadrature-averaging that carrier. Per nonlinear evaluation the branch is:
+\begin{enumerate}[topsep=2pt,itemsep=1pt,label=(\alph*)]
+  \item front cells: one ODE per Gauss point, local $\Vm$ (as~\eqref{eq:gpode});
+  \item smooth cells: one ODE at the cell centre from the cell-average state;
+  \item reconstruct the smooth-cell states to their Gauss points, front Gauss
+        states left untouched;
+  \item evaluate $\Iion$ at all Gauss points and average to the cell.
+\end{enumerate}
+
+\paragraph{Freezing per time step (avoiding a limit cycle).}
+The front classification~\eqref{eq:frontflag} is a \emph{solution-dependent
+discrete switch}. If recomputed inside the nonlinear loop, cells near the
+threshold flip front$\leftrightarrow$smooth between iterations; because the two
+branches compute $\Iion$ by different paths, the source term jumps discretely
+and the Picard fixed-point map becomes discontinuous, producing a non-convergent
+\emph{period-2 limit cycle} (observed as $\text{iter}_{k+2}\equiv\text{iter}_k$
+in \code{nonlinearResiduals.dat}). The classification is therefore computed
+\emph{once per time step} from the committed $\Vm^{n}$ and \emph{frozen} for the
+whole nonlinear solve, and the band is dilated by \dictkey{hybridFrontDilation}
+cell layers (via \code{mesh.cellCells()}) so the front stays inside the
+Gauss-resolved zone as it advances. Freezing is safe because the front moves far
+less than one cell per step (for the 2D benchmark, $\sim\!\SI{0.09}{mm/ms}$, i.e.
+$\sim\!0.009$ cell per step at $\Delta t=\SI{e-4}{s}$, $\Delta x=\SI{0.5}{mm}$).
+
+% ------------------------------------------------------------------ %
+\subsection{State reconstruction limiter}
+\label{sec:limiter}
+% ------------------------------------------------------------------ %
+
+High-order ($p3$) reconstruction of the stiff TNNP states across an
+under-resolved front overshoots (Gibbs), and a state driven far outside its
+physical range can overflow the ionic algebra (observed as a PETSc
+\code{SIGFPE}). \dictkey{stateReconstructLimiter} (default \code{true}, active
+for \code{cellCentredReconstruct} and the hybrid smooth cells, independent of
+\dictkey{frontAwareHybrid}) applies a Barth--Jespersen-style bound: each
+reconstructed value is clipped to the range of the cell and its face neighbours,
+\begin{equation}
+  \widehat{s}(\mathbf{x}_q)
+  \;\leftarrow\;
+  \mathrm{clip}\!\Bigl(\widehat{s}(\mathbf{x}_q),\;
+     \min_{c'\in\{i\}\cup\mathcal{N}(i)} s_{c'},\;
+     \max_{c'\in\{i\}\cup\mathcal{N}(i)} s_{c'}\Bigr).
+  \label{eq:limiter}
+\end{equation}
+No new extremum is created, so the reconstructed states stay within the
+physically realised (ODE-evolved) range and the ionic algebra never sees a
+pathological input; in smooth regions the reconstruction already lies within the
+range and the limiter is inactive, preserving the order there.
+
+% ------------------------------------------------------------------ %
+\subsection{Dictionary keys}
+% ------------------------------------------------------------------ %
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Key (in \code{implicitHOCoeffs}) & Meaning & Default \\
+\midrule
+\code{stateIntegrationMode} & \code{gaussPointODE} / \code{cellCentredReconstruct} & \code{cellCentredReconstruct} \\
+\code{frontAwareHybrid} & Gauss ODEs on the front, reconstruct elsewhere & \code{false} \\
+\code{hybridFrontVmRange} & sub-cell $\Vm$ range flagging a front cell [V] & $5\times10^{-3}$ \\
+\code{hybridFrontDilation} & cell layers added around the front band & $2$ \\
+\code{stateReconstructLimiter} & Barth--Jespersen limiter on the reconstruction & \code{true} \\
+\bottomrule
+\end{tabular}
+\end{center}
+\code{LRECoeffs\_states} (in \code{highOrderCoeffs}) sets the reconstruction
+order; it is required by \code{cellCentredReconstruct} and by the hybrid.
+
+% ================================================================== %
+\section{Nonlinear solver}
+% ================================================================== %
+
+At each outer time step the unknown is the new voltage vector
+$\mathsf{x}=\mathsf{V}^{n+1}$. For any candidate $\mathsf{x}$ the solver
+first reconstructs the corresponding $\Vm$ field, then calls
+\code{evaluateNonlinearFields}. That routine resets the ionic states to
+their time-step-start values $\mathbf{s}^{n}$, integrates the local ODEs
+from $t^n$ to $t^{n+1}$ using the candidate voltage, obtains
+$\Iion(\mathsf{x})$, and optionally averages quadrature-point values
+back to cells. This gives the nonlinear residual
+\begin{equation}
+  \Fres(\mathsf{x})
+   \;=\;
+   \Aimp\, \mathsf{x}
+   \;-\;
+   \mathsf{r}\!\bigl( \Iion(\mathsf{x}) \bigr),
+   \qquad
+   \mathsf{x} = \mathsf{V}^{n+1},
+   \label{eq:Fdef}
+\end{equation}
+with
+\begin{equation}
+  \mathsf{r}(\Iion)
+  =
+  \Bimp\,\mathsf{V}^{n}
+  + \theta\,\Bigl[-\Iion(\mathsf{x})+\Iext^{n+1}/(\chi C_m)\Bigr]
+  + (1-\theta)\,\Bigl[-\Iion^{n}+\Iext^{n}/(\chi C_m)\Bigr].
+  \label{eq:rhsIion}
+\end{equation}
+The three nonlinear methods differ only in how they drive
+$\Fres(\mathsf{x})$ toward zero.
+
+\subsection{Shared residuals and stopping tests}
+
+Every method records the same diagnostics:
+\begin{align}
+  R_{\mathrm{cpl}} &=
+    \frac{\|\Fres(\mathsf{x}_{k})\|_2}
+         {\|\mathsf{x}_{k}\|_2+\epsilon},\\
+  R_{\Vm} &=
+    \frac{\|\mathsf{V}_{k}-\mathsf{V}_{k-1}\|_2}
+         {\|\mathsf{V}_{k-1}\|_2+\epsilon},\\
+  R_{\Iion} &=
+    \frac{\|I_{\mathrm{ion},k}-I_{\mathrm{ion},k-1}\|_2}
+         {\|I_{\mathrm{ion},k-1}\|_2+\epsilon},\\
+  R_{\mathbf{s}} &=
+    \max_j
+    \frac{\|\mathbf{s}_{j,k}-\mathbf{s}_{j,k-1}\|_2}
+         {\|\mathbf{s}_{j,k-1}\|_2+\epsilon}.
+\end{align}
+The actual implementation uses \code{relativeL2Difference} for
+$R_{\Vm}$ and $R_{\Iion}$, and \code{maxStateRelativeL2Difference} for
+the state maximum. A nonlinear iteration can stop only after
+\code{minNonlinearIterations}; convergence then requires
+\code{nonlinearTolerance}, \code{nonlinearVmTolerance} and
+\code{nonlinearIionTolerance}. The state criterion
+\code{nonlinearStatesTolerance} is included only when
+\code{nonlinearRequireStatesConvergence=true}.
+
+\subsection{Picard fixed-point method}
+
+The Picard branch treats the source as lagged during the PDE solve. At
+iteration $k$ the states and ionic source are computed from
+$\mathsf{x}_k$, then the linear PDE
+\begin{equation}
+  \Aimp\,\mathsf{V}_{*}
+  =
+  \mathsf{r}\!\bigl(\Iion(\mathsf{x}_{k})\bigr)
+\end{equation}
+is solved with the Eigen sparse solver selected by \code{linearSolver}.
+The next candidate is relaxed,
+\begin{equation}
+  \mathsf{x}_{k+1}
+  =
+  \mathsf{x}_{k}
+  + \omega(\mathsf{V}_{*}-\mathsf{x}_{k}),
+  \qquad
+  \omega=\code{nonlinearRelaxation}.
+\end{equation}
+After the update the solver re-evaluates states and $\Iion$ at
+$\mathsf{x}_{k+1}$ and checks the residuals above. In this
+electro-activation solver, unlike a pure MMS Picard study, a failed
+Picard solve rolls back unless \code{nonlinearAcceptUnconverged=true}.
+
+\paragraph{Advantages.}
+Picard is simple, cheap per nonlinear iteration, and uses the same
+linear PDE solver as the classical implicit formulation. It is a useful
+baseline and is often adequate when $\Delta t$ is small or the ionic
+source is weakly nonlinear over one time step.
+
+\paragraph{Disadvantages.}
+The source derivative with respect to $\Vm$ is ignored in the PDE
+matrix, so convergence can be slow near the action-potential upstroke or
+for large $\Delta t$. A small residual may require many iterations, and
+under-relaxation may be needed for robustness.
+
+\subsection{Diagonal \texorpdfstring{$\Iion$}{Iion} linearisation}
+
+The \code{diagonalIion} branch is Picard plus a local finite-difference
+approximation of the source derivative. Define
+\[
+  S(\Vm) = -\Iion(\Vm,\mathbf{s}(\Vm)) + \Iext/(\chi C_m).
+\]
+The solver approximates, cell by cell,
+\begin{equation}
+  S'_i(V_{m,k})
+  \;\approx\;
+  -\frac{
+      I_{\mathrm{ion},i}(V_{m,k}+\varepsilon_d)
+      - I_{\mathrm{ion},i}(V_{m,k})
+    }{\varepsilon_d},
+  \qquad
+  \varepsilon_d=\code{diagonalIionEpsilon}.
+\end{equation}
+The linearised residual
+$\Aimp\mathsf{x}-\theta S(\mathsf{x})$ gives the system
+\begin{equation}
+  \left(\Aimp-\theta\,\mathrm{diag}(S'_k)\right)\mathsf{x}_{k+1}
+  =
+  \mathsf{r}\!\bigl(\Iion(\mathsf{x}_{k})\bigr)
+  - \theta\,\mathrm{diag}(S'_k)\,\mathsf{x}_{k}.
+  \label{eq:diagonalIion}
+\end{equation}
+The update can still be relaxed with \code{nonlinearRelaxation}, and
+the same convergence and rollback logic as Picard is used.
+
+\paragraph{Advantages.}
+It captures the dominant local stiffness of $\Iion(\Vm)$ without
+building a full Jacobian. It often reduces the number of nonlinear
+iterations relative to Picard while preserving a sparse scalar PDE
+matrix.
+
+\paragraph{Disadvantages.}
+Only the cell-local diagonal sensitivity is included. Couplings through
+ODE states, high-order quadrature averaging and spatial reconstruction
+are not represented in the matrix. The finite-difference step
+\code{diagonalIionEpsilon} must be chosen above ODE/noise levels but
+small enough to be a useful derivative.
+
+\subsection{Jacobian-Free Newton--Krylov}
+
+JFNK applies Newton to~\eqref{eq:Fdef}:
+\[
+  \mathbf{J}(\mathsf{x}_k)\delta_k
+  =
+  -\Fres(\mathsf{x}_k),
+  \qquad
+  \mathsf{x}_{k+1}=\mathsf{x}_k+\alpha_k\delta_k,
+\]
+but never assembles $\mathbf{J}$. GMRES sees only matrix-vector
+products approximated by
+\begin{equation}
+  \mathbf{J}(\mathsf{x}_{k})\, \mathbf{v}
+   \;\approx\;
+   \frac{\Fres(\mathsf{x}_{k} + \varepsilon\, \mathbf{v})
+         - \Fres(\mathsf{x}_{k})}{\varepsilon},
+   \qquad
+   \varepsilon \;=\; \varepsilon_{0}\,
+                     \frac{1 + \norm{\mathsf{x}_{k}}_{2}}
+                          {\norm{\mathbf{v}}_{2}},
+   \label{eq:fdjac}
+\end{equation}
+with $\varepsilon_{0}=\code{jfnkEpsilon}$. Every evaluation of
+$\Fres$ re-runs the ODEs and recomputes $\Iion$ from the same
+time-step-start state snapshot. This is expensive but gives a genuinely
+coupled nonlinear residual.
+
+\subsection{JFNK inner Krylov}
+\label{sec:jfnk-krylov}
+
+The Newton linear system $\mathcal{J}_k\delta=-\Fres_k$ is
+solved with a back-end chosen by \code{jfnkLinearSolverBackend}:
+\begin{itemize}[nosep]
+\item \textbf{Eigen} --- \code{solveGMRES} implements GMRES(m) with modified
+  Gram--Schmidt, using at most \code{jfnkMaxKrylovIterations} basis vectors per
+  restart and \code{jfnkMaxRestarts} restarts.
+\item \textbf{PETSc} --- \code{KSPGMRES} over a \code{MatShell} whose
+  matrix-vector product is the finite-difference wrapper; the KSP object is
+  persistent across steps.
+\end{itemize}
+In both cases the stopping test is controlled by \code{jfnkLinearTolerance} and the
+method is matrix-free: the linear operator is the finite-difference
+shell of~\eqref{eq:fdjac}, not a stored sparse matrix.
+
+\paragraph{Preconditioner (optional).}
+With \code{jfnkPreconditioner=diffusion} a right preconditioner
+$\mathbf{M}^{-1}$ is applied with $\mathbf{M}=\Aimp$ (the linear, diffusive, SPD part of the
+Jacobian), factorised once as an incomplete ILU and reused; each Krylov step then
+costs a cheap \emph{triangular solve} instead of an ODE
+integration. The default \code{none} reproduces the unpreconditioned path.
+See Section~\ref{sec:optim-A3}.
+
+\paragraph{Advantages.}
+JFNK sees the full nonlinear dependence
+$\Vm\mapsto\mathbf{s}(\Vm)\mapsto\Iion(\Vm,\mathbf{s})$ and usually has much better
+nonlinear convergence than Picard in stiff regimes. It also avoids
+explicitly forming a dense or complicated Jacobian.
+
+\paragraph{Disadvantages.}
+Every Krylov vector requires an extra residual evaluation, and hence a
+fresh ODE integration in every cell or quadrature point. The method is sensitive
+to the finite-difference perturbation, to the ODE tolerances and to the
+line-search choices. Without a preconditioner
+(\code{jfnkPreconditioner=none}) the number of matvecs --- and therefore of
+ODE integrations --- can be high; the diffusion preconditioner
+(Section~\ref{sec:jfnk-krylov}) reduces it markedly. Empirically, for the
+benchmark of this report JFNK turns out to be considerably more expensive than Picard even with
+a preconditioner (Section~\ref{sec:exp}).
+\subsection{Armijo backtracking line search}
+
+The raw Newton update may increase the nonlinear residual when the
+linear model is poor. If \code{jfnkLineSearch=true}, the solver tries
+\[
+  \mathsf{x}_{k+1}=\mathsf{x}_{k}+\alpha\delta_{k},
+  \qquad
+  \alpha=\code{nonlinearRelaxation},\;
+  \alpha/2,\;\alpha/4,\dots
+\]
+until the Armijo sufficient-decrease condition holds:
+\begin{equation}
+  \norm{\Fres(\mathsf{x}_{k}+\alpha\delta_{k})}_2^2
+  \le
+  (1-2c\alpha)\,\norm{\Fres(\mathsf{x}_{k})}_2^2,
+  \qquad c=\code{jfnkArmijoC}.
+  \label{eq:armijo}
+\end{equation}
+Backtracking stops after \code{jfnkLineSearchMaxIter} attempts or when
+the step length reaches \code{jfnkLineSearchAlphaMin}. This globalises Newton:
+large Newton steps are accepted when they reduce the residual, otherwise
+they are damped.
+
+\subsection{Initial guess, ODE clamp and rollback}
+
+The first guess for the time step is either $\mathsf{V}^{n}$ or the
+linear extrapolation
+\begin{equation}
+  \mathsf{x}_{0}
+  =
+  \mathsf{V}^{n}
+  + \frac{\Delta t}{\Delta t_{\mathrm{prev}}}
+    \left(\mathsf{V}^{n}-\mathsf{V}^{n-1}\right),
+  \label{eq:extrap}
+\end{equation}
+selected by \code{jfnkInitGuessOrder}. It is clamped to
+$[\code{jfnkInitGuessVmMin},\code{jfnkInitGuessVmMax}]$. The same
+bracket can also be applied to voltage values passed into the ODE solver
+through \code{jfnkClampODEInput}; this protects the ionic model during
+JFNK finite-difference probes.
+
+If the nonlinear loop reaches its iteration budget without satisfying
+the convergence tests, \code{nonlinearAcceptUnconverged} decides whether
+the last iterate is committed. With the default \code{false}, the solver
+rolls back $\Vm$, $\Iion$ and all ionic states to the beginning of the
+time step. Rollback prevents a bad nonlinear solve from contaminating
+the remaining activation simulation.
+
+% ================================================================== %
+\section{Linear solver: Eigen and PETSc back-ends}
+\label{sec:linalg}
+% ================================================================== %
+
+Matrix assembly and storage ($\Mmass$, $\Kstif$, $\Lop$,
+$\Aimp$) \emph{always} use \code{Eigen::SparseMatrix}. Solving the linear
+system of the assembled branches (Picard / diagonalIion) is handled by the
+\code{solveSparseSystem} wrapper, with a back-end chosen by \code{linearSolverBackend}:
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\code{linearSolverBackend} & \code{linearSolver} & Implementation \\
+\midrule
+\code{Eigen} & \code{SparseLU}  & \code{Eigen::SparseLU} (direct LU) \\
+\code{Eigen} & \code{BiCGSTAB}  & \code{Eigen::BiCGSTAB}+\code{IncompleteLUT} \\
+\code{PETSc} & (mapped)         & \code{KSP}+\code{PC} (e.g.\ \code{gmres}+\code{ilu},
+   \code{preonly}+\code{lu}, \code{cg}+\code{gamg}) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+With the PETSc back-end, the Eigen matrix is copied to a PETSc \code{Mat} and the
+KSP/PC type is taken from \code{petscLinearKspType} / \code{petscLinearPcType}
+(the latter accepts \code{ilu}, \code{lu}, \code{jacobi}, \code{gamg}, \code{hypre},
+\dots). All of them share \code{tolerance} and \code{maxIterations}.
+
+\paragraph{Factorisation reuse.}
+Since $\Aimp=\Mmass/\Delta t-\theta\Lop$ is constant as long as $\Delta t$ does not change,
+the matrix is assembled once and the solver (PETSc KSP or Eigen
+factorisation) is kept for the whole run, refreshed only when needed according to
+an update policy \{Rebuild, ValuesOnly, Reuse\}. This avoids
+re-factorising at every nonlinear iteration (Section~\ref{sec:optim-B}).
+
+\paragraph{JFNK.}
+The matrix-free JFNK branch does not instantiate these assembled wrappers; it uses
+its own Krylov solver (Section~\ref{sec:jfnk-krylov}) over the finite-difference
+Jacobian shell, with back-end \code{jfnkLinearSolverBackend} (Eigen or PETSc).
+
+% ================================================================== %
+\section{Ionic ODE integration}
+% ================================================================== %
+
+For each cell or cell QP, the TNNP ODE~\eqref{eq:tnnp} is advanced by
+the OpenFOAM adaptive integrator selected via the \code{solver} key.
+Default \code{RKF45}~\cite{hairer2}. Keys read from
+\code{constant/timeIntegrationProperties}:
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Key & Meaning & Default \\
+\midrule
+\code{solver} & Concrete ODE integrator & \code{RKF45} \\
+\code{absTol} & Absolute tolerance per state & $10^{-9}$ \\
+\code{relTol} & Relative tolerance per state & $10^{-6}$ \\
+\code{maxSteps} & Cap on sub-steps per outer call & $10^{4}$ \\
+\code{initialODEStep} & Initial sub-step (ms) & $10^{-5}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\code{relTol} drives the noise floor of the matrix-free Jacobian:
+$\eta_{\Fres} \sim $~\code{relTol}. Tightening \code{relTol} buys
+a lower attainable outer tolerance at the cost of more RKF45 sub-steps
+per Newton iteration.
+
+% ================================================================== %
+\section{TNNP numerical protection}
+% ================================================================== %
+
+The master switch \code{TNNPNumericalProtection} (default \code{false})
+gates a local guard invoked at every external entry into the embedded TNNP
+kernel (\code{calculateCurrent}, \code{solveODE\_start},
+\code{solveODE\_end}, \code{derivatives}).
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Key & Type & Default \\
+\midrule
+\code{TNNPNumericalProtection} & Switch & \code{false} \\
+\code{TNNPClampGates} & Switch & \code{true} \\
+\code{TNNPClampVmForRates} & Switch & \code{true} \\
+\code{TNNPLogNumericalProtection} & Switch & \code{true} \\
+\code{TNNPConcentrationFloor} & scalar (mM) & $10^{-12}$ \\
+\code{TNNPVMinForRates} & scalar (mV) & $-200$ \\
+\code{TNNPVMaxForRates} & scalar (mV) & $+100$ \\
+\code{TNNPVoltageZeroEps} & scalar (mV) & $10^{-8}$ \\
+\code{TNNPMaxProtectionLogEntries} & label & $10^{6}$ \\
+\code{TNNPProtectionLog} & word & \code{TNNP\_numericalProtection\_summary.dat} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+When protection is enabled, the guards applied in order are:
+\begin{enumerate}[topsep=0pt,itemsep=2pt]
+  \item \textbf{Non-finite $V$}: \code{!std::isfinite(V)} $\rightarrow$
+        reset to $-86.2$ mV.
+  \item \textbf{$V$ clamp for rates} (if \code{TNNPClampVmForRates}):
+        clamp to $[\,$\code{TNNPVMinForRates}, \code{TNNPVMaxForRates}$\,]$.
+  \item \textbf{$V=0$ singularity avoidance}: push $V$ off zero by
+        \code{TNNPVoltageZeroEps} (sign preserving) when
+        $\lvert V \rvert$ falls below that threshold.
+  \item \textbf{Concentration floor} on $K_{i}, Na_{i}, Ca_{i}, Ca_{SR}$:
+        non-finite or below-floor entries are reset to
+        \code{TNNPConcentrationFloor}.
+  \item \textbf{Gate clamp} on $Xr_{1}, Xr_{2}, Xs, m, h, j, d, f, fCa,
+        s, r, g$ (if \code{TNNPClampGates}): non-finite to zero,
+        clamp to $[0, 1]$.
+\end{enumerate}
+
+The embedded implementation stores a capped correction count and emits a
+compact summary file at exit; it does not depend on external ionic-model
+logging utilities.
+
+% ================================================================== %
+\section{Activation tracking and benchmarks}
+% ================================================================== %
+
+\paragraph{Activation time per cell.}
+First-crossing of $V_{\text{thr}}$ in a time step is recorded by linear
+interpolation:
+\begin{equation}
+  w \;=\; \mathrm{clip}\!\Bigl(
+      \frac{V_{\text{thr}} - V^{n}}{V^{n+1} - V^{n}},
+      \; 0, 1
+    \Bigr),
+   \qquad
+   t_{\text{act}} \;=\; t^{n} + w\, \Delta t,
+\end{equation}
+with a per-cell flag cleared after the first crossing so subsequent
+re-crossings are ignored.
+
+\paragraph{Early termination on P8.}
+When \code{stopAfterPointActivation = true}, the cell nearest
+\code{stopActivationPoint} (P8 in the Niederer benchmark) is monitored
+and \code{effectiveEndTime} is set to $t_{\text{act}} +
+$~\code{stopDelayAfterActivation} once its $t_{\text{act}} > 0$.
+
+\paragraph{Diagonal sampling.}
+\code{sampleIDW} performs inverse-distance-weighted interpolation at
+\code{nDiagonalSamples} points between \code{diagonalStart} and
+\code{diagonalEnd}, with $k = $~\code{sampleNeighbours},
+$p = $~\code{samplePower}. Because a diagonal sample averages its $k$ nearest
+cells and unactivated cells contribute $t_{\text{act}}=0$, a sample watched
+\emph{live} climbs from below as the front fills its neighbourhood; the final
+value (all $k$ neighbours activated) is the correct one.
+
+\paragraph{Live activation output.}
+\code{writeActivationSamples} is called once before the time loop (so
+\code{diagonalActivationTime.dat} and \code{P8\_activationTime.dat} exist from
+$t=0$ with every point pending) and again whenever the activated-cell count
+increases, overwriting the files. The run can therefore be monitored as the
+front advances; the driver exposes the live file in each run directory by a
+symbolic link that is replaced by a real copy at the end.
+
+\paragraph{Activation-failure detection.}
+When \dictkey{abortOnActivationFailure = true} the solver stops early
+(cleanly, exit~0) if the activation fails, avoiding a full run to
+\code{endTime}. Two criteria, using the running activated-cell count $N_a$ and
+the time $t_\star$ of the last new activation:
+\begin{itemize}[topsep=2pt,itemsep=1pt]
+  \item \textbf{no ignition:} $N_a=0$ and
+        $t>\dictkey{activationIgnitionTimeout}$;
+  \item \textbf{conduction block:} $N_a>0$, the stop point is not yet reached,
+        and $t-t_\star>\dictkey{activationStallTime}$.
+\end{itemize}
+The outcome is always recorded in
+\code{postProcessing/.../activationStatus.dat} as one of \code{OK},
+\code{FAILED\_NO\_IGNITION}, \code{FAILED\_CONDUCTION\_BLOCK} or
+\code{INCOMPLETE} (with the final time and $N_a$). The driver reads this file
+and, on a failure, logs it to \code{activation\_status\_summary.dat} and
+continues with the next configuration rather than aborting the sweep.
+
+% ================================================================== %
+\section{Solver flow chart}
+% ================================================================== %
+
+The pseudo-code below follows the actual solver.  The shared setup is
+common to all nonlinear methods; then one of the three method-specific
+blocks is executed according to \dictkey{nonlinearMethod}.
+
+\begin{algorithm}[H]
+\caption{Shared time-step setup and final commit/rollback.}
+\begin{algorithmic}[1]
+\State Read dictionaries and assemble (once) $\Mmass$, $\Kstif$, $\Lop=\Kstif/(\chi C_m)$.
+\State Initialise the persistent linear-solver state (PETSc KSP /
+       Eigen factorisation) and mark $\Delta t$ as not assembled.
+\While{$t^n < T$}
+  \State Save snapshots: $\mathsf{V}^n$, $\Iion^n$, $\mathbf{s}^n$.
+  \If{$\Delta t$ changed with respect to the assembled one}
+    \State (Re)build $\Aimp=\Mmass/\Delta t-\theta\Lop$ and
+           $\Bimp=\Mmass/\Delta t+(1-\theta)\Lop$; mark the solver for rebuild.
+  \EndIf \Comment{constant if $\Delta t$ is fixed $\Rightarrow$ they are reused (Phase B)}
+  \State Build old source $S^n=-\Iion^n+\Iext^n/(\chi C_m)$.
+  \If{\dictkey{jfnkInitGuessOrder}$\ge 1$ and previous step exists}
+    \State $\mathsf{x}_0\gets\mathsf{V}^n+
+      (\Delta t/\Delta t_{\rm prev})(\mathsf{V}^n-\mathsf{V}^{n-1})$.
+    \State Clamp $\mathsf{x}_0$ to
+      $[\dictkey{jfnkInitGuessVmMin},\dictkey{jfnkInitGuessVmMax}]$.
+  \Else
+    \State $\mathsf{x}_0\gets\mathsf{V}^n$.
+  \EndIf
+  \State Run Algorithm~\ref{alg:picard},~\ref{alg:diagonal} or~\ref{alg:jfnk}.
+  \If{not converged and \dictkey{nonlinearAcceptUnconverged} is false}
+    \State Roll back $\Vm,\Iion,\mathbf{s}$ to the saved $t^n$ snapshots.
+  \Else
+    \State Commit the final nonlinear iterate.
+  \EndIf
+  \State Update activation times and benchmark samples.
+\EndWhile
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{Picard nonlinear solve.}
+\label{alg:picard}
+\begin{algorithmic}[1]
+\Require Initial candidate $\mathsf{x}_0$, state snapshot $\mathbf{s}^n$.
+\For{$k=0,\dots,\code{nonlinearIterations}-1$}
+  \State Store previous iterate $\mathsf{x}_{k-1}$, $I_{\mathrm{ion},k-1}$,
+         $\mathbf{s}_{k-1}$ for residuals.
+  \State \Call{evaluateNonlinearFields}{$\mathsf{x}_k$}: \Comment{full evaluation \#1}
+    reset states to $\mathbf{s}^n$, reconstruct $\Vm$ at Iion quadrature
+    points if enabled, call \code{ionicModel->solveODE}, compute $I_{\mathrm{ion},k}$.
+  \State Build RHS $\mathsf{r}(I_{\mathrm{ion},k})$ using~\eqref{eq:rhsIion}.
+  \State Solve $\Aimp\,\mathsf{V}_*=\mathsf{r}(I_{\mathrm{ion},k})$ with the
+    linear back-end, reusing the factorisation if $\Aimp$ did not change
+    (\emph{Reuse}; Picard has a constant $\Aimp$).
+  \State Relax:
+    $\mathsf{x}_{k+1}\gets\mathsf{x}_{k}+
+    \code{nonlinearRelaxation}(\mathsf{V}_*-\mathsf{x}_{k})$.
+  \State \Call{evaluateNonlinearFields}{$\mathsf{x}_{k+1}$} \Comment{full evaluation \#2 (for residuals)}
+  \State Compute $R_{\mathrm{cpl}}$, $R_{\Vm}$, $R_{\Iion}$ and optional
+    $R_{\mathbf{s}}$.
+  \If{all requested criteria pass and $k+1\ge\code{minNonlinearIterations}$}
+    \State Mark converged and exit loop.
+  \EndIf
+\EndFor
+\State \textbf{Note:} each iteration performs \emph{two} full field evaluations
+  (LRE reconstruction + ODE + quadrature), which dominate the per-step cost; the
+  linear solve is a minor fraction.
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{\code{diagonalIion} nonlinear solve.}
+\label{alg:diagonal}
+\begin{algorithmic}[1]
+\Require Initial candidate $\mathsf{x}_0$, state snapshot $\mathbf{s}^n$.
+\For{$k=0,\dots,\code{nonlinearIterations}-1$}
+  \State Evaluate states and $I_{\mathrm{ion},k}$ at $\mathsf{x}_k$ exactly as in Picard.
+  \State Approximate the local derivative
+    $S'_k\approx-[\Iion(\mathsf{x}_k+\varepsilon_d)-\Iion(\mathsf{x}_k)]/\varepsilon_d$,
+    with $\varepsilon_d=\dictkey{diagonalIionEpsilon}$.
+  \State Assemble
+    $\Aimp_k=\Aimp-\theta\,\mathrm{diag}(S'_k)$ \Comment{only the diagonal changes; the pattern is kept}
+  \State Build corrected RHS
+    $\mathsf{r}_k=\mathsf{r}(I_{\mathrm{ion},k})-\theta\,\mathrm{diag}(S'_k)\mathsf{x}_k$.
+  \State Solve $\Aimp_k\mathsf{V}_*=\mathsf{r}_k$ refreshing only the matrix
+    values (\emph{ValuesOnly}); with \code{petscReusePreconditioner} the
+    preconditioner is also reused across iterations.
+  \State Relax, re-evaluate ODEs/$\Iion$, compute residuals and test convergence
+    as in Picard.
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{Jacobian-Free Newton--Krylov solve.}
+\label{alg:jfnk}
+\begin{algorithmic}[1]
+\Require Initial candidate $\mathsf{x}_0$, state snapshot $\mathbf{s}^n$.
+\For{$k=0,\dots,\code{nonlinearIterations}-1$}
+  \State Evaluate $\Fres_k=\Fres(\mathsf{x}_k)$; this resets
+    states to $\mathbf{s}^n$, solves ODEs and recomputes $\Iion$.
+  \State Compute residuals. If all requested criteria pass, mark converged
+    and exit.
+  \State Define matrix-free product
+    $\mathcal{J}_k\mathbf{v}=
+    [\Fres(\mathsf{x}_k+\varepsilon\mathbf{v})-\Fres_k]/\varepsilon$,
+    with $\varepsilon$ from \dictkey{jfnkEpsilon} \Comment{each matvec = 1 evaluation of $\Fres$ = 1 ODE integration}.
+  \If{\dictkey{jfnkPreconditioner} $=$ \code{diffusion}}
+    \State Prepare (once / when $\Delta t$ changes) the incomplete ILU of
+      $\mathbf{M}=\Aimp$ as right preconditioner $\mathbf{M}^{-1}$.
+  \EndIf
+  \State Solve $\mathcal{J}_k\delta_k=-\Fres_k$ by
+    restarted GMRES (back-end \dictkey{jfnkLinearSolverBackend}: Eigen's in-house GMRES or
+    PETSc's \code{KSPGMRES}/\code{MatShell}), using
+    \dictkey{jfnkMaxKrylovIterations}, \dictkey{jfnkMaxRestarts},
+    \dictkey{jfnkLinearTolerance} and, where relevant, the preconditioner $\mathbf{M}^{-1}$.
+  \If{\dictkey{jfnkLineSearch}}
+    \State Start $\alpha=\code{nonlinearRelaxation}$ and backtrack until
+      Armijo~\eqref{eq:armijo} succeeds, the trial budget is exhausted,
+      or \dictkey{jfnkLineSearchAlphaMin} is reached.
+  \Else
+    \State $\alpha\gets\code{nonlinearRelaxation}$.
+  \EndIf
+  \State $\mathsf{x}_{k+1}\gets\mathsf{x}_{k}+\alpha\delta_k$.
+  \State Re-evaluate $\Fres(\mathsf{x}_{k+1})$, update fields, compute
+    residuals and test convergence.
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\noindent\textbf{Legend.} \pyconst{Blue} = Python constant set in
+\code{run\_convergence.py}; \dictkey{green} = OpenFOAM dictionary key
+read by the solver. Constants and keys are mapped one-to-one in
+section~\ref{sec:driver}.
+
+% ================================================================== %
+\section{Manufactured driver: \texttt{run\_convergence.py}}
+\label{sec:driver}
+% ================================================================== %
+
+The convergence script
+\code{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials\_electro/highOrderManufacturedFDAImplicitJfNK/run\_convergence.py}
+generates an MMS case whose numerical path is intended to match this
+solver. The tables below describe the constants exposed there, the
+OpenFOAM dictionary entries they generate, and which part of the
+discrete equations they affect. The same dictionary keys are read by
+\code{highOrderElectroActivationFoamImplicitPETSc}; only problem-specific
+items such as exact fields versus TNNP/stimulus differ.
+
+\subsection{Geometry and parameter sweep}
+\begin{longtable}{@{}p{0.30\linewidth}p{0.28\linewidth}p{0.36\linewidth}@{}}
+\toprule
+Python constant & OpenFOAM key & Affected equation / mechanism \\
+\midrule \endhead
+\code{DIMENSIONS} & --- &
+   Selects 2D or 3D manufactured domain and the corresponding LRE
+   stencils in \code{P\_LEVELS\_BY\_DIM}. \\
+\code{N\_VALUES} & \code{blockMeshDict} cell counts &
+   Spatial refinement. This changes FV/LRE discretisation error in the
+   PDE, Iion quadrature and state reconstruction. \\
+\code{DT\_VALUES} & \code{controlDict.deltaT} &
+   Outer PDE time step. Also sets the integration interval for every
+   local ODE solve. \\
+\code{END\_TIME} & \code{controlDict.endTime} &
+   Final time of the transient MMS test. \\
+\code{IMPLICIT\_SCHEMES} &
+   \code{spatialIntegrationProperties.implicitScheme} &
+   Chooses $\theta$ in~\eqref{eq:theta}: \code{backwardEuler}
+   ($\theta=1$) or \code{crankNicolson} ($\theta=1/2$). \\
+\code{MASS\_MATRIX\_VALUES} &
+   \code{spatialIntegrationProperties.massMatrix} &
+   Chooses lumped or LRE-consistent $\Mmass$ in
+   $\Aimp=\Mmass/\Delta t-\theta\Lop$. \\
+\code{ACTIVE\_HO\_PAIRS\_Vm\_States} &
+   \code{useHighOrder\_Vm} / \code{useHighOrder\_Iion}
+   + \code{LRECoeffs\_*} &
+   Tuple \code{(Vm-level, Iion/states-level)}. Vm level affects
+   diffusion and consistent mass; Iion/states level affects where ODEs
+   are solved and where the nonlinear source is integrated. \\
+\code{P\_LEVELS\_BY\_DIM} & \code{highOrderCoeffs} &
+   Maps \code{p1,p2,p3} to LRE polynomial order \code{N}, stencil
+   target \code{Nn}, radial weight exponent \code{k}, and
+   \code{maxStencilSize}. \\
+\bottomrule
+\end{longtable}
+
+\subsection{Nonlinear method and convergence controls}
+\begin{longtable}{@{}p{0.35\linewidth}p{0.30\linewidth}p{0.30\linewidth}@{}}
+\toprule
+Python constant & OpenFOAM key & Affected equation / mechanism \\
+\midrule \endhead
+\code{NONLINEAR\_METHOD} & \code{nonlinearMethod} &
+   Selects the nonlinear strategy for the PDE/source coupling:
+   \code{Picard}, \code{JFNK}, or \code{diagonalIion}. \\
+\code{IMPLICIT\_NONLINEAR\_ITERATIONS} & \code{nonlinearIterations} &
+   Maximum number of nonlinear corrections per PDE time step. \\
+\code{IMPLICIT\_MIN\_NONLINEAR\_ITERATIONS} &
+   \code{minNonlinearIterations} &
+   Minimum number of corrections before a convergence test may stop the
+   loop. \\
+\code{NONLINEAR\_TOLERANCE} & \code{nonlinearTolerance} &
+   Coupled PDE residual tolerance $R_{\mathrm{cpl}}$. Used directly by
+   JFNK and diagonalIion; in the electro solver it is also reported for
+   Picard. \\
+\code{NONLINEAR\_VM\_TOLERANCE} & \code{nonlinearVmTolerance} &
+   Relative correction of the PDE unknown $\Vm$. \\
+\code{NONLINEAR\_STATES\_TOLERANCE} &
+   \code{nonlinearStatesTolerance} &
+   Relative correction of all ODE states. In the MMS solver these are
+   $u_1,u_2,u_3$; in this electro solver these are the TNNP state
+   variables. \\
+\code{NONLINEAR\_REQUIRE\_STATES\_CONVERGENCE} &
+   \code{nonlinearRequireStatesConvergence} &
+   If true, the state residual is part of the stopping criterion. \\
+\code{NONLINEAR\_ACCEPT\_UNCONVERGED} &
+   \code{nonlinearAcceptUnconverged} &
+   If false, a failed electro nonlinear solve rolls back $\Vm,\Iion$ and
+   states to $t^n$. \\
+\code{NONLINEAR\_IION\_TOLERANCE} & \code{nonlinearIionTolerance} &
+   Relative correction of the nonlinear source $\Iion$. \\
+\code{NONLINEAR\_RELAXATION} & \code{nonlinearRelaxation} &
+   Picard/diagonal mixing factor or initial Newton step length for
+   JFNK/Armijo. \\
+\bottomrule
+\end{longtable}
+
+\subsection{JFNK and diagonal-Iion controls}
+\begin{longtable}{@{}p{0.35\linewidth}p{0.30\linewidth}p{0.30\linewidth}@{}}
+\toprule
+Python constant & OpenFOAM key & Affected equation / mechanism \\
+\midrule \endhead
+\code{JFNK\_MAX\_KRYLOV\_ITERATIONS} & \code{jfnkMaxKrylovIterations} &
+   Restart length $m$ of GMRES(m), controlling memory and Krylov
+   approximation quality. \\
+\code{JFNK\_MAX\_RESTARTS} & \code{jfnkMaxRestarts} &
+   Number of times the GMRES basis may be discarded and rebuilt. \\
+\code{JFNK\_LINEAR\_TOLERANCE} & \code{jfnkLinearTolerance} &
+   Relative tolerance of the Newton correction solve
+   $\mathbf{J}\delta=-\Fres$. \\
+\code{JFNK\_EPSILON} & \code{jfnkEpsilon} &
+   Base perturbation for matrix-free Jacobian-vector products. It should
+   be above the ODE/noise floor but small enough to approximate a
+   derivative. \\
+\code{JFNK\_INIT\_GUESS\_ORDER} & \code{jfnkInitGuessOrder} &
+   Chooses lagged or linearly extrapolated initial $\Vm$ for the
+   nonlinear solve. \\
+\code{JFNK\_INIT\_GUESS\_VM\_MIN/MAX} &
+   \code{jfnkInitGuessVmMin/Max} &
+   Clamp interval for extrapolated guess and, if enabled, ODE inputs. \\
+\code{JFNK\_CLAMP\_ODE\_INPUT} & \code{jfnkClampODEInput} &
+   Protects the ODE solve from unphysical JFNK finite-difference probes. \\
+\code{JFNK\_LINE\_SEARCH} & \code{jfnkLineSearch} &
+   Turns Armijo backtracking on/off. \\
+\code{JFNK\_LINE\_SEARCH\_MAX\_ITER} &
+   \code{jfnkLineSearchMaxIter} &
+   Maximum number of halvings of the Newton step. \\
+\code{JFNK\_LINE\_SEARCH\_ALPHA\_MIN} &
+   \code{jfnkLineSearchAlphaMin} &
+   Floor for the Armijo step length. \\
+\code{JFNK\_ARMIJO\_C} & \code{jfnkArmijoC} &
+   Sufficient-decrease parameter in~\eqref{eq:armijo}. \\
+\code{DIAGONAL\_IION\_EPSILON} & \code{diagonalIionEpsilon} &
+   Finite-difference step for the diagonal source derivative in
+   \code{diagonalIion}. \\
+\bottomrule
+\end{longtable}
+
+\subsection{Linear PDE solver}
+\begin{longtable}{@{}p{0.30\linewidth}p{0.30\linewidth}p{0.35\linewidth}@{}}
+\toprule
+Python constant & OpenFOAM key & Affected equation / mechanism \\
+\midrule \endhead
+\code{LINEAR\_SOLVER\_BACKEND} & \code{linearSolverBackend} &
+   Chooses the assembled back-end: \code{Eigen} or \code{PETSc}
+   (Section~\ref{sec:linalg}). \\
+\code{IMPLICIT\_LINEAR\_SOLVER} & \code{linearSolver} &
+   Sparse solver used by Picard and diagonalIion for
+   $\Aimp\mathsf{V}=\mathsf{r}$ (\code{SparseLU}/\code{BiCGSTAB} in Eigen; mapped to
+   KSP/PC in PETSc). JFNK instead uses GMRES on the Jacobian-free shell. \\
+\code{PETSC\_LINEAR\_KSP\_TYPE} / \code{PETSC\_LINEAR\_PC\_TYPE} &
+   \code{petscLinearKspType} / \code{petscLinearPcType} &
+   KSP and preconditioner type when the back-end is PETSc
+   (\code{gmres}+\code{ilu}, \code{cg}+\code{gamg}, \dots). \\
+\code{IMPLICIT\_TOLERANCE} & \code{tolerance} &
+   Relative tolerance of the iterative linear solve. \\
+\code{IMPLICIT\_MAX\_ITERATIONS} & \code{maxIterations} &
+   Iteration cap of the iterative linear solve. \\
+\bottomrule
+\end{longtable}
+
+\subsection{State ODE integrator}
+\begin{longtable}{@{}p{0.30\linewidth}p{0.30\linewidth}p{0.35\linewidth}@{}}
+\toprule
+Python constant & OpenFOAM key & Affected equation / mechanism \\
+\midrule \endhead
+\code{STATE\_ODE\_SOLVER} & \code{stateODESolver} /
+   \code{timeIntegrationProperties.solver} &
+   Local ODE integrator for MMS states or TNNP states. \\
+\code{STATE\_ODE\_ABS\_TOL} & \code{stateODEAbsTol} /
+   \code{timeIntegrationProperties.absTol} &
+   Absolute tolerance of the ODE solve. \\
+\code{STATE\_ODE\_REL\_TOL} & \code{stateODERelTol} /
+   \code{timeIntegrationProperties.relTol} &
+   Relative ODE tolerance. This controls the noise floor seen by JFNK
+   finite differences. \\
+\code{STATE\_ODE\_INITIAL\_STEP} & \code{stateODEInitialStep} /
+   \code{initialODEStep} &
+   First RKF45 sub-step attempted inside one PDE time step. \\
+\code{STATE\_ODE\_MAX\_STEPS} & \code{stateODEMaxSteps} /
+   \code{maxSteps} &
+   Maximum ODE substeps per local solve. \\
+\bottomrule
+\end{longtable}
+
+\subsection{LRE high-order parameters per p-level}
+\code{P\_LEVELS\_BY\_DIM[dim][p]} gives, for each (dim, p):
+\code{N} (polynomial order), \code{Nn} (stencil neighbours),
+\code{k} (search radius), \code{maxStencilSize} (cap). The script
+writes these into a nested
+\code{highOrderCoeffs\{LRECoeffs\_Vm\{\dots\}; LRECoeffs\_Iion\{\dots\}\}}
+block whenever HO is enabled for either Vm or $\Iion$.
+
+\subsection{Diagnostics and run-control}
+\begin{longtable}{@{}p{0.35\linewidth}p{0.30\linewidth}p{0.30\linewidth}@{}}
+\toprule
+Python constant & OpenFOAM key & Affected mechanism \\
+\midrule \endhead
+\code{WRITE\_NONLINEAR\_RESIDUALS} &
+   \code{writeNonlinearResiduals} & Residual log on/off. \\
+\code{KEEP\_LOGS\_ON\_SUCCESS} & --- &
+   Python-only switch: keep solver/blockMesh logs after successful runs.
+   Failed-run logs are always kept. \\
+\bottomrule
+\end{longtable}
+
+For the electro-activation tutorial the analogous driver also exposes
+activation-threshold, P8 stopping and diagonal-sampling parameters. They
+do not affect the PDE/ODE solve itself; they affect only stopping and
+post-processing of activation times.
+
+% ================================================================== %
+\section{Results}
+\label{sec:results}
+% ================================================================== %
+
+This section collects the current results for the 2D and 3D
+Niederer-style benchmarks. The 2D benchmark (Section~\ref{sec:results:2D}) was re-run
+with an extended \code{Picard} sweep covering the state-integration modes and
+the front-aware hybrid introduced in
+Section~\ref{sec:stateint}; the 3D benchmark (Section~\ref{sec:results:3D}) keeps
+the previously reported results (\code{Picard} and \code{diagonalIion}) and is not
+modified here. All runs use the Crank--Nicolson time scheme
+($\theta = 1/2$), the high-order consistent mass matrix when LRE is
+enabled, and the \code{RKF45} state-ODE integrator. Wall-clock time
+and peak RSS are defined in Section~\ref{sec:res2d:cost}, together
+with the hardware-independent cost quantities.
+
+\subsection{2D Niederer-style benchmark}
+\label{sec:results:2D}
+
+The 2D case is the planar $20\times 8$~mm reduction (a single cell in $z$, planar
+fibres). The sweep reported here is exhaustive in \code{Picard} and lives under
+\path{highOrderNiedererEtAl2012ImplicitPETSc/results/example0/2D_run_20260705_110250/}.
+It covers the product of:
+\begin{itemize}[topsep=2pt,itemsep=1pt]
+  \item \textbf{Mesh:} structured hexahedral (\code{hexa}) and unstructured
+        triangular (\code{triangularUnstr}).
+  \item \textbf{Hybrid:} \code{frontAwareHybrid} \code{false} (8 configurations) and
+        \code{true} (4 configurations).
+  \item \textbf{Time step:} $\Delta t\in\{10^{-4},10^{-5},10^{-6}\}$~s.
+  \item \textbf{Spatial mesh:} $\Delta x\in\{0.5,0.25,0.125,0.1,0.05\}$~mm. The two
+        finest levels ($0.1$ and \SI{0.05}{mm}) were run only for the
+        configurations that reach the converged regime; combinations that were not
+        run appear as \texttt{--} in the tables.
+\end{itemize}
+Each configuration is identified by the triplet \code{(Vm, states, Iion)}:
+\begin{itemize}[topsep=2pt,itemsep=1pt]
+  \item \code{Vm}$\in\{$\code{NO},\code{p3}$\}$: order of the LRE reconstruction of the
+        potential in the diffusion operator (\code{NO} = classical finite volumes).
+  \item \code{states}$\in\{$\code{na},\code{GP},\code{CCp1},\code{CCp3}$\}$: state
+        integration mode (Section~\ref{sec:stateint}). \code{na} = not applicable
+        (base case without high order in $\Iion$); \code{GP} = \code{gaussPointODE} (ODE
+        at every Gauss point); \code{CCp$k$} = \code{cellCentredReconstruct} (ODE
+        at the cell centre + LRE reconstruction of order $k$ of the states to the
+        Gauss points).
+  \item \code{Iion}$\in\{$\code{NO},\code{p1},\code{p3}$\}$: order of the LRE
+        reconstruction at the ionic quadrature points.
+\end{itemize}
+When \code{frontAwareHybrid} is active, the \code{CCp$k$} configurations
+solve the ODE at the Gauss points only in the front cells and by
+\code{cellCentredReconstruct} everywhere else (Section~\ref{sec:hybrid}).
+
+\subsubsection{Computational cost quantities}
+\label{sec:res2d:cost}
+
+The run time of a simulation depends on which other processes shared the
+machine, so it is not a clean measure of the cost of the algorithm (see the
+thread-contention analysis in the associated comparison note). To be able to compare
+configurations reproducibly, each table reports, besides time and
+memory, two \emph{deterministic} quantities (independent of the hardware and of the
+machine load):
+
+\begin{description}[topsep=2pt,itemsep=2pt,leftmargin=1.4em]
+  \item[wall {[min]}] \emph{Wall-clock time}: elapsed solver time
+        (\code{setup}+\code{loop}) reported by its internal timer, rounded to
+        minutes. It is what the run ``takes'', but it \textbf{depends on the machine
+        load} (CPU contention, thread oversubscription).
+  \item[CPU {[min]}] \emph{CPU time} (\code{User time} from
+        \texttt{/usr/bin/time -v}): sum of CPU-seconds consumed by the process in
+        user mode across all threads. It is less sensitive to load than the
+        wall time, but it still inflates when threads \emph{busy-wait} under
+        contention; that is why $\text{CPU}>\text{wall}$ in the multi-threaded runs (e.g.\
+        at $\Delta x=\SI{0.125}{mm}$).
+  \item[RSS {[MiB]}] \emph{Peak resident set size}: maximum resident memory of the
+        process, $\lfloor\text{kB}/1024\rfloor$. It scales with the LRE stencil size
+        and with the number of cells.
+  \item[$N_{\mathrm{nl}}$] \emph{Total nonlinear iterations}: sum over all
+        time steps of the number of \code{Picard} iterations. It equals the
+        number of full nonlinear residual evaluations --- each one integrates
+        the ODEs, evaluates $\Iion$ and assembles/solves the linear PDE. It is
+        \textbf{deterministic} (given $\Delta t$, the mesh and the tolerances) and
+        therefore the cleanest cost reference across configurations.
+  \item[$N_{\mathrm{lin}}$] \emph{Total linear iterations}: sum of the
+        GMRES iterations across all linear PDE solves.
+        Deterministic; it measures the work of the linear solver.
+\end{description}
+
+\noindent\textbf{Important warning about $N_{\mathrm{nl}}$ and $N_{\mathrm{lin}}$.}
+These two count iterations of the \emph{solver}, not the cost of integrating the ODE at
+each evaluation. That per-evaluation cost differs strongly between modes:
+\code{gaussPointODE} integrates $N_q$ stiff ODEs per cell (one per Gauss point),
+whereas \code{cellCentredReconstruct} and the smooth cells of the hybrid integrate
+\emph{one} per cell. This is why two runs with the same $N_{\mathrm{nl}}$ can
+differ several-fold in wall/CPU (see the hybrid discussion below): the
+wall and CPU times capture the cost of integrating the ODEs, whereas
+$N_{\mathrm{nl}}$ and $N_{\mathrm{lin}}$ capture the number of solves. The four
+quantities are complementary.
+
+The number of time steps $n_{\text{steps}}$ (also deterministic) is not tabulated
+separately: for $\Delta t\le 10^{-5}$~s \code{Picard} typically converges in one
+iteration per step, so that $N_{\mathrm{nl}}\approx n_{\text{steps}}$; at
+$\Delta t=10^{-4}$~s several iterations per step are needed and
+$N_{\mathrm{nl}}>n_{\text{steps}}$. Runs stop as soon as P8 (the far
+corner) activates, so $n_{\text{steps}}\approx t_{\text{P8}}/\Delta t$; the
+runs marked \textsc{fail} are aborted at $t=\SI{0.02}{s}$ (ignition timeout).
+
+%%%% HEXA HybridFalse
+\subsubsection{Structured hexahedral mesh, no hybrid (\code{frontAwareHybrid false})}
+\label{sec:res2d:hexaF}
+\begin{center}\footnotesize
+\begin{longtable}{l|lrr|rrr|rrr}
+\caption{Per-case performance --- structured hexahedral mesh, no hybrid, all \code{Picard}. For each triplet \code{(Vm, states, Iion)} the rows list the available $\Delta x$ [mm] and the columns the three $\Delta t$, grouped three metrics at a time. \textsc{fail} = no ignition (the run is aborted at $t=\SI{0.02}{s}$ by the failure detector); a P8 value implies full activation of the domain; \texttt{--} = combination not run. $N_{\mathrm{nl}}$ and $N_{\mathrm{lin}}$ are the totals of nonlinear and linear iterations (deterministic); wall and CPU in minutes; RSS in MiB.}\label{tab:res2d:hexaF}\\
+\toprule $ \Delta t [\text{s}]$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$\\ \midrule\endfirsthead
+\toprule $ \Delta t [\text{s}]$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$\\ \midrule\endhead
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (NO, na, NO)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 153.32 & 157.15 & 157.31 & 6\,293 & 16\,136 & 161\,519 & 18\,879 & 32\,272 & 323\,038\\
+0.25 & 62.99 & 67.30 & 67.42 & 3\,510 & 6\,854 & 68\,652 & 12\,748 & 13\,708 & 137\,304\\
+0.125 & 45.03 & 50.05 & 50.26 & 2\,237 & 5\,078 & 50\,971 & 11\,183 & 15\,233 & 101\,942\\
+0.1 & 42.76 & 47.86 & 48.11 & 2\,067 & 4\,851 & 48\,751 & 11\,573 & 14\,553 & 97\,502\\
+0.05 & 40.22 & 45.28 & 45.60 & 1\,618 & 4\,583 & 46\,136 & 14\,560 & 18\,331 & 138\,407\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 13 & 27 & 66 & 13 & 27 & 66 & 181 & 181 & 181\\
+0.25 & 27 & 46 & 115 & 27 & 46 & 115 & 187 & 188 & 189\\
+0.125 & 69 & 131 & 339 & 106 & 208 & 1098 & 213 & 212 & 212\\
+0.1 & 104 & 201 & 539 & 150 & 302 & 1546 & 232 & 232 & 232\\
+0.05 & 325 & 739 & 1855 & 362 & 842 & 2835 & 393 & 395 & 388\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (NO, GP, p1)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 91.05 & 94.34 & 94.48 & 4\,312 & 9\,722 & 97\,348 & 12\,936 & 19\,444 & 194\,696\\
+0.25 & 54.86 & 58.85 & 58.95 & 2\,829 & 5\,998 & 60\,074 & 10\,126 & 11\,996 & 120\,148\\
+0.125 & 43.21 & 48.04 & 48.27 & 1\,886 & 4\,875 & 48\,965 & 9\,430 & 14\,625 & 97\,930\\
+0.1 & 41.84 & 46.79 & 47.06 & 1\,690 & 4\,743 & 47\,688 & 9\,406 & 14\,229 & 95\,376\\
+0.05 & 40.14 & 45.18 & 45.50 & 1\,611 & 4\,573 & 46\,036 & 14\,497 & 18\,290 & 138\,108\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 18 & 35 & 78 & 18 & 35 & 78 & 181 & 182 & 181\\
+0.25 & 47 & 85 & 192 & 47 & 85 & 192 & 191 & 193 & 192\\
+0.125 & 114 & 254 & 603 & 144 & 334 & 1322 & 228 & 228 & 229\\
+0.1 & 174 & 406 & 996 & 211 & 503 & 1975 & 258 & 258 & 257\\
+0.05 & 656 & 1535 & 3652 & 694 & 1637 & 4613 & 490 & 492 & 490\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (NO, CCp1, p1)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 80.23 & \textsc{fail} & \textsc{fail} & 4\,079 & 2\,004 & 20\,002 & 12\,237 & 4\,008 & 40\,004\\
+0.25 & 60.37 & \textsc{fail} & \textsc{fail} & 3\,428 & 2\,004 & 20\,002 & 11\,872 & 4\,008 & 40\,004\\
+0.125 & 49.71 & \textsc{fail} & \textsc{fail} & 2\,470 & 2\,003 & 20\,002 & 12\,350 & 6\,009 & 40\,004\\
+0.1 & 48.06 & \textsc{fail} & \textsc{fail} & 2\,284 & 2\,003 & 20\,002 & 12\,225 & 6\,009 & 40\,004\\
+0.05 & 45.95 & \textsc{fail} & \textsc{fail} & 1\,845 & 2\,003 & 20\,002 & 16\,603 & 8\,012 & 60\,006\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 11 & 6 & 12 & 11 & 6 & 12 & 183 & 183 & 183\\
+0.25 & 36 & 23 & 48 & 36 & 23 & 48 & 194 & 196 & 196\\
+0.125 & 94 & 80 & 185 & 136 & 111 & 485 & 241 & 241 & 241\\
+0.1 & 148 & 135 & 320 & 199 & 177 & 727 & 277 & 276 & 275\\
+0.05 & 473 & 530 & 1230 & 516 & 575 & 1644 & 567 & 565 & 564\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (p3, GP, NO)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 180.55 & 184.69 & 184.90 & 7\,027 & 18\,725 & 187\,450 & 21\,081 & 56\,175 & 562\,350\\
+0.25 & 68.84 & 73.57 & 73.73 & 4\,072 & 7\,453 & 74\,677 & 12\,216 & 22\,359 & 224\,031\\
+0.125 & 48.83 & 54.36 & 54.58 & 2\,688 & 5\,503 & 55\,232 & 8\,064 & 16\,437 & 165\,696\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 15 & 38 & 169 & 60 & 211 & 2166 & 192 & 192 & 188\\
+0.25 & 31 & 50 & 127 & 58 & 109 & 596 & 227 & 228 & 223\\
+0.125 & 81 & 144 & 398 & 126 & 237 & 1357 & 373 & 373 & 373\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (p3, GP, p1)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 68.92 & 71.41 & 71.53 & 4\,056 & 9\,550 & 95\,641 & 12\,168 & 28\,650 & 286\,923\\
+0.25 & 58.81 & 63.12 & 63.27 & 3\,120 & 6\,391 & 64\,047 & 9\,360 & 19\,173 & 192\,141\\
+0.125 & 46.33 & 51.39 & 51.61 & 2\,216 & 5\,204 & 52\,246 & 6\,648 & 15\,599 & 156\,738\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 20 & 38 & 138 & 69 & 155 & 1295 & 193 & 193 & 193\\
+0.25 & 52 & 96 & 260 & 91 & 174 & 1038 & 231 & 231 & 231\\
+0.125 & 132 & 273 & 689 & 170 & 366 & 1581 & 385 & 385 & 383\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (p3, GP, p3)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 33.09 & 36.31 & 36.56 & 1\,129 & 3\,717 & 37\,404 & 3\,387 & 11\,151 & 112\,212\\
+0.25 & 40.22 & 44.20 & 44.43 & 1\,369 & 4\,494 & 45\,160 & 4\,107 & 13\,482 & 135\,480\\
+0.125 & 40.84 & 45.40 & 45.66 & 1\,392 & 4\,604 & 46\,293 & 4\,176 & 13\,812 & 138\,879\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 21 & 56 & 141 & 35 & 101 & 595 & 198 & 199 & 199\\
+0.25 & 96 & 255 & 622 & 113 & 310 & 1171 & 252 & 252 & 252\\
+0.125 & 335 & 932 & 2228 & 359 & 1012 & 3026 & 467 & 461 & 463\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (p3, CCp1, p1)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 91.40 & \textsc{fail} & \textsc{fail} & 4\,636 & 2\,004 & 20\,002 & 13\,908 & 6\,012 & 60\,006\\
+0.25 & 66.46 & \textsc{fail} & \textsc{fail} & 4\,168 & 2\,004 & 20\,002 & 12\,504 & 6\,012 & 60\,006\\
+0.125 & 52.98 & \textsc{fail} & \textsc{fail} & 2\,925 & 2\,003 & 20\,002 & 8\,775 & 6\,009 & 60\,006\\
+0.1 & 50.47 & \textsc{fail} & \textsc{fail} & 2\,554 & 2\,003 & 20\,002 & 10\,214 & 6\,009 & 60\,006\\
+0.05 & 46.51 & \textsc{fail} & \textsc{fail} & 1\,879 & 2\,003 & 20\,002 & 9\,393 & 6\,009 & 60\,006\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 15 & 7 & 24 & 71 & 31 & 267 & 196 & 195 & 194\\
+0.25 & 46 & 24 & 62 & 96 & 48 & 304 & 237 & 236 & 238\\
+0.125 & 111 & 82 & 201 & 161 & 116 & 544 & 413 & 413 & 413\\
+0.1 & 160 & 133 & 322 & 217 & 175 & 739 & 538 & 534 & 533\\
+0.05 & 470 & 523 & 1270 & 513 & 569 & 1717 & 1433 & 1416 & 1416\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (p3, CCp3, p3)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 66.63 & \textsc{fail} & \textsc{fail} & 2\,788 & 2\,004 & 20\,002 & 8\,364 & 6\,012 & 60\,006\\
+0.25 & 60.80 & \textsc{fail} & \textsc{fail} & 2\,942 & 2\,004 & 20\,002 & 8\,826 & 6\,012 & 60\,006\\
+0.125 & 52.20 & \textsc{fail} & \textsc{fail} & 2\,455 & 2\,003 & 20\,002 & 7\,365 & 6\,009 & 60\,006\\
+0.1 & 50.15 & \textsc{fail} & -- & 2\,231 & 2\,003 & -- & 8\,922 & 6\,009 & --\\
+0.05 & 46.48 & -- & -- & 1\,863 & -- & -- & 9\,313 & -- & --\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 10 & 8 & 33 & 44 & 32 & 273 & 203 & 203 & 203\\
+0.25 & 37 & 28 & 101 & 73 & 52 & 344 & 271 & 270 & 271\\
+0.125 & 107 & 97 & 374 & 149 & 131 & 752 & 541 & 538 & 538\\
+0.1 & 163 & 161 & -- & 211 & 202 & -- & 743 & 741 & --\\
+0.05 & 540 & -- & -- & 581 & -- & -- & 2416 & -- & --\\
+\hline
+\bottomrule\end{longtable}\end{center}
+%%%% HEXA HybridTrue
+\subsubsection{Structured hexahedral mesh, front-aware hybrid (\code{frontAwareHybrid true})}
+\label{sec:res2d:hexaT}
+\begin{center}\footnotesize
+\begin{longtable}{l|lrr|rrr|rrr}
+\caption{Per-case performance --- structured hexahedral mesh, front-aware hybrid, all \code{Picard}. For each triplet \code{(Vm, states, Iion)} the rows list the available $\Delta x$ [mm] and the columns the three $\Delta t$, grouped three metrics at a time. \textsc{fail} = no ignition (the run is aborted at $t=\SI{0.02}{s}$ by the failure detector); a P8 value implies full activation of the domain; \texttt{--} = combination not run. $N_{\mathrm{nl}}$ and $N_{\mathrm{lin}}$ are the totals of nonlinear and linear iterations (deterministic); wall and CPU in minutes; RSS in MiB.}\label{tab:res2d:hexaT}\\
+\toprule $ \Delta t [\text{s}]$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$\\ \midrule\endfirsthead
+\toprule $ \Delta t [\text{s}]$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$\\ \midrule\endhead
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (NO, na, NO)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 153.32 & 157.15 & 157.31 & 6\,293 & 16\,136 & 161\,519 & 18\,879 & 32\,272 & 323\,038\\
+0.25 & 62.99 & 67.30 & 67.42 & 3\,510 & 6\,854 & 68\,652 & 12\,748 & 13\,708 & 137\,304\\
+0.125 & 45.03 & 50.05 & 50.26 & 2\,237 & 5\,078 & 50\,971 & 11\,183 & 15\,233 & 101\,942\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 13 & 27 & 69 & 13 & 27 & 69 & 181 & 181 & 181\\
+0.25 & 28 & 47 & 117 & 28 & 47 & 117 & 188 & 189 & 188\\
+0.125 & 69 & 131 & 341 & 108 & 211 & 1119 & 212 & 212 & 212\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (NO, CCp1, p1)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 91.05 & 94.34 & 94.48 & 4\,320 & 9\,722 & 97\,350 & 12\,960 & 19\,444 & 194\,699\\
+0.25 & 54.86 & 58.85 & 58.95 & 2\,826 & 5\,998 & 60\,076 & 10\,117 & 11\,996 & 120\,152\\
+0.125 & 43.20 & 48.05 & 48.29 & 1\,904 & 4\,876 & 48\,988 & 9\,519 & 14\,627 & 97\,976\\
+0.1 & 41.85 & 46.79 & 47.07 & 1\,695 & 4\,744 & 47\,702 & 9\,430 & 14\,232 & 95\,403\\
+0.05 & 40.14 & 45.18 & 45.51 & 1\,611 & 4\,573 & 46\,040 & 14\,497 & 18\,291 & 138\,119\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 12 & 23 & 57 & 12 & 23 & 57 & 182 & 183 & 183\\
+0.25 & 27 & 50 & 126 & 27 & 50 & 126 & 195 & 196 & 195\\
+0.125 & 63 & 136 & 385 & 96 & 213 & 1136 & 240 & 241 & 240\\
+0.1 & 94 & 220 & 630 & 132 & 319 & 1609 & 278 & 279 & 277\\
+0.05 & 340 & 825 & 2208 & 379 & 927 & 3175 & 564 & 568 & 570\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (p3, CCp1, p1)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 68.93 & 71.44 & 71.56 & 4\,041 & 9\,554 & 95\,681 & 12\,123 & 28\,662 & 287\,043\\
+0.25 & 58.82 & 63.11 & 63.27 & 3\,120 & 6\,390 & 64\,044 & 9\,360 & 19\,170 & 192\,132\\
+0.125 & 46.33 & 51.39 & 51.61 & 2\,218 & 5\,204 & 52\,250 & 6\,654 & 15\,598 & 156\,750\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 13 & 27 & 114 & 62 & 143 & 1277 & 195 & 195 & 195\\
+0.25 & 31 & 56 & 175 & 69 & 134 & 955 & 238 & 238 & 237\\
+0.125 & 72 & 149 & 452 & 111 & 240 & 1371 & 414 & 414 & 414\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (p3, CCp3, p3)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 33.09 & 36.30 & 36.51 & 1\,130 & 3\,715 & 37\,350 & 3\,390 & 11\,145 & 112\,050\\
+0.25 & 40.22 & 44.22 & 44.54 & 1\,371 & 4\,496 & 45\,266 & 4\,113 & 13\,488 & 135\,798\\
+0.125 & 40.84 & 45.43 & 45.90 & 1\,391 & 4\,607 & 46\,527 & 4\,173 & 13\,821 & 139\,581\\
+0.1 & 40.72 & 45.48 & 45.98 & 1\,402 & 4\,609 & 46\,573 & 5\,607 & 13\,827 & 139\,719\\
+0.05 & 40.05 & 45.04 & 45.52 & 1\,604 & 4\,558 & 46\,051 & 8\,019 & 13\,674 & 138\,153\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 6 & 17 & 64 & 20 & 62 & 519 & 202 & 202 & 202\\
+0.25 & 20 & 60 & 216 & 37 & 115 & 767 & 267 & 267 & 267\\
+0.125 & 64 & 205 & 845 & 89 & 298 & 1841 & 530 & 530 & 530\\
+0.1 & 104 & 306 & 1178 & 135 & 403 & 2147 & 726 & 725 & 726\\
+0.05 & 419 & 1123 & 4211 & 456 & 1224 & 5239 & 2370 & 2367 & 2351\\
+\hline
+\bottomrule\end{longtable}\end{center}
+%%%% TRI HybridFalse
+\subsubsection{Unstructured triangular mesh, no hybrid}
+\label{sec:res2d:triF}
+\begin{center}\footnotesize
+\begin{longtable}{l|lrr|rrr|rrr}
+\caption{Per-case performance --- unstructured triangular mesh, no hybrid, all \code{Picard}. For each triplet \code{(Vm, states, Iion)} the rows list the available $\Delta x$ [mm] and the columns the three $\Delta t$, grouped three metrics at a time. \textsc{fail} = no ignition (the run is aborted at $t=\SI{0.02}{s}$ by the failure detector); a P8 value implies full activation of the domain; \texttt{--} = combination not run. $N_{\mathrm{nl}}$ and $N_{\mathrm{lin}}$ are the totals of nonlinear and linear iterations (deterministic); wall and CPU in minutes; RSS in MiB.}\label{tab:res2d:triF}\\
+\toprule $ \Delta t [\text{s}]$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$\\ \midrule\endfirsthead
+\toprule $ \Delta t [\text{s}]$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$\\ \midrule\endhead
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (NO, na, NO)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 55.81 & 59.70 & 59.88 & 3\,000 & 6\,060 & 60\,760 & 12\,000 & 18\,179 & 121\,520\\
+0.25 & 45.18 & 50.28 & 50.51 & 2\,231 & 5\,095 & 51\,168 & 15\,615 & 16\,180 & 102\,336\\
+0.125 & 40.93 & 46.00 & 46.30 & 1\,662 & 4\,657 & 46\,858 & 18\,281 & 23\,284 & 140\,574\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 15 & 25 & 61 & 15 & 25 & 61 & 183 & 183 & 183\\
+0.25 & 45 & 88 & 222 & 72 & 150 & 848 & 197 & 197 & 198\\
+0.125 & 128 & 304 & 808 & 166 & 407 & 1803 & 246 & 247 & 247\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (NO, GP, p1)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 55.81 & 59.70 & 59.88 & 3\,000 & 6\,060 & 60\,760 & 12\,000 & 18\,179 & 121\,520\\
+0.25 & 45.18 & 50.28 & 50.51 & 2\,231 & 5\,095 & 51\,168 & 15\,615 & 16\,180 & 102\,336\\
+0.125 & 40.93 & 46.00 & 46.30 & 1\,662 & 4\,657 & 46\,858 & 18\,281 & 23\,284 & 140\,574\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 15 & 25 & 60 & 15 & 25 & 60 & 183 & 184 & 183\\
+0.25 & 45 & 88 & 231 & 73 & 150 & 853 & 197 & 197 & 198\\
+0.125 & 118 & 297 & 687 & 147 & 389 & 1482 & 249 & 248 & 250\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (NO, CCp1, p1)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 55.81 & 59.70 & 59.88 & 3\,000 & 6\,060 & 60\,760 & 12\,000 & 18\,179 & 121\,520\\
+0.25 & 45.18 & 50.28 & 50.51 & 2\,231 & 5\,095 & 51\,168 & 15\,615 & 16\,180 & 102\,336\\
+0.125 & 40.93 & 46.00 & 46.30 & 1\,662 & 4\,657 & 46\,858 & 18\,281 & 23\,284 & 140\,574\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 14 & 25 & 64 & 14 & 25 & 64 & 185 & 185 & 185\\
+0.25 & 43 & 86 & 243 & 71 & 149 & 867 & 203 & 203 & 204\\
+0.125 & 131 & 320 & 874 & 169 & 421 & 1891 & 272 & 271 & 273\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (p3, GP, NO)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 75.42 & 57.19 & 57.29 & 4\,320 & 7\,956 & 79\,678 & 12\,960 & 23\,868 & 239\,034\\
+0.25 & 51.56 & 56.76 & 56.99 & 2\,981 & 5\,741 & 57\,626 & 10\,672 & 17\,223 & 172\,878\\
+0.125 & 43.26 & 48.42 & 48.66 & 2\,144 & 4\,904 & 49\,263 & 10\,719 & 14\,712 & 147\,789\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 20 & 31 & 88 & 50 & 81 & 608 & 203 & 202 & 200\\
+0.25 & 51 & 85 & 217 & 71 & 122 & 584 & 272 & 272 & 268\\
+0.125 & 150 & 304 & 770 & 189 & 398 & 1645 & 561 & 560 & 562\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (p3, GP, p1)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 75.42 & 57.19 & 57.29 & 4\,320 & 7\,956 & 79\,678 & 12\,960 & 23\,868 & 239\,034\\
+0.25 & 51.56 & 56.76 & 56.99 & 2\,981 & 5\,741 & 57\,626 & 10\,672 & 17\,223 & 172\,878\\
+0.125 & 43.26 & 48.42 & 48.66 & 2\,144 & 4\,904 & 49\,263 & 10\,719 & 14\,712 & 147\,789\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 23 & 37 & 124 & 75 & 134 & 1090 & 204 & 204 & 204\\
+0.25 & 57 & 96 & 269 & 93 & 166 & 971 & 273 & 273 & 273\\
+0.125 & 151 & 299 & 804 & 189 & 385 & 1678 & 563 & 561 & 563\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (p3, GP, p3)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 38.88 & 42.26 & 42.47 & 1\,930 & 4\,291 & 43\,113 & 5\,790 & 12\,873 & 129\,339\\
+0.25 & 38.93 & 43.26 & 43.52 & 1\,546 & 4\,388 & 44\,119 & 5\,332 & 13\,164 & 132\,357\\
+0.125 & 39.80 & 44.66 & 44.96 & 1\,569 & 4\,526 & 45\,549 & 7\,844 & 13\,578 & 136\,647\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 40 & 75 & 197 & 64 & 128 & 723 & 211 & 211 & 211\\
+0.25 & 127 & 296 & 702 & 146 & 350 & 1240 & 300 & 297 & 300\\
+0.125 & 456 & 1069 & 2618 & 486 & 1149 & 3438 & 656 & 665 & 657\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (p3, CCp1, p1)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 75.42 & 57.19 & 57.29 & 4\,320 & 7\,956 & 79\,678 & 12\,960 & 23\,868 & 239\,034\\
+0.25 & 51.56 & 56.76 & 56.99 & 2\,981 & 5\,741 & 57\,626 & 10\,672 & 17\,223 & 172\,878\\
+0.125 & 43.26 & 48.42 & 48.66 & 2\,144 & 4\,904 & 49\,263 & 10\,719 & 14\,712 & 147\,789\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 24 & 38 & 135 & 77 & 136 & 1103 & 205 & 205 & 205\\
+0.25 & 59 & 101 & 298 & 95 & 171 & 1000 & 290 & 290 & 291\\
+0.125 & 173 & 367 & 988 & 221 & 472 & 2089 & 616 & 619 & 619\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (p3, CCp3, p3)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 61.74 & \textsc{fail} & \textsc{fail} & 2\,814 & 2\,004 & 20\,002 & 8\,442 & 6\,012 & 60\,006\\
+0.25 & 54.04 & \textsc{fail} & \textsc{fail} & 2\,486 & 2\,003 & 20\,002 & 7\,708 & 6\,009 & 60\,006\\
+0.125 & 48.77 & \textsc{fail} & \textsc{fail} & 1\,972 & 2\,003 & 20\,002 & 9\,858 & 6\,009 & 60\,006\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 20 & 15 & 52 & 54 & 40 & 296 & 220 & 219 & 219\\
+0.25 & 67 & 59 & 188 & 97 & 84 & 433 & 334 & 334 & 334\\
+0.125 & 208 & 230 & 681 & 253 & 275 & 1050 & 791 & 791 & 791\\
+\hline
+\bottomrule\end{longtable}\end{center}
+%%%% TRI HybridTrue
+\subsubsection{Unstructured triangular mesh, front-aware hybrid}
+\label{sec:res2d:triT}
+\begin{center}\footnotesize
+\begin{longtable}{l|lrr|rrr|rrr}
+\caption{Per-case performance --- unstructured triangular mesh, front-aware hybrid, all \code{Picard}. For each triplet \code{(Vm, states, Iion)} the rows list the available $\Delta x$ [mm] and the columns the three $\Delta t$, grouped three metrics at a time. \textsc{fail} = no ignition (the run is aborted at $t=\SI{0.02}{s}$ by the failure detector); a P8 value implies full activation of the domain; \texttt{--} = combination not run. $N_{\mathrm{nl}}$ and $N_{\mathrm{lin}}$ are the totals of nonlinear and linear iterations (deterministic); wall and CPU in minutes; RSS in MiB.}\label{tab:res2d:triT}\\
+\toprule $ \Delta t [\text{s}]$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$\\ \midrule\endfirsthead
+\toprule $ \Delta t [\text{s}]$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$ & $10^{-4}$ & $10^{-5}$ & $10^{-6}$\\ \midrule\endhead
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (NO, na, NO)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 55.81 & 59.70 & 59.88 & 3\,000 & 6\,060 & 60\,760 & 12\,000 & 18\,179 & 121\,520\\
+0.25 & 45.18 & 50.28 & 50.51 & 2\,231 & 5\,095 & 51\,168 & 15\,615 & 16\,180 & 102\,336\\
+0.125 & 40.93 & 46.00 & 46.30 & 1\,662 & 4\,657 & 46\,858 & 18\,281 & 23\,284 & 140\,574\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 14 & 26 & 61 & 14 & 26 & 61 & 183 & 184 & 183\\
+0.25 & 45 & 89 & 231 & 72 & 151 & 855 & 197 & 197 & 198\\
+0.125 & 135 & 321 & 782 & 171 & 421 & 1797 & 247 & 247 & 247\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (NO, CCp1, p1)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 55.81 & 59.70 & 59.88 & 3\,000 & 6\,060 & 60\,760 & 12\,000 & 18\,179 & 121\,520\\
+0.25 & 45.18 & 50.28 & 50.51 & 2\,231 & 5\,095 & 51\,168 & 15\,615 & 16\,180 & 102\,336\\
+0.125 & 40.93 & 46.00 & 46.30 & 1\,662 & 4\,657 & 46\,858 & 18\,281 & 23\,284 & 140\,574\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 15 & 26 & 66 & 15 & 26 & 66 & 185 & 186 & 185\\
+0.25 & 46 & 90 & 241 & 73 & 152 & 864 & 204 & 204 & 206\\
+0.125 & 138 & 330 & 878 & 174 & 429 & 1880 & 273 & 273 & 272\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (p3, CCp1, p1)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 75.42 & 57.19 & 57.29 & 4\,320 & 7\,956 & 79\,678 & 12\,960 & 23\,868 & 239\,034\\
+0.25 & 51.56 & 56.76 & 56.99 & 2\,981 & 5\,741 & 57\,626 & 10\,672 & 17\,223 & 172\,878\\
+0.125 & 43.26 & 48.42 & 48.66 & 2\,144 & 4\,904 & 49\,263 & 10\,719 & 14\,712 & 147\,789\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 23 & 37 & 132 & 75 & 134 & 1097 & 205 & 205 & 205\\
+0.25 & 57 & 98 & 299 & 93 & 168 & 999 & 289 & 289 & 291\\
+0.125 & 162 & 314 & 978 & 205 & 413 & 2070 & 618 & 619 & 620\\
+\hline
+\hline
+\multicolumn{10}{c}{\textbf{\code{(Vm, states, Iion) = (p3, CCp3, p3)}}}\\\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{P8 [ms]} & \multicolumn{3}{c|}{$N_{\mathrm{nl}}$} & \multicolumn{3}{c|}{$N_{\mathrm{lin}}$}\\
+0.5 & 38.88 & 42.27 & 42.55 & 1\,930 & 4\,293 & 43\,188 & 5\,790 & 12\,879 & 129\,564\\
+0.25 & 38.93 & 43.30 & 43.77 & 1\,543 & 4\,391 & 44\,368 & 5\,321 & 13\,173 & 133\,104\\
+0.125 & 39.80 & 44.71 & 45.30 & 1\,570 & 4\,531 & 45\,883 & 7\,850 & 13\,593 & 137\,649\\
+0.1 & 39.86 & 44.81 & 45.40 & 1\,575 & 4\,535 & 45\,925 & 9\,449 & 13\,605 & 137\,775\\
+0.05 & 39.62 & 44.61 & -- & 1\,586 & 4\,513 & -- & 15\,856 & 18\,052 & --\\
+\hline
+$ \Delta x [\text{mm}] $ & \multicolumn{3}{c|}{wall [min]} & \multicolumn{3}{c|}{CPU [min]} & \multicolumn{3}{c|}{RSS [MiB]}\\
+0.5 & 15 & 29 & 108 & 38 & 81 & 631 & 219 & 219 & 219\\
+0.25 & 41 & 103 & 355 & 59 & 156 & 897 & 331 & 331 & 331\\
+0.125 & 154 & 388 & 1409 & 189 & 489 & 2376 & 781 & 793 & 793\\
+0.1 & 236 & 578 & 2135 & 271 & 675 & 3122 & 1126 & 1128 & 1126\\
+0.05 & 896 & 2216 & -- & 955 & 2341 & -- & 3925 & 3883 & --\\
+\hline
+\bottomrule\end{longtable}\end{center}
+\paragraph{Discussion of the 2D results (\code{Picard}).}
+The whole sweep uses \code{Picard}; the \code{diagonalIion} and \code{JFNK} results
+in 2D are still pending. Relative to the previous version of this report, the sweep was
+extended to $\Delta x\in\{0.1,0.05\}$~mm in the configurations that reach the converged
+regime, which for the first time makes it possible to fix a reference value and measure the
+error of each configuration against it.
+
+\subparagraph{Converged reference value.}
+On the hexahedral mesh, the four paths that reach $\Delta x=\SI{0.05}{mm}$ with
+$\Delta t=10^{-6}$ agree on
+\begin{equation}
+  t_{\mathrm{P8}}^{\ \star} \simeq \SI{45.5}{ms},
+  \label{eq:p8ref}
+\end{equation}
+with a spread of only \SI{0.10}{ms} ($0.2\%$): \SI{45.60}{ms}
+(\code{(NO,na,NO)}), \SI{45.50}{ms} (\code{(NO,GP,p1)}), \SI{45.51}{ms}
+(\code{(NO,CCp1,p1)} hybrid) and \SI{45.52}{ms} (\code{(p3,CCp3,p3)} hybrid). That
+four discretisations with different spatial orders, ionic-source treatments and
+state-integration modes converge to the same number is the strongest verification
+of the sweep: the solver is consistent, and the differences between
+configurations on coarse meshes are discretisation error, not model biases.
+All the error percentages that follow are measured against \eqref{eq:p8ref}.
+
+\begin{enumerate}[topsep=3pt,itemsep=3pt,leftmargin=1.5em]
+  \item \textbf{High order in the ionic source speeds up and sharpens the front.} Raising
+        \code{Iion} from \code{NO} to \code{p3} monotonically lowers the activation
+        time: on hexa at $\Delta t=10^{-6}$, $\Delta x=\SI{0.25}{mm}$, P8 goes
+        from \SI{67.4}{ms} (\code{(NO,na,NO)}) to \SI{44.4}{ms} (\code{(p3,GP,p3)}). It is
+        the same high-order-in-the-source effect as in the previous explicit and implicit
+        reports, now resolved with \code{gaussPointODE}.
+  \item \textbf{The two families converge from opposite sides, and at very
+        different speeds.} With $\Delta t=10^{-5}$~s fixed and refining $\Delta x$ on hexa:
+        \begin{center}\footnotesize
+        \begin{tabular}{lccccc}
+        \toprule
+        $\Delta x$ [mm] & 0.5 & 0.25 & 0.125 & 0.1 & 0.05\\
+        \midrule
+        \code{(NO,na,NO)}            & 157.15 & 67.30 & 50.05 & 47.86 & 45.28\\
+        \code{(NO,GP,p1)}            & 94.34  & 58.85 & 48.04 & 46.79 & 45.18\\
+        \code{(p3,CCp3,p3)} hybrid   & 36.30  & 44.22 & 45.43 & 45.48 & 45.04\\
+        \bottomrule
+        \end{tabular}
+        \end{center}
+        The low-order-source paths approach \eqref{eq:p8ref}
+        \emph{from above} and very slowly: \code{(NO,na,NO)} is still $10\%$ high
+        at \SI{0.125}{mm} and needs \SI{0.05}{mm} to drop below $1\%$. The high-order
+        source path approaches \emph{from below} and is already within
+        $0.2\%$ at \SI{0.125}{mm}. In terms of cells: the high-order path
+        reaches the target accuracy with $16\times$ fewer cells.
+  \item \textbf{$\Delta t=10^{-5}$~s is already enough; $10^{-6}$~s is wasted money.}
+        Across all runs that activate, $|P8(10^{-6})-P8(10^{-5})|\le
+        \SI{0.5}{ms}$ ($\lesssim 1\%$), whereas the cost is multiplied by
+        between $4$ and $10$: on hexa, \code{(p3,CCp3,p3)} hybrid at \SI{0.125}{mm}, the
+        wall time goes from $205$ to $845$~min and $N_{\mathrm{nl}}$ from $4\,607$ to $46\,527$,
+        to move P8 from \SI{45.43}{} to \SI{45.90}{ms} --- that is, \emph{away}
+        from the converged value. By contrast $\Delta t=10^{-4}$~s is \textbf{not}
+        enough: it underestimates P8 by $\sim\SI{4.6}{ms}$ ($10\%$) on the high-order
+        path.
+  \item \textbf{Beware of error cancellation at coarse $\Delta t$.} The
+        combination \code{(NO,na,NO)}, $\Delta x=\SI{0.125}{mm}$, $\Delta t=10^{-4}$~s
+        gives \SI{45.03}{ms}, apparently a $1\%$ error. It is a coincidence: refining
+        $\Delta t$ on the same mesh moves the result to \SI{50.05}{} and
+        \SI{50.26}{ms} ($10\%$). The temporal error (which underestimates P8) cancels the
+        spatial error (which overestimates it). \textbf{An operating point is only
+        valid if it is stable in $\Delta t$}; checking the proximity to the
+        converged value is not enough.
+  \item \textbf{Pure \code{cellCentredReconstruct} fails when $\Delta t$ is refined.} On
+        hexa, the \code{CCp1}/\code{CCp3} configurations without hybrid activate at
+        $\Delta t=10^{-4}$~s but \textbf{do not ignite} (\textsc{fail}, $N_a=0$,
+        abort by ignition timeout at $t=\SI{0.02}{s}$) at $\Delta t=10^{-5}$ and
+        $10^{-6}$~s, and it is now confirmed that the failure persists also at
+        $\Delta x=\SI{0.1}{}$ and \SI{0.05}{mm}: \textbf{it is not a problem of
+        spatial resolution}. On the triangular mesh the same happens with \code{(p3,CCp3,p3)}.
+        The behaviour is governed entirely by $\Delta t$ and is independent of
+        $\Delta x$ over a $10\times$ range; its cause is under analysis and is
+        not attributed here.
+  \item \textbf{The front-aware hybrid rescues \code{CC} at the cost of partial
+        \code{GP}.} With \code{frontAwareHybrid true}, the same \code{CCp$k$}
+        configurations activate at \emph{all} the $\Delta t$, with activation
+        times practically equal to those of \code{gaussPointODE} but much
+        cheaper. At $\Delta x=\SI{0.125}{mm}$, $\Delta t=10^{-5}$~s:
+        \code{(p3,CCp3,p3)} hybrid gives \SI{45.43}{ms} in $205$~min, against
+        \SI{45.40}{ms} in $932$~min for \code{(p3,GP,p3)} without hybrid --- same
+        answer, $4.5\times$ cheaper, with the same $N_{\mathrm{nl}}$
+        ($\approx 4\,600$). The reduction comes exactly from what was warned above: the
+        hybrid integrates the $N_q$ ODEs per cell only in the front band and one
+        per cell everywhere else, so that at equal numbers of nonlinear iterations the
+        ODE work per evaluation is much smaller. The hybrid therefore combines
+        the \emph{correction} of \code{GP} with a good part of the \emph{saving} of
+        \code{CC}.
+  \item \textbf{Cost scaling.} $N_{\mathrm{nl}}$ and $N_{\mathrm{lin}}$ grow
+        $\sim$linearly when refining $\Delta t$ (more steps). The wall time grows
+        approximately as $\Delta x^{-2}$ (number of cells in 2D): in
+        \code{(p3,CCp3,p3)} hybrid at $\Delta t=10^{-5}$, going from \SI{0.125}{} to
+        \SI{0.05}{mm} ($6.25\times$ cells) takes the wall time from $205$ to $1\,123$~min
+        ($5.5\times$) and the RSS from $530$ to $2\,367$~MiB ($4.5\times$). The most expensive
+        case of the sweep is \code{(p3,GP,p3)} without hybrid on hexa at $\Delta t=10^{-6}$,
+        $\Delta x=\SI{0.125}{mm}$: $2\,228$~min ($\sim 37$~h). The RSS grows with the
+        LRE stencil and with $1/\Delta x^2$, and is essentially independent of
+        $\Delta t$.
+  \item \textbf{Wall vs.\ CPU: why the deterministic quantities are reported.} At
+        $\Delta x\le\SI{0.125}{mm}$ the CPU time exceeds the wall time (multi-threaded
+        execution under contention; e.g.\ \code{(NO,na,NO)} hexa $\Delta t=10^{-6}$:
+        wall $339$~min, CPU $1098$~min), whereas on coarse meshes they coincide. That
+        divergence is precisely the machine-dependent noise that motivates using
+        $N_{\mathrm{nl}}$ and $N_{\mathrm{lin}}$ as a reproducible cost reference.
+  \item \textbf{Triangular mesh.} The qualitative pattern is preserved (failure of
+        pure \code{CC}, rescue by the hybrid, high order in $\Iion$ speeding things up).
+        Three observations of its own: (i) on the triangular mesh, the configurations with
+        \code{Iion}$=$\code{p1} coincide \emph{exactly} with the baseline
+        \code{(NO,na,NO)} (same P8, same $N_{\mathrm{nl}}$, same
+        $N_{\mathrm{lin}}$) --- the $p1$ reconstruction of $\Iion$ contributes nothing on this
+        unstructured mesh, and only \code{p3} separates; (ii) the converged
+        triangular value, $\simeq\SI{44.6}{ms}$ for \code{(p3,CCp3,p3)} hybrid at
+        \SI{0.05}{mm}, lies $\sim 2\%$ below the hexahedral one
+        \eqref{eq:p8ref} --- a genuine mesh difference, not a method one; (iii) the
+        larger number of cells per $\Delta x$ (5\,954 vs 2\,560 at \SI{0.25}{mm})
+        proportionally increases every quantity, so that at equal
+        $\Delta x$ the triangular case costs between $1.9$ and $2.4\times$ more wall time.
+\end{enumerate}
+
+\subparagraph{Recommended configuration.}
+\label{sec:res2d:reco}
+Combining accuracy and cost, and taking \eqref{eq:p8ref} as the reference, the sweep
+identifies one clearly dominant operating point and two alternatives depending on the
+budget:
+
+\begin{center}\footnotesize
+\begin{tabular}{llccrrr}
+\toprule
+Use & Triplet / hybrid & $\Delta x$ [mm] & $\Delta t$ [s] & P8 [ms] & error & wall [min]\\
+\midrule
+\textbf{Recommended} & \code{(p3,CCp3,p3)} + hybrid & 0.125 & $10^{-5}$ & 45.43 & $0.2\%$ & \textbf{205}\\
+Quick exploration    & \code{(p3,CCp3,p3)} + hybrid & 0.25  & $10^{-5}$ & 44.22 & $2.8\%$ & \textbf{60}\\
+Reference            & \code{(p3,CCp3,p3)} + hybrid & 0.05  & $10^{-6}$ & 45.52 & $0.05\%$ & 4\,211\\
+\midrule
+\multicolumn{7}{l}{\emph{Alternatives at the same error level, for comparison:}}\\
+Low order            & \code{(NO,na,NO)}            & 0.05  & $10^{-5}$ & 45.28 & $0.5\%$ & 739\\
+High order, no hybrid & \code{(p3,GP,p3)}           & 0.125 & $10^{-5}$ & 45.40 & $0.2\%$ & 932\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\textbf{Why that combination.} The three ingredients are all necessary and each
+one solves a different problem:
+\begin{itemize}[topsep=2pt,itemsep=2pt,leftmargin=1.4em]
+  \item \code{Iion}$=$\code{p3} with \code{CCp3} states gives the fast spatial
+        convergence (point 2): it is what allows stopping at \SI{0.125}{mm} instead of
+        \SI{0.05}{mm}.
+  \item \code{frontAwareHybrid true} is what makes \code{CCp3} \emph{ignite}
+        (point 5) and, at the same time, avoids paying the $N_q$ ODEs per cell over the whole
+        domain (point 6).
+  \item $\Delta t=10^{-5}$~s is the coarsest step that gives temporal stability without
+        overspending (point 3).
+\end{itemize}
+
+\noindent\textbf{Gain.} Against the fully resolved reference, the recommended
+configuration is $20\times$ cheaper ($205$ against $4\,211$~min) for $0.2\%$ error.
+Against the low-order alternative at equal accuracy it is $3.6\times$ cheaper ($205$
+against $739$~min) and uses $16\times$ fewer cells; against the same physics without hybrid,
+$4.5\times$ cheaper. If only a qualitative sweep is needed, dropping to
+\SI{0.25}{mm} costs $60$~min ($70\times$ less than the reference) in exchange for an error
+of $2.8\%$, which is still smaller than the $10\%$ of the classical baseline at \SI{0.125}{mm}.
+
+\noindent\textbf{What to avoid.} (i) \code{CCp$k$} without hybrid at any
+$\Delta t\le 10^{-5}$~s: it does not ignite, and the failure is not fixed by refining the mesh.
+(ii) $\Delta t=10^{-4}$~s as a production operating point: it can give an apparently
+good number by error cancellation (point 4) without being reproducible under refinement.
+(iii) $\Delta t=10^{-6}$~s: it multiplies the cost by $4$--$10$ without improving the answer.
+(iv) \code{(p3,GP,p3)} without hybrid: it gives the same answer as the recommended one but
+$4.5\times$ more expensive.
+\subsection{3D Niederer-style benchmark}
+\label{sec:results:3D}
+
+The 3D sweep follows Niederer's published slab geometry
+($20\times 3\times 7$~mm, $40\times 6\times 14$ cells at $\Delta x = 0.5$~mm). At the
+time of writing, only the \code{diagonalIion} and \code{Picard} sweeps include
+3D runs, all at $\Delta x = 0.5$~mm. The 3D \code{JFNK} sweep has not been run yet.
+
+\begin{center}\footnotesize
+\begin{longtable}{llrr}
+\caption{3D P8 activation time [ms] at $\Delta x = 0.5$~mm,
+$\Delta t = 10^{-4}$~s. The columns are the available nonlinear methods.}\\
+\toprule
+Vm & Iion & \code{Picard} & \code{diagonalIion} \\
+\midrule\endfirsthead\toprule
+Vm & Iion & \code{Picard} & \code{diagonalIion} \\
+\midrule\endhead
+NO & NO & 136.67 & 136.61 \\
+NO & p1 &  33.50 &  33.39 \\
+NO & p3 &  30.59 &  30.51 \\
+p3 & NO & 149.13 & 149.06 \\
+p3 & p1 &  32.44 &  32.36 \\
+p3 & p3 &  29.63 & NC     \\
+\bottomrule\end{longtable}\end{center}
+
+\begin{center}\footnotesize
+\begin{longtable}{llrr}
+\caption{3D solver wall-clock time [min] at $\Delta x = 0.5$~mm,
+$\Delta t = 10^{-4}$~s.}\\
+\toprule
+Vm & Iion & \code{Picard} & \code{diagonalIion} \\
+\midrule\endfirsthead\toprule
+Vm & Iion & \code{Picard} & \code{diagonalIion} \\
+\midrule\endhead
+NO & NO &   80 &   82 \\
+NO & p1 &  168 &  229 \\
+NO & p3 & 1489 & 2159 \\
+p3 & NO &  163 &  143 \\
+p3 & p1 &  167 &  269 \\
+p3 & p3 & 1487 & NC   \\
+\bottomrule\end{longtable}\end{center}
+
+\begin{center}\footnotesize
+\begin{longtable}{llrr}
+\caption{3D peak resident set size [MiB] at $\Delta x = 0.5$~mm,
+$\Delta t = 10^{-4}$~s.}\\
+\toprule
+Vm & Iion & \code{Picard} & \code{diagonalIion} \\
+\midrule\endfirsthead\toprule
+Vm & Iion & \code{Picard} & \code{diagonalIion} \\
+\midrule\endhead
+NO & NO &  156 &  157 \\
+NO & p1 &  211 &  211 \\
+NO & p3 &  787 &  849 \\
+p3 & NO & 1123 & 1121 \\
+p3 & p1 & 1164 & 1162 \\
+p3 & p3 & 1565 & NC   \\
+\bottomrule\end{longtable}\end{center}
+\paragraph{Discussion of the 3D results.}
+On the coarse 3D slab ($\Delta x = 0.5$~mm), enabling LRE only in the ionic source
+changes the activation time from $\approx 136.7$~ms (\code{NO}/\code{NO}) to
+$\approx 33.5$~ms (\code{NO}/\code{p1}) and $\approx 30.6$~ms (\code{NO}/\code{p3}) ---
+the same qualitative high-order-in-the-source effect already seen in the 2D sweep and in
+the explicit/implicit Niederer reports. The fully high-order case
+(\code{p3}/\code{p3}) reaches $29.63$~ms with Picard (the diagonalIion counterpart has
+not been completed yet). The two nonlinear methods again agree to better than
+$0.1$~ms for every entry where both are available; Picard is generally
+faster, with the gap most noticeable in the heaviest case (\code{NO}/\code{p3}:
+$1489$~min for Picard vs.\ $2159$~min for diagonalIion). The peak RSS scales with the
+LRE stencil size and is essentially independent of the method. The data set
+is too sparse in $\Delta x$ to draw quantitative conclusions about mesh
+convergence in 3D; the immediate gap to fill is the missing
+\code{p3}/\code{p3} diagonalIion entry and a 3D JFNK sweep on the same mesh.
+
+% ================================================================== %
+\appendix
+\section{Dimension table}
+% ================================================================== %
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Field & OpenFOAM \code{dimensionSet} & SI \\
+\midrule
+\code{Vm} & $[1, 2, -3, 0, 0, -1, 0]$ & volt \\
+\code{Iion} & \code{dimVoltage/dimTime} & \si{\volt\per\second} \\
+\code{externalStimulusCurrent} & \code{dimCurrent/dimVolume} &
+    \si{\ampere\per\meter\cubed} \\
+\code{conductivity} &
+    \code{dimCurrent\^{}2 dimTime\^{}3 / (dimMass dimVolume)} &
+    \si{\siemens\per\meter} \\
+\code{chi} & \code{dimless/dimLength} & \si{\per\meter} \\
+\code{Cm} & \code{dimCurrent dimTime / (dimVoltage dimArea)} &
+    \si{\farad\per\meter\squared} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{File map}
+
+\begin{center}
+\begin{tabular}{@{}p{0.55\linewidth}p{0.40\linewidth}@{}}
+\toprule
+Path (relative to \code{cardiacFoam-pc/}) & Role \\
+\midrule
+\code{applications/solvers/highOrderElectroActivationFoamImplicitPETScDistributed/}
+   \code{highOrderElectroActivationFoamImplicitPETScDistributed.C}
+   & Main translation unit (time loop, nonlinear solvers, Eigen/PETSc linear
+   back-ends, distributed \code{MPIAIJ} operators, LRE reconstruction,
+   activation tracking). \\
+\code{applications/solvers/highOrderElectroActivationFoamImplicitPETSc/}
+   & Serial ancestor, and \code{...PETScParallel} the intermediate step
+   (parallel stencils, serial algebra). Kept as references
+   (Section~\ref{sec:distributed}). \\
+\code{applications/solvers/highOrderManufacturedFDAImplicitPETScDistributed/}
+   & Manufactured-solution sibling sharing the parallel design; it carries the
+   coupled-face stabilisation exchange and the \code{CF\_DUMP\_K} /
+   \code{CF\_DUMP\_STENCILS} diagnostics (Section~\ref{sec:dist-verif}). \\
+\code{src/highOrderAdapter/highOrderInterp.H} & Adapter over solids4foam's
+   \code{movingLeastSquares}: stencils with global columns, halo exchange,
+   reconstruction coefficients. \\
+\code{src/ionicModels/} & Ionic models (TNNP and others): embedded CellML kernel,
+   state update, current evaluation and local ODE integration. \\
+\code{applications/solvers/.../createFields.H} & Field initialisation
+   and dictionary reading. \\
+\code{tutorials\_electro/.../run\_convergence.py} & Driver script. \\
+\code{constant/cardiacProperties} & $\chi$, $C_{m}$, $\Dten$,
+   ionic model. \\
+\code{constant/timeIntegrationProperties} & ODE solver, tolerances,
+   sub-step cap. \\
+\code{constant/spatialIntegrationProperties} & Time scheme, HO flags,
+   JFNK / linear / line-search options. \\
+\code{constant/stimulusProtocol} & Stimulus regions and timing. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ================================================================== %
+\section{Linear-algebra back-ends and sibling solver}
+\label{sec:backends}
+% ================================================================== %
+
+This solver \emph{integrates both linear-algebra back-ends} in a single
+executable, selectable at run time with \code{linearSolverBackend} (assembled
+branches) and \code{jfnkLinearSolverBackend} (JFNK Krylov). Matrix assembly and
+storage always use \code{Eigen::SparseMatrix}; the back-end only
+determines how the system is solved.
+
+\begin{center}
+\begin{tabular}{@{}p{0.34\linewidth}p{0.30\linewidth}p{0.30\linewidth}@{}}
+\toprule
+Aspect & \code{...Backend = Eigen} & \code{...Backend = PETSc} \\
+\midrule
+Matrix container & \code{Eigen::SparseMatrix} & idem (copied to \code{Mat}) \\
+Sparse direct solver & \code{Eigen::SparseLU} & \code{KSPPREONLY+PCLU} \\
+Iterative solver (Picard/diag) & \code{Eigen::BiCGSTAB+ILUT} &
+    \code{KSP+PC} (\code{gmres}+\code{ilu}, \code{cg}+\code{gamg}, \dots) \\
+JFNK inner Krylov & In-house GMRES & \code{KSPGMRES} over \code{MatShell} \\
+JFNK preconditioner & \multicolumn{2}{c}{\code{jfnkPreconditioner}: \code{none} or
+    \code{diffusion} (ILU of $\Aimp$) --- available in both} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The convergence parameters (\code{nonlinearTolerance}, \code{jfnkEpsilon},
+\code{jfnkLineSearch*}, \code{jfnkInitGuess*}, \code{jfnkClampODEInput},
+\code{nonlinearAcceptUnconverged}, \code{ODE\_*}) have the same meaning
+regardless of the back-end, so that the same \code{run\_convergence.py}
+configuration produces an algorithmically equivalent run (apart from
+the performance differences of the linear solve).
+
+\paragraph{Sibling solver \code{highOrderElectroActivationFoamImplicit}.}
+There is also a simpler version, with an \emph{Eigen-only} back-end and without the
+optimisations of Section~\ref{sec:optim}. Its main algorithmic difference is
+that it runs a \emph{fixed} number of nonlinear iterations (\code{nonlinearIterations},
+$1$ by default) \emph{without} a convergence test: with the default value it is a
+semi-implicit scheme with \emph{one} ODE evaluation and \emph{one} linear solve per
+time step. This makes it much faster at the cost of not controlling the nonlinear
+residual; at the small time steps of the benchmark the difference in the results
+is marginal (see Sections~\ref{sec:optim} and~\ref{sec:exp}).
+
+% ================================================================== %
+\section{Distributed-memory parallelisation}
+\label{sec:distributed}
+% ================================================================== %
+
+This variant, \code{highOrderElectroActivationFoamImplicitPETScDistributed},
+leaves every algorithm of the previous sections unchanged and replaces the
+linear algebra with a genuinely distributed one. The distinction matters,
+because there are three solvers in the family and only the last one is parallel
+in the algebraic sense:
+
+\begin{center}
+\begin{tabular}{@{}p{0.30\linewidth}p{0.62\linewidth}@{}}
+\toprule
+Variant & Linear algebra \\
+\midrule
+\code{...ImplicitPETSc} & Serial mesh, serial LRE, Eigen assembly, PETSc as a
+   solver on \code{PETSC\_COMM\_SELF}. \\
+\code{...ImplicitPETScParallel} & Parallel high-order library: the mesh is
+   decomposed and the stencils cross ranks, but the assembly still produces one
+   Eigen matrix per rank and hands the finished CSR to PETSc on
+   \code{PETSC\_COMM\_SELF}. Serial by construction. \\
+\code{...ImplicitPETScDistributed} & Matrices are \code{MPIAIJ} on
+   \code{PETSC\_COMM\_WORLD} and every matrix--vector product goes through
+   \code{MatMult}. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The three are kept side by side deliberately: each is the reference against
+which the next one is checked, rather than being compared from memory.
+
+% ------------------------------------------------------------------ %
+\subsection{Matrix layout: local rows, global columns}
+\label{sec:dist-layout}
+% ------------------------------------------------------------------ %
+
+Each rank owns the rows of its own cells and nothing else. Columns, in contrast,
+are \emph{global} cell indices, taken from the \code{globalIndex} that the
+high-order library builds together with its stencils. Writing
+$n_{\text{loc}}$ for this rank's cell count and $n_{\text{glob}}$ for the total,
+every assembled operator has shape $n_{\text{loc}}\times n_{\text{glob}}$, and
+the row offset of this rank is
+\[
+   \texttt{gRowStart} \;=\; \texttt{globalIndex::localStart()} .
+\]
+
+That is exactly PETSc's \code{MPIAIJ} layout, so the translation from the Eigen
+container to the distributed matrix (\code{buildDistributedMat}) only has to
+offset the row index and split the preallocation into the diagonal block
+(columns this rank owns) and the off-diagonal one. Getting that split right is
+what stops assembly from degenerating into repeated reallocation.
+
+In serial $\texttt{gRowStart}=0$ and $n_{\text{glob}}=n_{\text{loc}}$, so the
+same code path produces exactly the sequential matrix it replaces.
+
+\paragraph{A bug family worth naming.} That last property is convenient and
+dangerous in equal measure: \emph{a local index used where a global one is
+expected is invisible in serial}. Five instances were found in this family of
+solvers, all of them silent at one rank:
+
+\begin{center}
+\begin{tabular}{@{}p{0.42\linewidth}p{0.50\linewidth}@{}}
+\toprule
+Site & Symptom at $>1$ rank \\
+\midrule
+Diagonal of the mass matrix & Extra nonzeros in $\Aimp$, exactly the per-rank
+   row count. \\
+\code{addDiagonalToMatrix} column & As above. \\
+\code{updateValues} size check & Accepts a vector of the wrong length. \\
+\code{updateValues} row offset & Values written into the wrong rows. \\
+Orthogonal assembly of the manufactured sibling & Local columns throughout,
+   so the operator could not be assembled correctly at all. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Section~\ref{sec:dist-verif} explains why the usual sanity checks do not see
+any of these.
+
+% ------------------------------------------------------------------ %
+\subsection{What has to cross a processor boundary}
+\label{sec:dist-exchange}
+% ------------------------------------------------------------------ %
+
+Three kinds of data cross a partition, and each needs a different mechanism.
+
+\paragraph{(i) Reconstruction stencils --- nothing to do.}
+The high-order library builds its stencils geometrically over a halo whose depth
+is controlled by \dictkey{haloDepthScale}, and emits \emph{global} column
+indices. The flux term at a processor face therefore assembles exactly as at an
+internal face: the stencil already reaches across the cut.
+
+\paragraph{(ii) Cell-centred data --- \code{syncTools}.}
+The conductivity of the cell on the far side of a coupled face, and its global
+index, are obtained with \code{syncTools::swapBoundaryCellList}, indexed by
+boundary-face position. Two tempting alternatives are both wrong:
+
+\begin{itemize}
+  \item a processor patch \emph{field} holds the interpolated value \emph{at the
+        face}, not the value of the neighbouring \emph{cell};
+  \item \code{mesh.C()} is a \code{slicedVolVectorField} whose coupled values are
+        only valid after an evaluation that the assembly does not perform.
+\end{itemize}
+
+For the same reason the owner-to-neighbour vector $\mathbf{d}_{PN}$ is taken
+from \code{patch.delta()}, which for a \code{processorFvPatch} returns
+$\mathbf{C}_{N}-\mathbf{C}_{P}$ built from both sides' geometry, and never from
+\code{C[nei] - C[own]}.
+
+\paragraph{(iii) Variable-length matrix rows --- \code{PstreamBuffers}.}
+The stabilisation jump is the one term that needs the neighbouring cell's whole
+reconstruction row: up to $\sim 60$ (global column, coefficient) pairs for a
+$p3$ stencil in 3-D. No field swap can carry that.
+
+The mechanism, implemented in the manufactured sibling
+\code{highOrderManufacturedFDAImplicitPETScDistributed}, is to let the rank that
+\emph{owns} the cell build the row itself and ship the pairs, evaluated at the
+face centre --- a point both ranks have. Nothing else is exchanged: no cell
+centres, no stencils, no coefficient tables. Writing the jump from the point of
+view of the local cell,
+\[
+   \frac{a}{V_{c}}\Bigl( T_{\text{far}}(\mathbf{x}_{f})
+                        - T_{c}(\mathbf{x}_{f}) \Bigr),
+\]
+where $T_{c}$ is the Taylor reconstruction of cell $c$, also removes the
+owner/neighbour convention: the $+$ that the internal-face loop writes into the
+owner row and the $-$ it writes into the neighbour row are the same expression
+seen from either cell, and the face coefficient $a$ depends on the orientation
+only through $|\mathbf{d}_{PN}\!\cdot\!\mathbf{n}|$ and
+$\mathbf{n}\!\cdot\!\Dten\!\cdot\!\mathbf{n}$. Both ranks therefore compute the
+same $a$ without agreeing on anything.
+
+\paragraph{Status in this solver.} The coupled branch of the orthogonal assembly
+adds the flux term and \emph{not} the Rhie--Chow jump. This is inert at the
+default $\alpha=0$ that the benchmarks use, and it is documented in the source
+rather than silently skipped; porting the exchange described above is the
+outstanding item.
+
+% ------------------------------------------------------------------ %
+\subsection{Global reductions}
+% ------------------------------------------------------------------ %
+
+Everything that used to be a loop over all cells and is now a loop over this
+rank's cells needs a reduction: the error norms of
+Section~\ref{sec:results} (\code{gSum} over volumes and squared errors), the
+nonlinear residuals and their stopping tests, and the activation-time sampling.
+
+The one that is easy to miss is the \emph{Armijo backtracking line search},
+condition~\eqref{eq:armijo}. Its accepted step must be a single number for the
+whole domain; without the reductions inside the search, each rank would accept a
+different $\lambda$ and the Newton iterate would stop being a function of the
+mesh alone. That the parallel run reproduces the serial \code{lineSearchIters}
+\emph{exactly} is what validates this.
+
+% ------------------------------------------------------------------ %
+\subsection{Verifying a parallel operator}
+\label{sec:dist-verif}
+% ------------------------------------------------------------------ %
+
+Two checks are cheap and are \emph{not} sufficient on their own:
+
+\begin{itemize}
+  \item \textbf{Row sums.} With no-flux boundaries a constant field has zero
+        gradient, so every row of $\Kstif$ must sum to zero. This catches an
+        empty or malformed operator --- it caught a
+        \code{CompactListList::operator[]} returning a view by value, which
+        compiled but produced an empty stencil --- but it cannot see an
+        \emph{omitted} face, because omitting a face contributes nothing to
+        either of its rows and the sums still vanish.
+  \item \textbf{Operator fingerprint} (global nnz, $\sum a_{ij}$,
+        $\sum|a_{ij}|$, $\max_i |\sum_j a_{ij}|$). Since the stencils are
+        geometric, the global nnz must match the serial value exactly. But a
+        value written into the \emph{wrong column} changes neither nnz, nor any
+        sum, nor any row sum.
+\end{itemize}
+
+The check that does decide is an entry-by-entry comparison. With
+\code{CF\_DUMP\_K} set in the environment, the manufactured sibling writes
+$\Kstif$ as (global row, global column, value), one file per rank; mapping the
+parallel indices back through
+\code{processor$N$/constant/polyMesh/cellProcAddressing} gives a direct diff
+against the serial assembly. \code{CF\_DUMP\_STENCILS} does the same one level
+lower, for stencil \emph{membership} and cell centres, which is what
+distinguishes a differing coefficient from a differing stencil.
+
+\paragraph{Comparing iteration by iteration.} Use
+\dictkey{petscLinearPcType} \code{jacobi}. PETSc wraps \code{ilu} and \code{lu}
+in block-Jacobi in parallel, so those preconditioners are partition-dependent
+\emph{by construction}: with \code{ilu} a converged manufactured case shows a
+$4.5\times10^{-6}$ deviation between one and two ranks that is entirely
+algebraic, and with \code{jacobi} the same case agrees to all printed digits.
+Mistaking that for a discretisation error costs a lot of time.
+
+% ------------------------------------------------------------------ %
+\subsection{Partition dependence of the MLS stencils}
+\label{sec:dist-stencils}
+% ------------------------------------------------------------------ %
+
+One genuine parallel inconsistency remains, and it lives in the stencil
+selection of the high-order library, not in any solver.
+
+\paragraph{Mechanism.} A stencil is meant to be \emph{the $N$ cells whose
+centres are nearest the face centre}. The library reaches that in two steps: it
+first builds a pool of candidates by growing complete layers of
+\code{cellCells} until the pool holds $\lceil 1.5N \rceil$ cells, and then keeps
+the nearest $N$ of the pool by Euclidean distance. The second step is geometric;
+\textbf{the first is topological}. On a tetrahedral mesh ``within $k$ hops'' and
+``within radius $r$'' are not the same set, and with only $0.5N$ of slack the
+last positions of the stencil are decided by the connectivity rather than by the
+geometry.
+
+Under decomposition the layer growth stops at the cut, and the far side is
+supplied instead by a query that returns every cell of the neighbouring rank
+inside a bounding box --- a \emph{geometric} set, and a generous one. Near a
+partition the selection therefore mixes a topological candidate set on one side
+with a geometric one on the other. This is why the deviation does not respond to
+\dictkey{haloDepthScale}: the box was never the binding constraint.
+
+\paragraph{Measurements} (3-D unstructured tetrahedra, 4971 cells, one rank
+against two, $\alpha=0$ so that no stabilisation is involved):
+
+\begin{center}
+\begin{tabular}{@{}p{0.55\linewidth}p{0.37\linewidth}@{}}
+\toprule
+Observable & Value \\
+\midrule
+Face stencils that differ & 536 of 10676 \\
+Their size & identical (80): members are \emph{substituted}, not lost \\
+Position of the swapped members & 98\,\% in the last 10\,\% of the
+   distance-ordered stencil \\
+Rows of $\Kstif$ that differ & 552 of 4971, up to 4.17 against
+   $\max|K|=256$ \\
+Cut faces whose two ranks disagree with \emph{each other} & 9 \\
+Cell centres, serial vs decomposed & up to $3.3\times10^{-16}$ (the centroid sum
+   runs over a renumbered face list) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The nine cut faces are a defect on their own terms, with no serial comparison
+needed: the two rows of one face are then built from different flux stencils, so
+the flux leaving a cell is not the flux entering its neighbour and the scheme is
+not conservative there.
+
+\paragraph{How much it matters.} Comparing the $V_{\mathrm{m}}$ \emph{fields}
+cell by cell rather than the deviation of a norm, at $\alpha=0.1$ with
+\code{jacobi}:
+
+\[
+  \frac{\norm{V_{\mathrm{m}}^{np=1}-V_{\mathrm{m}}^{np=2}}}
+       {\norm{V_{\mathrm{m}}-V_{\mathrm{m}}^{\text{exact}}}}
+  = \frac{1.51\times10^{-5}}{6.84\times10^{-4}} = 2.2\,\%,
+  \qquad
+  \frac{\norm{\Delta V_{\mathrm{m}}}}{\text{amplitude}} = 7.5\times10^{-6}.
+\]
+
+Over a refinement sweep $N=8,10,12,14$ the deviation stays at the
+$10^{-4}$--$10^{-3}$ level while the error itself falls from
+$1.19\times10^{-3}$ to $2.28\times10^{-4}$: the perturbation shrinks at the same
+rate as the error. Consequently the fitted convergence order is untouched,
+
+\[
+  p^{np=1}_{V_{\mathrm{m}},L_2} = 2.90722821,
+  \qquad
+  p^{np=2}_{V_{\mathrm{m}},L_2} = 2.90722635,
+\]
+
+a difference of $1.9\times10^{-6}$ against an acceptance tolerance of $0.05$.
+That is what two \emph{consistent} schemes of the same formal order predict:
+their difference is a same-order perturbation, not a systematic error.
+
+\paragraph{How it would be fixed.}
+\begin{enumerate}
+  \item Make the candidate pool geometric on both sides --- query cell centres
+        by radius (\code{indexedOctree}) instead of growing \code{cellCells}
+        layers, with the radius taken from the layer estimate as an upper bound.
+        The stencil then becomes a function of (face centre, cell centres, $N$)
+        alone, invariant under partitioning.
+  \item Stop the tie clipping: the parallel branch filters candidates by radius
+        \emph{before} the equal-distance expansion runs, so a tie group
+        straddling that radius is cut in half (17 members in serial against 16 at
+        two ranks, on a structured 2-D case). Inflating the radius by
+        $(1+\texttt{relTol})$ and routing the serial early return through the
+        same selection code closes it.
+  \item Assert completeness instead of failing silently: check that the $N$-th
+        distance lies strictly inside the queried radius.
+  \item One face, one stencil: have the lower-ranked side of a cut face own the
+        stencil and send it, which restores conservation across the cut.
+\end{enumerate}
+
+\code{relTol} ($10^{-8}$), \code{overSampleFactor} ($1.5$) and
+\code{searchExpansionFactor} ($1.3$) are hard-coded default arguments, not
+dictionary entries, so none of this can be explored from a case: it is a library
+change.
+
+\paragraph{A caveat before touching it.} The serial run is the truncated one ---
+its candidate pool is purely topological everywhere, not only near a cut --- so
+fixing the selection changes serial results too, and with them every convergence
+table produced so far. That is a decision to take deliberately, not a side
+effect to absorb.
+
+% ================================================================== %
+\section{Performance optimisations}
+\label{sec:optim}
+% ================================================================== %
+
+This section documents four optimisations added to the solver. All of them are
+\emph{additive} and are governed by dictionary keys whose default
+value reproduces \textbf{exactly} the previous behaviour: no existing
+run changes its result unless they are explicitly enabled. They also update
+some rows of the comparison table of the previous Section (the assembled
+back-end now reuses the factorisation, JFNK admits a preconditioner,
+and the ionic ODE can be integrated in parallel with OpenMP).
+
+\subsection{Matrix and factorisation reuse (Phase B)}
+\label{sec:optim-B}
+
+The implicit operator $\Aimp = \Mmass/\Delta t - \theta\,\Lop$ depends only on the
+constant matrices $\Mmass$, $\Lop$, on the parameter $\theta$ and on the step $\Delta t$.
+Since $\Delta t$ is fixed except in the last clipped step, $\Aimp$ is constant
+during almost the whole simulation. Previously, $\Aimp$ was reassembled and
+\textbf{re-factorised} at every nonlinear iteration; now it is assembled once and the
+factorisation (PETSc KSP, or \code{Eigen::SparseLU}/\code{BiCGSTAB}) is kept
+for the whole run. An update policy distinguishes three cases per solve:
+\begin{itemize}[nosep]
+  \item \textbf{Rebuild}: first use or change of $\Delta t$ $\Rightarrow$ full
+        setup (allocation + symbolic + numeric factorisation).
+  \item \textbf{ValuesOnly}: same sparsity pattern, new values (the
+        diagonal changes at every iteration in \dictkey{diagonalIion}) $\Rightarrow$ the
+        values are refreshed reusing the pattern (\code{updateValues}).
+  \item \textbf{Reuse}: matrix identical to the previous solve (Picard with a constant
+        operator) $\Rightarrow$ the matrix is not touched, only solved.
+\end{itemize}
+The key \dictkey{petscReusePreconditioner} (\code{false} by default) additionally
+allows, in \dictkey{diagonalIion} mode, reusing the preconditioner across
+inner iterations when the diagonal change is small. In Picard this
+optimisation is purely computational: the same matrix is solved with the same
+factorisation, so the results are bit-for-bit identical
+(Section~\ref{sec:exp-B}).
+
+\subsection{Diffusion preconditioner for JFNK (A3)}
+\label{sec:optim-A3}
+
+The matrix-free JFNK Jacobian used to be solved without a preconditioner, so that
+each Krylov iteration requires a full residual evaluation (and therefore
+an ionic ODE integration). A \emph{right} preconditioner
+$\mathbf{M}^{-1}$ is added with $\mathbf{M}=\Aimp$, the linear (diffusive, SPD) part
+of the Jacobian. To avoid the catastrophic fill-in of an exact $LU$ factorisation
+of the (wide-stencil) high-order operator, an \textbf{incomplete
+$LU$ factorisation} (\code{Eigen::IncompleteLUT}, ILUT) is used, computed once and
+reused; each Krylov step then costs a single cheap \emph{triangular solve}.
+It is very effective here because, with small $\Delta t$, $\Aimp\approx
+\Mmass/\Delta t$ is strongly diagonally dominant. The key
+\dictkey{jfnkPreconditioner} takes the values \code{none} (default, legacy
+path) or \code{diffusion}. In the PETSc branch \code{KSPSetPCSide(PC\_RIGHT)} is set
+so that the KSP monitors the true residual $\norm{b - Ax}$; in the
+in-house GMRES branch (Eigen) the preconditioner is applied in the Arnoldi step and in
+the reconstruction of the correction. It does not change the converged solution, only the
+convergence path (fewer matvecs, i.e.\ fewer ODE integrations).
+
+\subsection{Parallel ionic ODE integration (C1)}
+\label{sec:optim-C1}
+
+The loop over the integration points of \code{TNNP::solveODE} is
+\emph{embarrassingly parallel} (each point is an independent ODE). It is optionally
+parallelised with OpenMP through the key \dictkey{parallelODE} (\code{false} by
+default) read from the ionic-model dictionary. Since the base class
+\code{ionicModel} shares a single \code{ODESolver} (with internal scratch for the
+Runge--Kutta stages), a per-thread solver \emph{pool} is added
+(\code{ensureOdeSolverPool}/\code{odeSolver(tid)}); the diagnostic index
+\code{activeIntegrationPoint\_} becomes per-thread and writing the protection
+log is serialised with \code{\#pragma omp critical}. It was necessary to add
+\code{-fopenmp} to the compilation options of the \code{ionicModels} library.
+The number of threads is controlled with the environment variable \code{OMP\_NUM\_THREADS};
+\code{run\_convergence.py} exposes it through the constants \pyconst{PARALLEL\_ODE}
+and \pyconst{ODE\_NUM\_THREADS}. The results are numerically identical to the
+serial version (validated bit for bit).
+
+\subsection{AMG preconditioners (C3)}
+\label{sec:optim-C3}
+
+The KSP path already supported passing PETSc options at run time, so
+that the algebraic multigrid preconditioners (native \code{gamg}, \code{hypre}
+BoomerAMG) are directly reachable. The aliases
+\code{amg}$\to$\code{gamg} and \code{boomeramg}$\to$\code{hypre} are added to the
+\dictkey{petscLinearPcType} mapping. For the SPD monodomain operator the
+theoretically advisable combination on large 3D meshes is \code{cg}+\code{gamg}; however,
+the experiments (Section~\ref{sec:exp-gamg}) show that for the time steps
+used here the system is mass-dominated (well conditioned) and
+AMG contributes nothing.
+
+\paragraph{Summary of new keys.}
+All with a default value equal to the previous behaviour.
+
+\begin{center}
+\begin{tabular}{@{}p{0.30\linewidth}p{0.17\linewidth}p{0.45\linewidth}@{}}
+\toprule
+Key & Default & Effect \\
+\midrule
+\dictkey{petscReusePreconditioner} & \code{false} & Reuses the preconditioner
+    across iterations in \dictkey{diagonalIion}. \\
+\dictkey{jfnkPreconditioner} & \code{none} & \code{diffusion}: preconditions the
+    JFNK Jacobian with an ILUT of $\Aimp$. \\
+\dictkey{parallelODE} & \code{false} & Integrates the ionic ODEs with OpenMP
+    (ionic-model dict.). \\
+\dictkey{petscLinearPcType} & \code{ilu} & Now accepts \code{gamg}/\code{hypre}
+    (and the aliases \code{amg}/\code{boomeramg}). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ================================================================== %
+\section{Performance experiments}
+\label{sec:exp}
+% ================================================================== %
+
+The above optimisations were measured on the 2D Niederer-style benchmark
+(\num{23726}-cell mesh unless stated otherwise) with the TNNP model and the RKF45
+integrator, Crank--Nicolson scheme and consistent mass in the high-order cases.
+Unless stated otherwise, the stimulus is the benchmark one (a
+\SI{1.5}{\milli\meter} corner). The runs are short (few steps) and the measurements were
+taken with \code{/usr/bin/time -v}; where relevant, \code{loopWall}
+(time-loop time, from \code{solverPerformance.dat}) is reported to isolate the per-step
+cost from the one-off setup. The machine has 20 cores.
+
+\subsection{Phase B: identical and faster in Picard}
+\label{sec:exp-B}
+
+The same runs of the convergence sweep were compared against a binary
+\emph{prior} to the changes (Picard, Crank--Nicolson, consistent mass, RKF45,
+PETSc back-end \code{gmres}+\code{ilu}), taking the four cases present in
+both folders.
+
+\begin{center}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+$\Delta t$ / $\Delta x$ & P8 [ms] (new=old) & nonlin.\ iter. & lin.\ iter. &
+    wall new/old [s] & $\Delta$ \\
+\midrule
+$10^{-4}$ / \SI{0.25}{mm} & 62.9948077742 & 3510=3510 & 12748=12748 & 1488.7 / 1645.3 & $-9.5\%$ \\
+$10^{-4}$ / \SI{0.5}{mm}  & 153.3156018900 & 6293=6293 & 18879=18879 & 684.0 / 752.0 & $-9.0\%$ \\
+$10^{-5}$ / \SI{0.25}{mm} & 67.2950937434 & 6854=6854 & 13708=13708 & 2531.9 / 2786.9 & $-9.2\%$ \\
+$10^{-5}$ / \SI{0.5}{mm}  & 157.1464148850 & 16136=16136 & 32272=32272 & 1472.6 / 1616.7 & $-8.9\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\textbf{Conclusion.} The P8 activation time agrees to ten
+decimals ($\Delta=0$) and the number of nonlinear and linear iterations is
+identical, while the wall time drops by $\sim 9\%$. Since CPU usage was
+$99\%$ (serial), the saving comes entirely from not re-factorising the constant
+matrix, not from parallelism.
+
+\subsection{A3: diffusion preconditioner in JFNK}
+\label{sec:exp-A3}
+
+Same case (corner, 10 steps, JFNK, PETSc back-end), varying
+\dictkey{jfnkPreconditioner}.
+
+\begin{center}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\dictkey{jfnkPreconditioner} & Krylov iter.\ (total) & wall [s] \\
+\midrule
+\code{none}      & 90 & 98.6 \\
+\code{diffusion} & 24 & 59.0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\textbf{Conclusion.} The preconditioner reduces the matvecs from 90 to 24
+($3.75\times$ fewer ODE integrations) and the wall time by $1.67\times$
+($98.6\to59.0$~s), with the same solution (Vm agreeing within the Krylov
+tolerance). Preconditioning is clearly faster than not doing it.
+
+\subsection{C1: ODE parallelisation (does not help in this problem)}
+\label{sec:exp-C1}
+
+A/B test with \code{OMP\_NUM\_THREADS} fixed at 8, toggling \dictkey{parallelODE}
+(the difference isolates the effect of C1, since the internal PETSc/BLAS threading is
+the same in both). For the high-order and 3D cases \code{loopWall} is reported.
+
+\begin{center}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Configuration & \code{parallelODE=true} & \code{=false} & helps? \\
+\midrule
+Low-order Picard (2D)                  & 46.9  & 46.9  & no \\
+JFNK + \code{diffusion} (2D)           & 57.06 & 57.58 & no \\
+JFNK + \code{none} (2D)                & 28.76 & 28.96 & no \\
+\code{gaussPointODE} + HO p3 (2D, loop)& 29.259 & 29.262 & no \\
+3D, \num{17280} cells (loop)           & 2.861 & 2.816 & no \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The two scenarios where a benefit could be expected were specifically
+tested: \dictkey{gaussPointODE} with high order p3 (several ODEs per cell,
+$\sim\!16\times$ more ionic work) and 3D with many cells.
+\textbf{Conclusion.} In every case the result is identical between
+\code{true}/\code{false} (and the CPU $\%$ does not change), i.e.\ the parallel region
+of the ODE contributes $\sim 0$. The reason is that the ionic ODE (RKF45 on TNNP, above
+all at rest) is a \emph{small fraction} of the cost: what dominates is the LRE
+reconstruction at the Gauss points, the averaging of $\Iion$ and the high-order
+assembly/solve, which are serial operations that grow equally or more when the problem
+is enlarged. C1 is functionally correct (bit-identical results) but does not speed up this
+problem profile; it would only pay off with much stiffer models or extensive activation
+fronts.
+
+\subsection{Internal PETSc/BLAS threading (counterproductive in Picard)}
+\label{sec:exp-threads}
+
+Picard, \dictkey{parallelODE}=\code{false}, varying \code{OMP\_NUM\_THREADS}
+(20 steps, corner).
+
+\begin{center}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\code{OMP\_NUM\_THREADS} & wall [s] & CPU & User [s] \\
+\midrule
+1  & 45.7 & $98\%$  & 44.9 \\
+20 & 47.3 & $197\%$ & 68.8 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\textbf{Conclusion.} With more threads, internal PETSc/BLAS/Eigen
+parallelism appears ($\sim 2\times$ CPU), but the wall time does not drop (it rises
+slightly): it is \emph{memory-bound} and only wastes CPU. Picard should be run
+with \code{OMP\_NUM\_THREADS=1}.
+
+\subsection{Linear solver: AMG vs.\ ILU (the solve is not the bottleneck)}
+\label{sec:exp-gamg}
+
+Comparison of \dictkey{petscLinearKspType}/\dictkey{petscLinearPcType} with
+\code{OMP\_NUM\_THREADS=1}.
+
+\begin{center}
+\begin{tabular}{@{}llcc@{}}
+\toprule
+Case & Linear solver & \code{loopWall} [s] & lin.\ iter.\ (total) \\
+\midrule
+3D, \num{17280}, $\Delta t{=}10^{-6}$, low order
+   & \code{gmres}+\code{ilu}  & 5.27 & 16 \\
+   & \code{cg}+\code{gamg}    & 5.72 & 24 \\
+\midrule
+2D, \num{23726}, $\Delta t{=}10^{-4}$, HO consistent
+   & \code{gmres}+\code{ilu}  & 70.21 & 40 \\
+   & \code{gmres}+\code{gamg} & 70.66 & 72 \\
+   & \code{cg}+\code{gamg}    & 70.47 & 72 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\textbf{Conclusion.} AMG is slightly slower and uses \emph{more}
+iterations: with small $\Delta t$ the system is mass-dominated
+($\Aimp\approx\Mmass/\Delta t$), well conditioned and reaction-like, where ILU already
+is an excellent local preconditioner and the multigrid hierarchy is
+counterproductive. More importantly still: the \code{loopWall} is practically the same
+($\sim 70$~s) whatever the linear solver (40 vs.\ 72 iterations), which
+shows that \textbf{the linear solve is not the bottleneck}. Together with the
+previous experiments, the dominant cost in the high-order Picard regime is the
+high-order machinery itself (LRE reconstruction and Gauss-point handling),
+not the ODE nor the linear solver.
+
+\subsection{Synthesis and recommendations}
+\label{sec:exp-sintesis}
+
+\begin{itemize}[nosep]
+  \item Keep \dictkey{parallelODE}=\code{false} and \code{OMP\_NUM\_THREADS=1}:
+        neither C1 nor the internal threading speeds up this problem.
+  \item Keep \dictkey{petscLinearPcType}=\code{ilu} (do not use AMG): the system
+        is well conditioned and the linear solve is not the bottleneck.
+  \item The real gains, without parallelism, are Phase~B
+        (factorisation reuse, $\sim 9\%$ in Picard, identical
+        results) and A3 (\dictkey{jfnkPreconditioner}=\code{diffusion},
+        $1.67\times$ in JFNK).
+  \item The natural target to speed up the high-order regime would be to parallelise
+        or make cheaper the LRE reconstruction and the Gauss-point handling (not
+        done here).
+\end{itemize}
+
+% ================================================================== %
+\begin{thebibliography}{9}
+% ================================================================== %
+
+\bibitem{ttp2004} K.~H.~W.~J. ten Tusscher, D. Noble, P.~J. Noble, A.~V.
+    Panfilov, \emph{A model for human ventricular tissue},
+    AJP -- Heart and Circulatory Physiology
+    \textbf{286} (2004) H1573--H1589.
+
+\bibitem{niederer2012} S.~A. Niederer et al.,
+    \emph{Verification of cardiac tissue electrophysiology simulators
+    using an N-version benchmark}, Prog.\ Biophys.\ Mol.\ Biol.
+    \textbf{104} (2012) 22--48.
+
+\bibitem{knoll2004} D.~A. Knoll, D.~E. Keyes,
+    \emph{Jacobian-Free Newton-Krylov methods: a survey of approaches
+    and applications}, J.\ Comp.\ Phys.\ \textbf{193}
+    (2004) 357--397.
+
+\bibitem{noceWright} J. Nocedal, S.~J. Wright,
+    \emph{Numerical Optimization}, 2nd edition, Springer, 2006.
+
+\bibitem{saadbook} Y. Saad,
+    \emph{Iterative Methods for Sparse Linear Systems}, 2nd edition,
+    SIAM, 2003.
+
+\bibitem{hairer2} E. Hairer, G. Wanner,
+    \emph{Solving Ordinary Differential Equations II}, Springer, 1996.
+
+\end{thebibliography}
+
+\end{document}

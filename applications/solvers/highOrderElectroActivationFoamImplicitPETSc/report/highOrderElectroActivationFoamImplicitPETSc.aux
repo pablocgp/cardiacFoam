@@ -1,0 +1,269 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\babel@aux[2]{}
+\@nameuse{bbl@beforestart}
+\providecommand\HyperFirstAtBeginDocument{\AtBeginDocument}
+\HyperFirstAtBeginDocument{\ifx\hyper@anchor\@undefined
+\global\let\oldcontentsline\contentsline
+\gdef\contentsline#1#2#3#4{\oldcontentsline{#1}{#2}{#3}}
+\global\let\oldnewlabel\newlabel
+\gdef\newlabel#1#2{\newlabelxx{#1}#2}
+\gdef\newlabelxx#1#2#3#4#5#6{\oldnewlabel{#1}{{#2}{#3}}}
+\AtEndDocument{\ifx\hyper@anchor\@undefined
+\let\contentsline\oldcontentsline
+\let\newlabel\oldnewlabel
+\fi}
+\fi}
+\global\let\hyper@last\relax 
+\gdef\HyperFirstAtBeginDocument#1{#1}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\babel@aux{english}{}
+\citation{ttp2004}
+\citation{niederer2012}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Notation}{3}{section.1}\protected@file@percent }
+\citation{ttp2004}
+\@writefile{toc}{\contentsline {section}{\numberline {2}Governing equations}{4}{section.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Monodomain PDE}{4}{subsection.2.1}\protected@file@percent }
+\newlabel{eq:monodomain}{{1}{4}{Monodomain PDE}{equation.2.1}{}}
+\newlabel{eq:semi-discrete}{{2}{4}{Monodomain PDE}{equation.2.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Ionic ODE}{4}{subsection.2.2}\protected@file@percent }
+\newlabel{eq:tnnp}{{3}{4}{Ionic ODE}{equation.2.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Manufactured MMS equation used for convergence transfer}{4}{subsection.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}External stimulus}{5}{subsection.2.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Time discretisation: the $\theta $-scheme}{5}{section.3}\protected@file@percent }
+\newlabel{eq:theta}{{13}{5}{Time discretisation: the $\theta $-scheme}{equation.3.13}{}}
+\newlabel{eq:implicit-system}{{14}{5}{Time discretisation: the $\theta $-scheme}{equation.3.14}{}}
+\newlabel{eq:AB}{{15}{5}{Time discretisation: the $\theta $-scheme}{equation.3.15}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Spatial discretisation}{5}{section.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Standard orthogonal FV Laplacian}{5}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}High-order LRE diffusion}{6}{subsection.4.2}\protected@file@percent }
+\newlabel{eq:HO-flux}{{17}{6}{High-order LRE diffusion}{equation.4.17}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Mass matrices}{6}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Lumped (\texttt  {\small  massMatrix lumped}).}{6}{section*.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Consistent HO (\texttt  {\small  massMatrix consistent}).}{6}{section*.3}\protected@file@percent }
+\newlabel{eq:HO-mass}{{18}{6}{Consistent HO (\code {massMatrix consistent})}{equation.4.18}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}High-order reconstruction at ionic quadrature points}{6}{subsection.4.4}\protected@file@percent }
+\newlabel{eq:HO-vm}{{19}{6}{High-order reconstruction at ionic quadrature points}{equation.4.19}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5}High-order cell averaging of $I_{\mathrm  {ion}}$}{6}{subsection.4.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}State integration at the ionic quadrature points}{6}{section.5}\protected@file@percent }
+\newlabel{sec:stateint}{{5}{6}{State integration at the ionic quadrature points}{section.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Two modes}{6}{subsection.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {\small  gaussPointODE} (legacy).}{7}{section*.4}\protected@file@percent }
+\newlabel{eq:gpode}{{21}{7}{\code {gaussPointODE} (legacy)}{equation.5.21}{}}
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {\small  cellCentredReconstruct}.}{7}{section*.5}\protected@file@percent }
+\newlabel{eq:ccrec}{{22}{7}{\code {cellCentredReconstruct}}{equation.5.22}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Front-aware hybrid}{7}{subsection.5.2}\protected@file@percent }
+\newlabel{sec:hybrid}{{5.2}{7}{Front-aware hybrid}{subsection.5.2}{}}
+\newlabel{eq:frontflag}{{23}{7}{Front-aware hybrid}{equation.5.23}{}}
+\@writefile{toc}{\contentsline {paragraph}{Freezing per time step (avoiding a limit cycle).}{7}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}State reconstruction limiter}{7}{subsection.5.3}\protected@file@percent }
+\newlabel{sec:limiter}{{5.3}{7}{State reconstruction limiter}{subsection.5.3}{}}
+\newlabel{eq:limiter}{{24}{7}{State reconstruction limiter}{equation.5.24}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Dictionary keys}{8}{subsection.5.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Nonlinear solver}{8}{section.6}\protected@file@percent }
+\newlabel{eq:Fdef}{{25}{8}{Nonlinear solver}{equation.6.25}{}}
+\newlabel{eq:rhsIion}{{26}{8}{Nonlinear solver}{equation.6.26}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Shared residuals and stopping tests}{8}{subsection.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Picard fixed-point method}{9}{subsection.6.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Advantages.}{9}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Disadvantages.}{9}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.3}Diagonal $I_{\mathrm  {ion}}$ linearisation}{9}{subsection.6.3}\protected@file@percent }
+\newlabel{eq:diagonalIion}{{34}{9}{Diagonal \texorpdfstring {$\Iion $}{Iion} linearisation}{equation.6.34}{}}
+\@writefile{toc}{\contentsline {paragraph}{Advantages.}{9}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Disadvantages.}{9}{section*.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.4}Jacobian-Free Newton--Krylov}{9}{subsection.6.4}\protected@file@percent }
+\newlabel{eq:fdjac}{{35}{10}{Jacobian-Free Newton--Krylov}{equation.6.35}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.5}JFNK inner Krylov}{10}{subsection.6.5}\protected@file@percent }
+\newlabel{sec:jfnk-krylov}{{6.5}{10}{JFNK inner Krylov}{subsection.6.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{Preconditioner (optional).}{10}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Advantages.}{10}{section*.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Disadvantages.}{10}{section*.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6}Armijo backtracking line search}{10}{subsection.6.6}\protected@file@percent }
+\newlabel{eq:armijo}{{36}{10}{Armijo backtracking line search}{equation.6.36}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.7}Initial guess, ODE clamp and rollback}{10}{subsection.6.7}\protected@file@percent }
+\newlabel{eq:extrap}{{37}{10}{Initial guess, ODE clamp and rollback}{equation.6.37}{}}
+\citation{hairer2}
+\@writefile{toc}{\contentsline {section}{\numberline {7}Linear solver: Eigen and PETSc back-ends}{11}{section.7}\protected@file@percent }
+\newlabel{sec:linalg}{{7}{11}{Linear solver: Eigen and PETSc back-ends}{section.7}{}}
+\@writefile{toc}{\contentsline {paragraph}{Factorisation reuse.}{11}{section*.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{JFNK.}{11}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8}Ionic ODE integration}{11}{section.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {9}TNNP numerical protection}{12}{section.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {10}Activation tracking and benchmarks}{12}{section.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Activation time per cell.}{12}{section*.16}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Early termination on P8.}{12}{section*.17}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Diagonal sampling.}{12}{section*.18}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Live activation output.}{13}{section*.19}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Activation-failure detection.}{13}{section*.20}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {11}Solver flow chart}{13}{section.11}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces Shared time-step setup and final commit/rollback.\relax }}{13}{algorithm.1}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {2}{\ignorespaces Picard nonlinear solve.\relax }}{14}{algorithm.2}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{alg:picard}{{2}{14}{Picard nonlinear solve.\relax }{algorithm.2}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {3}{\ignorespaces \texttt  {\small  diagonalIion} nonlinear solve.\relax }}{14}{algorithm.3}\protected@file@percent }
+\newlabel{alg:diagonal}{{3}{14}{\code {diagonalIion} nonlinear solve.\relax }{algorithm.3}{}}
+\gdef \LT@i {\LT@entry 
+    {1}{147.69621pt}\LT@entry 
+    {1}{144.24788pt}\LT@entry 
+    {1}{176.03403pt}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {4}{\ignorespaces Jacobian-Free Newton--Krylov solve.\relax }}{15}{algorithm.4}\protected@file@percent }
+\newlabel{alg:jfnk}{{4}{15}{Jacobian-Free Newton--Krylov solve.\relax }{algorithm.4}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {12}Manufactured driver: \texttt  {run\_convergence.py}}{15}{section.12}\protected@file@percent }
+\newlabel{sec:driver}{{12}{15}{Manufactured driver: \texttt {run\_convergence.py}}{section.12}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.1}Geometry and parameter sweep}{15}{subsection.12.1}\protected@file@percent }
+\gdef \LT@ii {\LT@entry 
+    {1}{171.31346pt}\LT@entry 
+    {1}{153.69621pt}\LT@entry 
+    {1}{147.69621pt}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.2}Nonlinear method and convergence controls}{16}{subsection.12.2}\protected@file@percent }
+\gdef \LT@iii {\LT@entry 
+    {1}{171.31346pt}\LT@entry 
+    {1}{153.69621pt}\LT@entry 
+    {1}{147.69621pt}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.3}JFNK and diagonal-Iion controls}{17}{subsection.12.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.4}Linear PDE solver}{17}{subsection.12.4}\protected@file@percent }
+\gdef \LT@iv {\LT@entry 
+    {1}{147.69621pt}\LT@entry 
+    {1}{153.69621pt}\LT@entry 
+    {1}{171.31346pt}}
+\gdef \LT@v {\LT@entry 
+    {1}{147.69621pt}\LT@entry 
+    {1}{153.69621pt}\LT@entry 
+    {1}{171.31346pt}}
+\gdef \LT@vi {\LT@entry 
+    {1}{171.31346pt}\LT@entry 
+    {1}{153.69621pt}\LT@entry 
+    {1}{147.69621pt}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.5}State ODE integrator}{18}{subsection.12.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.6}LRE high-order parameters per p-level}{18}{subsection.12.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {12.7}Diagnostics and run-control}{18}{subsection.12.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {13}Results}{19}{section.13}\protected@file@percent }
+\newlabel{sec:results}{{13}{19}{Results}{section.13}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {13.1}2D Niederer-style benchmark}{19}{subsection.13.1}\protected@file@percent }
+\newlabel{sec:results:2D}{{13.1}{19}{2D Niederer-style benchmark}{subsection.13.1}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {13.1.1}Computational cost quantities}{19}{subsubsection.13.1.1}\protected@file@percent }
+\newlabel{sec:res2d:cost}{{13.1.1}{19}{Computational cost quantities}{subsubsection.13.1.1}{}}
+\gdef \LT@vii {\LT@entry 
+    {3}{45.90675pt}\LT@entry 
+    {3}{37.69429pt}\LT@entry 
+    {3}{37.69429pt}\LT@entry 
+    {3}{38.09428pt}\LT@entry 
+    {3}{32.04187pt}\LT@entry 
+    {3}{36.66684pt}\LT@entry 
+    {3}{41.6918pt}\LT@entry 
+    {3}{36.66684pt}\LT@entry 
+    {3}{36.66684pt}\LT@entry 
+    {3}{41.29181pt}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {13.1.2}Structured hexahedral mesh, no hybrid (\texttt  {\small  frontAwareHybrid false})}{20}{subsubsection.13.1.2}\protected@file@percent }
+\newlabel{sec:res2d:hexaF}{{13.1.2}{20}{Structured hexahedral mesh, no hybrid (\code {frontAwareHybrid false})}{subsubsection.13.1.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces Per-case performance --- structured hexahedral mesh, no hybrid, all \texttt  {\small  Picard}. For each triplet \texttt  {\small  (Vm, states, Iion)} the rows list the available $\Delta x$ [mm] and the columns the three $\Delta t$, grouped three metrics at a time. \textsc  {fail} = no ignition (the run is aborted at $t=\SI {0.02}{s}$ by the failure detector); a P8 value implies full activation of the domain; \texttt  {--} = combination not run. $N_{\mathrm  {nl}}$ and $N_{\mathrm  {lin}}$ are the totals of nonlinear and linear iterations (deterministic); wall and CPU in minutes; RSS in MiB.\relax }}{20}{table.7}\protected@file@percent }
+\newlabel{tab:res2d:hexaF}{{7}{20}{Per-case performance --- structured hexahedral mesh, no hybrid, all \code {Picard}. For each triplet \code {(Vm, states, Iion)} the rows list the available $\Delta x$ [mm] and the columns the three $\Delta t$, grouped three metrics at a time. \textsc {fail} = no ignition (the run is aborted at $t=\SI {0.02}{s}$ by the failure detector); a P8 value implies full activation of the domain; \texttt {--} = combination not run. $N_{\mathrm {nl}}$ and $N_{\mathrm {lin}}$ are the totals of nonlinear and linear iterations (deterministic); wall and CPU in minutes; RSS in MiB.\relax }{table.7}{}}
+\gdef \LT@viii {\LT@entry 
+    {3}{45.90675pt}\LT@entry 
+    {3}{37.69429pt}\LT@entry 
+    {3}{37.69429pt}\LT@entry 
+    {3}{38.09428pt}\LT@entry 
+    {3}{32.04187pt}\LT@entry 
+    {3}{36.66684pt}\LT@entry 
+    {3}{41.6918pt}\LT@entry 
+    {3}{36.66684pt}\LT@entry 
+    {3}{36.66684pt}\LT@entry 
+    {3}{41.29181pt}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {13.1.3}Structured hexahedral mesh, front-aware hybrid (\texttt  {\small  frontAwareHybrid true})}{22}{subsubsection.13.1.3}\protected@file@percent }
+\newlabel{sec:res2d:hexaT}{{13.1.3}{22}{Structured hexahedral mesh, front-aware hybrid (\code {frontAwareHybrid true})}{subsubsection.13.1.3}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces Per-case performance --- structured hexahedral mesh, front-aware hybrid, all \texttt  {\small  Picard}. For each triplet \texttt  {\small  (Vm, states, Iion)} the rows list the available $\Delta x$ [mm] and the columns the three $\Delta t$, grouped three metrics at a time. \textsc  {fail} = no ignition (the run is aborted at $t=\SI {0.02}{s}$ by the failure detector); a P8 value implies full activation of the domain; \texttt  {--} = combination not run. $N_{\mathrm  {nl}}$ and $N_{\mathrm  {lin}}$ are the totals of nonlinear and linear iterations (deterministic); wall and CPU in minutes; RSS in MiB.\relax }}{22}{table.8}\protected@file@percent }
+\newlabel{tab:res2d:hexaT}{{8}{22}{Per-case performance --- structured hexahedral mesh, front-aware hybrid, all \code {Picard}. For each triplet \code {(Vm, states, Iion)} the rows list the available $\Delta x$ [mm] and the columns the three $\Delta t$, grouped three metrics at a time. \textsc {fail} = no ignition (the run is aborted at $t=\SI {0.02}{s}$ by the failure detector); a P8 value implies full activation of the domain; \texttt {--} = combination not run. $N_{\mathrm {nl}}$ and $N_{\mathrm {lin}}$ are the totals of nonlinear and linear iterations (deterministic); wall and CPU in minutes; RSS in MiB.\relax }{table.8}{}}
+\gdef \LT@ix {\LT@entry 
+    {3}{45.90675pt}\LT@entry 
+    {3}{33.06932pt}\LT@entry 
+    {3}{33.06932pt}\LT@entry 
+    {3}{33.46931pt}\LT@entry 
+    {3}{32.04187pt}\LT@entry 
+    {3}{32.04187pt}\LT@entry 
+    {3}{37.06683pt}\LT@entry 
+    {3}{36.66684pt}\LT@entry 
+    {3}{36.66684pt}\LT@entry 
+    {3}{41.29181pt}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {13.1.4}Unstructured triangular mesh, no hybrid}{23}{subsubsection.13.1.4}\protected@file@percent }
+\newlabel{sec:res2d:triF}{{13.1.4}{23}{Unstructured triangular mesh, no hybrid}{subsubsection.13.1.4}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {9}{\ignorespaces Per-case performance --- unstructured triangular mesh, no hybrid, all \texttt  {\small  Picard}. For each triplet \texttt  {\small  (Vm, states, Iion)} the rows list the available $\Delta x$ [mm] and the columns the three $\Delta t$, grouped three metrics at a time. \textsc  {fail} = no ignition (the run is aborted at $t=\SI {0.02}{s}$ by the failure detector); a P8 value implies full activation of the domain; \texttt  {--} = combination not run. $N_{\mathrm  {nl}}$ and $N_{\mathrm  {lin}}$ are the totals of nonlinear and linear iterations (deterministic); wall and CPU in minutes; RSS in MiB.\relax }}{23}{table.9}\protected@file@percent }
+\newlabel{tab:res2d:triF}{{9}{23}{Per-case performance --- unstructured triangular mesh, no hybrid, all \code {Picard}. For each triplet \code {(Vm, states, Iion)} the rows list the available $\Delta x$ [mm] and the columns the three $\Delta t$, grouped three metrics at a time. \textsc {fail} = no ignition (the run is aborted at $t=\SI {0.02}{s}$ by the failure detector); a P8 value implies full activation of the domain; \texttt {--} = combination not run. $N_{\mathrm {nl}}$ and $N_{\mathrm {lin}}$ are the totals of nonlinear and linear iterations (deterministic); wall and CPU in minutes; RSS in MiB.\relax }{table.9}{}}
+\gdef \LT@x {\LT@entry 
+    {3}{45.90675pt}\LT@entry 
+    {3}{33.06932pt}\LT@entry 
+    {3}{33.06932pt}\LT@entry 
+    {3}{33.46931pt}\LT@entry 
+    {3}{32.04187pt}\LT@entry 
+    {3}{32.04187pt}\LT@entry 
+    {3}{37.06683pt}\LT@entry 
+    {3}{36.66684pt}\LT@entry 
+    {3}{36.66684pt}\LT@entry 
+    {3}{41.29181pt}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {13.1.5}Unstructured triangular mesh, front-aware hybrid}{24}{subsubsection.13.1.5}\protected@file@percent }
+\newlabel{sec:res2d:triT}{{13.1.5}{24}{Unstructured triangular mesh, front-aware hybrid}{subsubsection.13.1.5}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {10}{\ignorespaces Per-case performance --- unstructured triangular mesh, front-aware hybrid, all \texttt  {\small  Picard}. For each triplet \texttt  {\small  (Vm, states, Iion)} the rows list the available $\Delta x$ [mm] and the columns the three $\Delta t$, grouped three metrics at a time. \textsc  {fail} = no ignition (the run is aborted at $t=\SI {0.02}{s}$ by the failure detector); a P8 value implies full activation of the domain; \texttt  {--} = combination not run. $N_{\mathrm  {nl}}$ and $N_{\mathrm  {lin}}$ are the totals of nonlinear and linear iterations (deterministic); wall and CPU in minutes; RSS in MiB.\relax }}{24}{table.10}\protected@file@percent }
+\newlabel{tab:res2d:triT}{{10}{24}{Per-case performance --- unstructured triangular mesh, front-aware hybrid, all \code {Picard}. For each triplet \code {(Vm, states, Iion)} the rows list the available $\Delta x$ [mm] and the columns the three $\Delta t$, grouped three metrics at a time. \textsc {fail} = no ignition (the run is aborted at $t=\SI {0.02}{s}$ by the failure detector); a P8 value implies full activation of the domain; \texttt {--} = combination not run. $N_{\mathrm {nl}}$ and $N_{\mathrm {lin}}$ are the totals of nonlinear and linear iterations (deterministic); wall and CPU in minutes; RSS in MiB.\relax }{table.10}{}}
+\@writefile{toc}{\contentsline {paragraph}{Discussion of the 2D results (\texttt  {\small  Picard}).}{25}{section*.21}\protected@file@percent }
+\@writefile{toc}{\contentsline {subparagraph}{Converged reference value.}{25}{section*.22}\protected@file@percent }
+\newlabel{eq:p8ref}{{39}{25}{Converged reference value}{equation.13.39}{}}
+\gdef \LT@xi {\LT@entry 
+    {1}{26.64435pt}\LT@entry 
+    {1}{27.67212pt}\LT@entry 
+    {1}{43.49974pt}\LT@entry 
+    {1}{74.99947pt}}
+\newlabel{sec:res2d:reco}{{13.1.5}{27}{Recommended configuration}{section*.23}{}}
+\@writefile{toc}{\contentsline {subparagraph}{Recommended configuration.}{27}{section*.23}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {13.2}3D Niederer-style benchmark}{27}{subsection.13.2}\protected@file@percent }
+\newlabel{sec:results:3D}{{13.2}{27}{3D Niederer-style benchmark}{subsection.13.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {11}{\ignorespaces 3D P8 activation time [ms] at $\Delta x = 0.5$~mm, $\Delta t = 10^{-4}$~s. The columns are the available nonlinear methods.\relax }}{27}{table.11}\protected@file@percent }
+\gdef \LT@xii {\LT@entry 
+    {1}{26.64435pt}\LT@entry 
+    {1}{27.67212pt}\LT@entry 
+    {1}{43.49974pt}\LT@entry 
+    {1}{74.99947pt}}
+\gdef \LT@xiii {\LT@entry 
+    {1}{26.64435pt}\LT@entry 
+    {1}{27.67212pt}\LT@entry 
+    {1}{43.49974pt}\LT@entry 
+    {1}{74.99947pt}}
+\@writefile{lot}{\contentsline {table}{\numberline {12}{\ignorespaces 3D solver wall-clock time [min] at $\Delta x = 0.5$~mm, $\Delta t = 10^{-4}$~s.\relax }}{28}{table.12}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {13}{\ignorespaces 3D peak resident set size [MiB] at $\Delta x = 0.5$~mm, $\Delta t = 10^{-4}$~s.\relax }}{28}{table.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Discussion of the 3D results.}{28}{section*.24}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {A}Dimension table}{28}{appendix.A}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {B}File map}{29}{appendix.B}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {C}Linear-algebra back-ends and sibling solver}{29}{appendix.C}\protected@file@percent }
+\newlabel{sec:backends}{{C}{29}{Linear-algebra back-ends and sibling solver}{appendix.C}{}}
+\@writefile{toc}{\contentsline {paragraph}{Sibling solver \texttt  {\small  highOrderElectroActivationFoamImplicit}.}{29}{section*.25}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {D}Performance optimisations}{30}{appendix.D}\protected@file@percent }
+\newlabel{sec:optim}{{D}{30}{Performance optimisations}{appendix.D}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {D.1}Matrix and factorisation reuse (Phase B)}{30}{subsection.D.1}\protected@file@percent }
+\newlabel{sec:optim-B}{{D.1}{30}{Matrix and factorisation reuse (Phase B)}{subsection.D.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {D.2}Diffusion preconditioner for JFNK (A3)}{30}{subsection.D.2}\protected@file@percent }
+\newlabel{sec:optim-A3}{{D.2}{30}{Diffusion preconditioner for JFNK (A3)}{subsection.D.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {D.3}Parallel ionic ODE integration (C1)}{30}{subsection.D.3}\protected@file@percent }
+\newlabel{sec:optim-C1}{{D.3}{30}{Parallel ionic ODE integration (C1)}{subsection.D.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {D.4}AMG preconditioners (C3)}{31}{subsection.D.4}\protected@file@percent }
+\newlabel{sec:optim-C3}{{D.4}{31}{AMG preconditioners (C3)}{subsection.D.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{Summary of new keys.}{31}{section*.26}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {E}Performance experiments}{31}{appendix.E}\protected@file@percent }
+\newlabel{sec:exp}{{E}{31}{Performance experiments}{appendix.E}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {E.1}Phase B: identical and faster in Picard}{31}{subsection.E.1}\protected@file@percent }
+\newlabel{sec:exp-B}{{E.1}{31}{Phase B: identical and faster in Picard}{subsection.E.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {E.2}A3: diffusion preconditioner in JFNK}{31}{subsection.E.2}\protected@file@percent }
+\newlabel{sec:exp-A3}{{E.2}{31}{A3: diffusion preconditioner in JFNK}{subsection.E.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {E.3}C1: ODE parallelisation (does not help in this problem)}{32}{subsection.E.3}\protected@file@percent }
+\newlabel{sec:exp-C1}{{E.3}{32}{C1: ODE parallelisation (does not help in this problem)}{subsection.E.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {E.4}Internal PETSc/BLAS threading (counterproductive in Picard)}{32}{subsection.E.4}\protected@file@percent }
+\newlabel{sec:exp-threads}{{E.4}{32}{Internal PETSc/BLAS threading (counterproductive in Picard)}{subsection.E.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {E.5}Linear solver: AMG vs.\ ILU (the solve is not the bottleneck)}{32}{subsection.E.5}\protected@file@percent }
+\newlabel{sec:exp-gamg}{{E.5}{32}{Linear solver: AMG vs.\ ILU (the solve is not the bottleneck)}{subsection.E.5}{}}
+\bibcite{ttp2004}{1}
+\bibcite{niederer2012}{2}
+\bibcite{knoll2004}{3}
+\bibcite{noceWright}{4}
+\bibcite{saadbook}{5}
+\bibcite{hairer2}{6}
+\@writefile{toc}{\contentsline {subsection}{\numberline {E.6}Synthesis and recommendations}{33}{subsection.E.6}\protected@file@percent }
+\newlabel{sec:exp-sintesis}{{E.6}{33}{Synthesis and recommendations}{subsection.E.6}{}}
+\gdef \@abspage@last{33}

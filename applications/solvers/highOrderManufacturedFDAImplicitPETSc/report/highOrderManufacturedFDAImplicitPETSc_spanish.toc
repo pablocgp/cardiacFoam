@@ -1,0 +1,71 @@
+\babel@toc {spanish}{}\relax 
+\contentsline {section}{\numberline {1}Propósito y notación}{3}{section.1}%
+\contentsline {section}{\numberline {2}Ecuaciones de gobierno}{3}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Motivación de electrofisiología}{3}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Sistema PDE--ODE manufacturado}{4}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Solución exacta y el rol de $\beta $}{4}{subsection.2.3}%
+\contentsline {section}{\numberline {3}Discretización espacial}{5}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Forma integral de volúmenes finitos}{5}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Operador centrado en celda (estándar)}{5}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Operador LRE de alto orden}{5}{subsection.3.3}%
+\contentsline {paragraph}{Vector $\mathsf {b}(t)$ }{6}{section*.2}%
+\contentsline {subsection}{\numberline {3.4}Matrices de masa lumped y consistente}{7}{subsection.3.4}%
+\contentsline {subsection}{\numberline {3.5}Promediado de alto orden de $I_{\mathrm {ion}}$ y estados}{7}{subsection.3.5}%
+\contentsline {section}{\numberline {4}Integración temporal}{8}{section.4}%
+\contentsline {subsection}{\numberline {4.1}El método $\theta $}{8}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Estados ODE dentro de un paso de tiempo de la PDE}{9}{subsection.4.2}%
+\contentsline {section}{\numberline {5}Solver no lineal acoplado}{9}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Residuo y diagnósticos}{9}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Método de punto fijo de Picard}{10}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Linealización diagonal de $I_{\mathrm {ion}}$}{11}{subsection.5.3}%
+\contentsline {subsection}{\numberline {5.4}Jacobian-free Newton--Krylov}{12}{subsection.5.4}%
+\contentsline {subsection}{\numberline {5.5}Búsqueda de línea de Armijo y rollback}{13}{subsection.5.5}%
+\contentsline {subsection}{\numberline {5.6}Comparación métodos}{14}{subsection.5.6}%
+\contentsline {paragraph}{Picard}{14}{section*.3}%
+\contentsline {paragraph}{diagonalIion}{14}{section*.4}%
+\contentsline {section}{\numberline {6}Back-end de álgebra lineal y notas de implementación}{15}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Precondicionador JFNK: ILU(T) de \texttt {\small diagonalIion}}{16}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Ensamblaje por chunks de $\mathbf {M}$ y $\mathbf {K}$}{17}{subsection.6.2}%
+\contentsline {subsection}{\numberline {6.3}Distribución de memoria en el bucle temporal}{17}{subsection.6.3}%
+\contentsline {section}{\numberline {7}Precisión teórica y pisos de error prácticos}{18}{section.7}%
+\contentsline {section}{\numberline {8}Controles del solver}{19}{section.8}%
+\contentsline {section}{\numberline {9}Diagnósticos de salida}{21}{section.9}%
+\contentsline {section}{\numberline {10}Medidas de error y tasas de convergencia}{21}{section.10}%
+\contentsline {section}{\numberline {11}Resultados}{22}{section.11}%
+\contentsline {subsection}{\numberline {11.1}Auditoría de rollback y robustez no lineal}{23}{subsection.11.1}%
+\contentsline {subsection}{\numberline {11.2}Problema manufacturado bidimensional}{24}{subsection.11.2}%
+\contentsline {subsubsection}{\numberline {11.2.1}\texttt {\small Picard}}{24}{subsubsection.11.2.1}%
+\contentsline {paragraph}{$\Delta t=10^{-2}$}{24}{section*.6}%
+\contentsline {paragraph}{$\Delta t=10^{-3}$}{27}{section*.7}%
+\contentsline {subsubsection}{\numberline {11.2.2}\texttt {\small diagonalIion}}{30}{subsubsection.11.2.2}%
+\contentsline {paragraph}{$\Delta t=10^{-2}$}{30}{section*.8}%
+\contentsline {paragraph}{$\Delta t=10^{-3}$}{33}{section*.9}%
+\contentsline {subsubsection}{\numberline {11.2.3}\texttt {\small JFNK}}{36}{subsubsection.11.2.3}%
+\contentsline {paragraph}{$\Delta t=10^{-2}$}{36}{section*.10}%
+\contentsline {paragraph}{$\Delta t=10^{-3}$}{39}{section*.11}%
+\contentsline {subsection}{\numberline {11.3}Discusión de los resultados 2D}{41}{subsection.11.3}%
+\contentsline {paragraph}{Los tres métodos no lineales son numéricamente indistinguibles.}{41}{section*.12}%
+\contentsline {paragraph}{En este régimen Picard es el más barato, pese a necesitar más iteraciones.}{42}{section*.13}%
+\contentsline {paragraph}{Sólo los grados impares de reconstrucción compran un orden nuevo.}{42}{section*.14}%
+\contentsline {paragraph}{El operador estándar pierde consistencia en la malla no estructurada.}{42}{section*.15}%
+\contentsline {paragraph}{El cuello de botella se desplaza al camino iónico cuando $V_{\text {m}}$ es de alto orden.}{42}{section*.16}%
+\contentsline {paragraph}{\texttt {\small cellCentredReconstruct} domina a \texttt {\small gaussPointODE}.}{43}{section*.17}%
+\contentsline {paragraph}{Con $\Delta t=10^{-2}$ el piso temporal contamina las tasas de los estados.}{43}{section*.18}%
+\contentsline {paragraph}{La estabilización es innecesaria en 2D.}{43}{section*.19}%
+\contentsline {subsection}{\numberline {11.4}Problema manufacturado tridimensional}{43}{subsection.11.4}%
+\contentsline {subsubsection}{\numberline {11.4.1}\texttt {\small Picard}}{43}{subsubsection.11.4.1}%
+\contentsline {paragraph}{$\Delta t=10^{-2}$}{43}{section*.20}%
+\contentsline {paragraph}{$\Delta t=10^{-3}$}{46}{section*.21}%
+\contentsline {subsubsection}{\numberline {11.4.2}\texttt {\small diagonalIion}}{49}{subsubsection.11.4.2}%
+\contentsline {paragraph}{$\Delta t=10^{-2}$}{49}{section*.22}%
+\contentsline {paragraph}{$\Delta t=10^{-3}$}{52}{section*.23}%
+\contentsline {subsubsection}{\numberline {11.4.3}\texttt {\small JFNK}}{55}{subsubsection.11.4.3}%
+\contentsline {paragraph}{$\Delta t=10^{-2}$}{55}{section*.24}%
+\contentsline {paragraph}{$\Delta t=10^{-3}$}{58}{section*.25}%
+\contentsline {subsection}{\numberline {11.5}Discusión de los resultados 3D}{60}{subsection.11.5}%
+\contentsline {paragraph}{La estructura cualitativa se repite, pero el barrido 3D es pre-asintótico.}{60}{section*.26}%
+\contentsline {paragraph}{El error temporal no interviene en 3D.}{61}{section*.27}%
+\contentsline {paragraph}{La estabilización sí importa en 3D, y su signo depende del caso.}{61}{section*.28}%
+\contentsline {paragraph}{La malla tetraédrica no estructurada supera a la hexaédrica en alto orden.}{61}{section*.29}%
+\contentsline {paragraph}{El alto orden en 3D está limitado por la memoria, no por el solver.}{61}{section*.30}%
+\contentsline {paragraph}{Recomendación de configuración.}{61}{section*.31}%

@@ -71,6 +71,41 @@ namespace
     using Triplet = Eigen::Triplet<scalar>;
     using EigVec = Eigen::Matrix<scalar, Eigen::Dynamic, 1>;
 
+    // How a persistent linear solver should treat the matrix on a given solve
+    // (Phase B: reuse factorisations instead of rebuilding them every call).
+    //   Rebuild    : first use, or the sparsity pattern / dt changed -> full
+    //                allocation + symbolic factorisation + numeric setup.
+    //   ValuesOnly : same pattern, values changed (e.g. diagonalIion adds a
+    //                fresh diagonal each nonlinear iteration) -> refresh values
+    //                and re-factorise, but reuse the allocation and pattern.
+    //   Reuse      : matrix identical to the previous solve (Picard with a
+    //                constant operator) -> no matrix touch at all, just solve.
+    enum class MatrixUpdate
+    {
+        Rebuild,
+        ValuesOnly,
+        Reuse
+    };
+
+    // Persistent Eigen factorisations reused across time steps / nonlinear
+    // iterations (mirror of the persistent PetscKspMatrixSolver for the Eigen
+    // backend). The symbolic analysis (analyzePattern) is done once; only the
+    // numeric factorisation is repeated when the values change.
+    struct PersistentEigenSolvers
+    {
+        Eigen::SparseLU<SpMat> lu;
+        bool luAnalyzed = false;
+        Eigen::BiCGSTAB<SpMat, Eigen::IncompleteLUT<scalar>> bicgstab;
+
+        // Incomplete-LU preconditioner for the matrix-free JFNK Jacobian
+        // (Phase A3). An exact LU of the wide-stencil high-order operator has
+        // impractical fill-in; ILUT gives a cheap, bounded-fill approximation
+        // of M^{-1} that is very effective here since AImplicit ~ M/dt is
+        // strongly diagonally dominant for small dt.
+        Eigen::IncompleteLUT<scalar> jfnkPrec;
+        bool jfnkPrecComputed = false;
+    };
+
     void checkPetscError(const PetscErrorCode ierr, const char* context)
     {
         if (ierr)
@@ -152,6 +187,20 @@ namespace
         if (s == "lu" || s == "sparselu")
         {
             return "lu";
+        }
+        // Phase C3: algebraic multigrid convenience aliases. For the assembled
+        // (Picard / diagonalIion) branch the monodomain operator is SPD, so
+        // "kspType cg" + "pcType gamg" (PETSc native AMG) or "hypre" (BoomerAMG)
+        // scales far better than ILU/BiCGSTAB/LU on large 3D meshes. Any other
+        // PETSc PC name (gamg, hypre, gasm, bjacobi, ...) already passes through
+        // unchanged below, so no explicit mapping is required for them.
+        if (s == "amg")
+        {
+            return "gamg";
+        }
+        if (s == "boomeramg")
+        {
+            return "hypre";
         }
 
         return s;
@@ -437,7 +486,7 @@ namespace
             return n_;
         }
 
-        void updateValues(const SpMat& A)
+        void updateValues(const SpMat& A, const bool reusePreconditioner = false)
         {
             if (!isInitialised())
             {
@@ -479,7 +528,15 @@ namespace
 
             checkPetscError(MatAssemblyBegin(A_, MAT_FINAL_ASSEMBLY), "MatAssemblyBegin(updateValues)");
             checkPetscError(MatAssemblyEnd(A_, MAT_FINAL_ASSEMBLY), "MatAssemblyEnd(updateValues)");
-            checkPetscError(KSPSetReusePreconditioner(ksp_, PETSC_FALSE), "KSPSetReusePreconditioner(updateValues)");
+            checkPetscError
+            (
+                KSPSetReusePreconditioner
+                (
+                    ksp_,
+                    reusePreconditioner ? PETSC_TRUE : PETSC_FALSE
+                ),
+                "KSPSetReusePreconditioner(updateValues)"
+            );
             checkPetscError(KSPSetUp(ksp_), "KSPSetUp(updateValues)");
         }
 
@@ -714,6 +771,10 @@ namespace
                 checkPetscError(PCSetType(pc, PCSHELL), "PCSetType(cached shell PCSHELL)");
                 checkPetscError(PCShellSetContext(pc, &pcContext_), "PCShellSetContext(cached)");
                 checkPetscError(PCShellSetApply(pc, petscShellPCApply), "PCShellSetApply(cached)");
+                // Right preconditioning so the KSP monitors the true residual
+                // ||b - A x|| (matching the Eigen solveGMRES path), rather than
+                // the left-preconditioned residual ||M^{-1}(b - A x)||.
+                checkPetscError(KSPSetPCSide(ksp_, PC_RIGHT), "KSPSetPCSide(cached shell)");
                 hasShellPC_ = true;
             }
             else
@@ -1896,14 +1957,40 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             return exportedNames_;
         }
 
+        // Initialise the ionic states on the point set the caller owns.
+        //
+        // The caller sizes the state array to the point set the ODE is
+        // integrated on, and that is NOT always nPoints_: with
+        // stateIntegrationMode = cellCentredReconstruct the ODE is driven by
+        // the cell-centred Vm, so the array holds mesh.nCells() entries while
+        // nPoints_ counts the Iion Gauss points. Resizing to nPoints_ here
+        // used to make the size guard in solveODE()/calculateCurrent()
+        // permanently unsatisfiable in that mode, so the guard re-fired on
+        // every call and silently reset the whole cell model to its resting
+        // state at every time step (no state history could ever accumulate).
+        //
+        // The per-point scratch (rates_, algebraic_, stepMs_) is sized in the
+        // constructor to nPoints_, the largest point count the model is ever
+        // driven with, and is left alone here.
         void initialiseStates(Field<Field<scalar>>& states)
         {
-            states.setSize(nPoints_);
+            if (states.empty())
+            {
+                states.setSize(nPoints_);
+            }
+
+            // The scratch is indexed by the point set being integrated, which
+            // may be larger than states.size(); keep it covering all nPoints_
+            // entries regardless of how many states the caller holds.
+            forAll(rates_, pointI)
+            {
+                rates_[pointI].setSize(NUM_STATES, 0.0);
+                algebraic_[pointI].setSize(NUM_ALGEBRAIC, 0.0);
+            }
+
             forAll(states, pointI)
             {
                 states[pointI].setSize(NUM_STATES, 0.0);
-                rates_[pointI].setSize(NUM_STATES, 0.0);
-                algebraic_[pointI].setSize(NUM_ALGEBRAIC, 0.0);
                 TNNPinitConsts
                 (
                     constants_.data(),
@@ -1944,9 +2031,18 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                     << "Im.size() != Vm.size()" << abort(FatalError);
             }
 
+            // A mismatch here is a programming error, not something to repair
+            // on the fly: re-initialising would discard the accumulated state
+            // history. The state array must already be sized to the point set
+            // it is integrated on (mesh.nCells() for cellCentredReconstruct,
+            // the Iion Gauss points otherwise).
             if (states.size() != Vm.size())
             {
-                initialiseStates(states);
+                FatalErrorInFunction
+                    << "states.size() = " << states.size()
+                    << " != Vm.size() = " << Vm.size() << nl
+                    << "The ionic state array must be sized to the point set "
+                    << "it is integrated on." << abort(FatalError);
             }
 
             forAll(Vm, pointI)
@@ -1976,9 +2072,18 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                     << "Im.size() != Vm.size()" << abort(FatalError);
             }
 
+            // A mismatch here is a programming error, not something to repair
+            // on the fly: re-initialising would discard the accumulated state
+            // history. The state array must already be sized to the point set
+            // it is integrated on (mesh.nCells() for cellCentredReconstruct,
+            // the Iion Gauss points otherwise).
             if (states.size() != Vm.size())
             {
-                initialiseStates(states);
+                FatalErrorInFunction
+                    << "states.size() = " << states.size()
+                    << " != Vm.size() = " << Vm.size() << nl
+                    << "The ionic state array must be sized to the point set "
+                    << "it is integrated on." << abort(FatalError);
             }
 
             forAll(Vm, pointI)
@@ -2456,9 +2561,19 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         const label maxRestarts,
         const scalar tolerance,
         label& iterations,
-        scalar& estimatedError
+        scalar& estimatedError,
+        const std::function<EigVec(const EigVec&)>* applyPreconditioner = nullptr
     )
     {
+        // Right preconditioning (Phase A3): solve  A M^{-1} u = b,  x = M^{-1} u.
+        // The Arnoldi operator becomes A M^{-1} and the correction V*y is mapped
+        // back through M^{-1}; the least-squares residual still equals the true
+        // residual ||b - A x||, and the restart residual uses the raw A. When no
+        // preconditioner is supplied, applyPrec is the identity (unchanged GMRES).
+        auto applyPrec = [&](const EigVec& v) -> EigVec
+        {
+            return applyPreconditioner ? (*applyPreconditioner)(v) : v;
+        };
         const label n = b.size();
         const label m = min(max(krylovDim, label(1)), label(n));
         const label maxOuter = max(maxRestarts, label(0));
@@ -2497,8 +2612,8 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             {
                 ++iterations;
 
-                // Arnoldi step: form w = A * V[j]
-                EigVec w = matVec(V[j]);
+                // Arnoldi step: form w = A * M^{-1} * V[j]
+                EigVec w = matVec(applyPrec(V[j]));
 
                 // Modified Gram-Schmidt orthogonalisation.
                 //
@@ -2532,12 +2647,15 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                 g[0] = beta;
                 const EigVec y = Hj.colPivHouseholderQr().solve(g);
 
-                // Reconstruct candidate iterate: x_j = x_restart + V_j * y
-                EigVec xj = x;
+                // Reconstruct candidate iterate: x_j = x_restart + M^{-1}(V_j * y)
+                // The correction lives in the preconditioned space and is mapped
+                // back with M^{-1} (identity when unpreconditioned).
+                EigVec Vy = EigVec::Zero(n);
                 for (label i = 0; i <= j; ++i)
                 {
-                    xj += y[i]*V[i];
+                    Vy += y[i]*V[i];
                 }
+                EigVec xj = x + applyPrec(Vy);
 
                 // In GMRES theory the residual norm of the least-squares
                 // problem equals the true residual norm:
@@ -3398,20 +3516,35 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         const scalar tol,
         const label maxIter,
         label& linearIterations,
-        scalar& linearError
+        scalar& linearError,
+        PersistentEigenSolvers& persistent,
+        const MatrixUpdate updatePolicy
     )
     {
         if (linearSolver == "SparseLU")
         {
-            Eigen::SparseLU<SpMat> solver;
-            solver.analyzePattern(A);
-            solver.factorize(A);
+            Eigen::SparseLU<SpMat>& solver = persistent.lu;
 
-            if (solver.info() != Eigen::Success)
+            // Symbolic analysis depends only on the sparsity pattern, which is
+            // constant for the whole run: do it once. The numeric factorisation
+            // is redone whenever the values change (Rebuild / ValuesOnly) and
+            // skipped entirely when the matrix is unchanged (Reuse).
+            if (updatePolicy != MatrixUpdate::Reuse)
             {
-                FatalErrorInFunction
-                    << "SparseLU factorization failed"
-                    << exit(FatalError);
+                if (!persistent.luAnalyzed)
+                {
+                    solver.analyzePattern(A);
+                    persistent.luAnalyzed = true;
+                }
+
+                solver.factorize(A);
+
+                if (solver.info() != Eigen::Success)
+                {
+                    FatalErrorInFunction
+                        << "SparseLU factorization failed"
+                        << exit(FatalError);
+                }
             }
 
             EigVec x = solver.solve(b);
@@ -3429,16 +3562,23 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         }
         else if (linearSolver == "BiCGSTAB")
         {
-            Eigen::BiCGSTAB<SpMat, Eigen::IncompleteLUT<scalar>> solver;
+            Eigen::BiCGSTAB<SpMat, Eigen::IncompleteLUT<scalar>>& solver =
+                persistent.bicgstab;
             solver.setTolerance(tol);
             solver.setMaxIterations(maxIter);
-            solver.compute(A);
 
-            if (solver.info() != Eigen::Success)
+            // compute() builds the incomplete-LU preconditioner; reuse it when
+            // the matrix is unchanged.
+            if (updatePolicy != MatrixUpdate::Reuse)
             {
-                FatalErrorInFunction
-                    << "BiCGSTAB setup failed"
-                    << exit(FatalError);
+                solver.compute(A);
+
+                if (solver.info() != Eigen::Success)
+                {
+                    FatalErrorInFunction
+                        << "BiCGSTAB setup failed"
+                        << exit(FatalError);
+                }
             }
 
             EigVec x = solver.solve(b);
@@ -3477,42 +3617,68 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         const scalar tol,
         const label maxIter,
         label& linearIterations,
-        scalar& linearError
+        scalar& linearError,
+        PetscKspMatrixSolver& petscSolver,
+        PersistentEigenSolvers& eigenSolvers,
+        const MatrixUpdate updatePolicy,
+        const bool reusePreconditioner
     )
     {
         if (usesPetscBackend(linearSolverBackend))
         {
-            word kspType(petscKspType);
-            word pcType(petscPcType);
-
-            if (linearSolver == "SparseLU" || linearSolver == "LU")
+            // Reuse the persistent KSP/factorisation across time steps and
+            // nonlinear iterations (Phase B). The matrix is only reassembled
+            // into PETSc when the pattern changes (Rebuild) or its values
+            // change (ValuesOnly); a constant operator (Reuse) skips both.
+            switch (updatePolicy)
             {
-                kspType = "preonly";
-                pcType = "lu";
-            }
-            else if
-            (
-                linearSolver == "BiCGSTAB"
-             && petscKspType == linearSolver
-            )
-            {
-                kspType = "bcgs";
+                case MatrixUpdate::Rebuild:
+                {
+                    word kspType(petscKspType);
+                    word pcType(petscPcType);
+
+                    if (linearSolver == "SparseLU" || linearSolver == "LU")
+                    {
+                        kspType = "preonly";
+                        pcType = "lu";
+                    }
+                    else if
+                    (
+                        linearSolver == "BiCGSTAB"
+                     && petscKspType == linearSolver
+                    )
+                    {
+                        kspType = "bcgs";
+                    }
+
+                    petscSolver.reset
+                    (
+                        A,
+                        kspType,
+                        pcType,
+                        tol,
+                        maxIter,
+                        petscRestart,
+                        petscOptionsPrefix,
+                        petscUseOptions
+                    );
+                    break;
+                }
+
+                case MatrixUpdate::ValuesOnly:
+                {
+                    petscSolver.updateValues(A, reusePreconditioner);
+                    break;
+                }
+
+                case MatrixUpdate::Reuse:
+                {
+                    // Nothing to do: the cached operator is still valid.
+                    break;
+                }
             }
 
-            PetscKspMatrixSolver solver;
-            solver.reset
-            (
-                A,
-                kspType,
-                pcType,
-                tol,
-                maxIter,
-                petscRestart,
-                petscOptionsPrefix,
-                petscUseOptions
-            );
-
-            return solver.solve(b, linearIterations, linearError);
+            return petscSolver.solve(b, linearIterations, linearError);
         }
 
         return solveSparseSystemEigen
@@ -3523,7 +3689,9 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             tol,
             maxIter,
             linearIterations,
-            linearError
+            linearError,
+            eigenSolvers,
+            updatePolicy
         );
     }
 
@@ -4514,6 +4682,21 @@ int main(int argc, char* argv[])
         false
     );
 
+    // ----------------------------------------------------------------------- //
+    // Phase B: persistent linear-solver state, reused across time steps and
+    // nonlinear iterations. AImplicit/BImplicit only depend on the (constant)
+    // M, L and theta and on dt, which is fixed except on the final clipped
+    // step; they are therefore assembled once and rebuilt only when dt changes.
+    // The factorisations (PETSc KSP or Eigen) live for the whole run and are
+    // refreshed according to the MatrixUpdate policy computed each solve.
+    // ----------------------------------------------------------------------- //
+    SpMat AImplicit;
+    SpMat BImplicit;
+    scalar assembledDt = -1.0;
+    bool linearSolverNeedsRebuild = true;
+    PetscKspMatrixSolver persistentPetscSolver;
+    PersistentEigenSolvers persistentEigenSolvers;
+
     while (runTime.value() < effectiveEndTime - SMALL)
     {
         const scalar t0 = runTime.value();
@@ -4546,19 +4729,30 @@ int main(int argc, char* argv[])
         //
         //   M is either the lumped (diagonal) or consistent high-order mass
         //   matrix; L already carries the 1/(chi*Cm) scaling.
+        //
+        //   Phase B: AImplicit/BImplicit are constant while dt is unchanged, so
+        //   they are only reassembled on the first step and whenever dt changes
+        //   (the final clipped step). A dt change also forces the persistent
+        //   factorisation to be rebuilt on the next solve.
         // ----------------------------------------------------------------- //
-        SpMat AImplicit = M;
-        AImplicit *= (1.0/dt);
-        AImplicit -= theta*L;
-
-        SpMat BImplicit = M;
-        BImplicit *= (1.0/dt);
-        if (theta < 1.0 - SMALL)
+        if (mag(dt - assembledDt) > SMALL)
         {
-            // Crank-Nicolson (or any theta < 1) needs the explicit half of
-            // the diffusion operator on the right-hand side. For pure
-            // Backward Euler (theta=1) this term vanishes and is skipped.
-            BImplicit += (1.0 - theta)*L;
+            AImplicit = M;
+            AImplicit *= (1.0/dt);
+            AImplicit -= theta*L;
+
+            BImplicit = M;
+            BImplicit *= (1.0/dt);
+            if (theta < 1.0 - SMALL)
+            {
+                // Crank-Nicolson (or any theta < 1) needs the explicit half of
+                // the diffusion operator on the right-hand side. For pure
+                // Backward Euler (theta=1) this term vanishes and is skipped.
+                BImplicit += (1.0 - theta)*L;
+            }
+
+            assembledDt = dt;
+            linearSolverNeedsRebuild = true;
         }
 
         volScalarField VmOld
@@ -5210,6 +5404,42 @@ int main(int argc, char* argv[])
         {
             EigVec x = fieldToEigVec(VmGuess);
 
+            // ------------------------------------------------------------- //
+            // Phase A3: diffusion preconditioner for the matrix-free Jacobian.
+            //
+            // M = AImplicit is the constant, SPD linear part of the Jacobian.
+            // We LU-factorise it once (reused across time steps; refreshed only
+            // when dt changes, tracked by linearSolverNeedsRebuild) and expose
+            // r -> M^{-1} r as a closure. Each Krylov step then costs one cheap
+            // triangular solve instead of an extra ionic-ODE integration, so the
+            // matvec count (the dominant cost) drops sharply. Disabled by default
+            // (jfnkPreconditioner == "none"), preserving the legacy solve path.
+            // ------------------------------------------------------------- //
+            const bool useJfnkPreconditioner = (jfnkPreconditioner == "diffusion");
+
+            if (useJfnkPreconditioner && linearSolverNeedsRebuild)
+            {
+                // ILUT setup is cheap and has bounded fill; recomputed only when
+                // dt changes (linearSolverNeedsRebuild).
+                persistentEigenSolvers.jfnkPrec.compute(AImplicit);
+                if (persistentEigenSolvers.jfnkPrec.info() != Eigen::Success)
+                {
+                    FatalErrorInFunction
+                        << "JFNK diffusion preconditioner: AImplicit ILUT "
+                        << "factorization failed" << exit(FatalError);
+                }
+                persistentEigenSolvers.jfnkPrecComputed = true;
+                linearSolverNeedsRebuild = false;
+            }
+
+            const std::function<EigVec(const EigVec&)> jfnkPrecApply =
+                [&](const EigVec& r) -> EigVec
+                {
+                    return persistentEigenSolvers.jfnkPrec.solve(r);
+                };
+            const std::function<EigVec(const EigVec&)>* jfnkPrecApplyPtr =
+                useJfnkPreconditioner ? &jfnkPrecApply : nullptr;
+
             // IMPORTANT: residualFor and standardResidual must use an explicit
             // `-> EigVec` return type. Without it, the deduced return type is
             // Eigen's expression-template (CwiseBinaryOp<..., Product<...>>),
@@ -5371,14 +5601,14 @@ int main(int argc, char* argv[])
                             jfnkLinearTolerance,
                             jfnkPetscOptionsPrefix,
                             petscUseOptions,
-                            false
+                            useJfnkPreconditioner
                         );
                     }
 
                     delta = jfnkPetscShellSolver.solve
                     (
                         std::function<EigVec(const EigVec&)>(matVec),
-                        nullptr,
+                        jfnkPrecApplyPtr,
                         -R,
                         gmresIterations,
                         gmresError
@@ -5394,7 +5624,8 @@ int main(int argc, char* argv[])
                         jfnkMaxRestarts,
                         jfnkLinearTolerance,
                         gmresIterations,
-                        gmresError
+                        gmresError,
+                        jfnkPrecApplyPtr
                     );
                 }
 
@@ -5547,6 +5778,26 @@ int main(int argc, char* argv[])
 
                 label linearIterations = 0;
                 scalar linearError = GREAT;
+
+                // Phase B: decide how the persistent solver treats the matrix.
+                //   - first solve, or dt changed  -> Rebuild (full setup)
+                //   - diagonalIion (diagonal moves every iteration) -> ValuesOnly
+                //   - Picard with a constant operator -> Reuse (solve only)
+                MatrixUpdate updatePolicy;
+                if (linearSolverNeedsRebuild)
+                {
+                    updatePolicy = MatrixUpdate::Rebuild;
+                    linearSolverNeedsRebuild = false;
+                }
+                else if (useDiagonalIion)
+                {
+                    updatePolicy = MatrixUpdate::ValuesOnly;
+                }
+                else
+                {
+                    updatePolicy = MatrixUpdate::Reuse;
+                }
+
                 const EigVec Vsol = solveSparseSystem
                 (
                     ACurrent,
@@ -5561,7 +5812,11 @@ int main(int argc, char* argv[])
                     implicitTolerance,
                     implicitMaxIterations,
                     linearIterations,
-                    linearError
+                    linearError,
+                    persistentPetscSolver,
+                    persistentEigenSolvers,
+                    updatePolicy,
+                    petscReusePreconditioner
                 );
 
                 const EigVec Vprev = fieldToEigVec(VmGuess);

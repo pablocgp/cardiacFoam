@@ -1,0 +1,88 @@
+\babel@toc {spanish}{}\relax 
+\contentsline {section}{\numberline {1}Notación}{3}{section.1}%
+\contentsline {section}{\numberline {2}Ecuaciones de gobierno}{4}{section.2}%
+\contentsline {subsection}{\numberline {2.1}PDE monodominio}{4}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}ODE iónico}{4}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Ecuación MMS manufacturada usada para transferir la convergencia}{4}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}Estímulo externo}{5}{subsection.2.4}%
+\contentsline {section}{\numberline {3}Discretización temporal: el esquema $\theta $}{5}{section.3}%
+\contentsline {section}{\numberline {4}Discretización espacial}{5}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Laplaciano FV ortogonal estándar}{5}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Difusión LRE de alto orden}{6}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Matrices de masa}{6}{subsection.4.3}%
+\contentsline {paragraph}{Lumped (\texttt {\small massMatrix lumped}).}{6}{section*.2}%
+\contentsline {paragraph}{Consistente HO (\texttt {\small massMatrix consistent}).}{6}{section*.3}%
+\contentsline {subsection}{\numberline {4.4}Reconstrucción de alto orden en los puntos de cuadratura iónicos}{6}{subsection.4.4}%
+\contentsline {subsection}{\numberline {4.5}Promediado de alto orden de $I_{\mathrm {ion}}$ a celda}{6}{subsection.4.5}%
+\contentsline {section}{\numberline {5}Integración de states en los puntos de cuadratura iónicos}{6}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Dos modos}{6}{subsection.5.1}%
+\contentsline {paragraph}{\texttt {\small gaussPointODE} (heredado).}{7}{section*.4}%
+\contentsline {paragraph}{\texttt {\small cellCentredReconstruct}.}{7}{section*.5}%
+\contentsline {subsection}{\numberline {5.2}Híbrido consciente del frente (front-aware)}{7}{subsection.5.2}%
+\contentsline {paragraph}{Congelar por paso de tiempo (evitando un ciclo límite).}{7}{section*.6}%
+\contentsline {subsection}{\numberline {5.3}Limitador de la reconstrucción de states}{7}{subsection.5.3}%
+\contentsline {subsection}{\numberline {5.4}Claves de diccionario}{8}{subsection.5.4}%
+\contentsline {section}{\numberline {6}Solver no lineal}{8}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Residuos compartidos y tests de parada}{8}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Método de punto fijo de Picard}{9}{subsection.6.2}%
+\contentsline {paragraph}{Ventajas.}{9}{section*.7}%
+\contentsline {paragraph}{Desventajas.}{9}{section*.8}%
+\contentsline {subsection}{\numberline {6.3}Linealización diagonal de $I_{\mathrm {ion}}$}{9}{subsection.6.3}%
+\contentsline {paragraph}{Ventajas.}{9}{section*.9}%
+\contentsline {paragraph}{Desventajas.}{9}{section*.10}%
+\contentsline {subsection}{\numberline {6.4}Jacobian-Free Newton--Krylov}{9}{subsection.6.4}%
+\contentsline {subsection}{\numberline {6.5}Krylov interno de JFNK}{10}{subsection.6.5}%
+\contentsline {paragraph}{Precondicionador (opcional).}{10}{section*.11}%
+\contentsline {paragraph}{Ventajas.}{10}{section*.12}%
+\contentsline {paragraph}{Desventajas.}{10}{section*.13}%
+\contentsline {subsection}{\numberline {6.6}Búsqueda de línea de retroceso de Armijo}{10}{subsection.6.6}%
+\contentsline {subsection}{\numberline {6.7}Valor inicial, clamp del ODE y rollback}{11}{subsection.6.7}%
+\contentsline {section}{\numberline {7}Solver lineal: back-ends Eigen y PETSc}{11}{section.7}%
+\contentsline {paragraph}{Reutilización de la factorización.}{11}{section*.14}%
+\contentsline {paragraph}{JFNK.}{11}{section*.15}%
+\contentsline {section}{\numberline {8}Integración del ODE iónico}{11}{section.8}%
+\contentsline {section}{\numberline {9}Protección numérica del TNNP}{12}{section.9}%
+\contentsline {section}{\numberline {10}Seguimiento de la activación y benchmarks}{12}{section.10}%
+\contentsline {paragraph}{Tiempo de activación por celda.}{12}{section*.16}%
+\contentsline {paragraph}{Terminación temprana en P8.}{12}{section*.17}%
+\contentsline {paragraph}{Muestreo de la diagonal.}{12}{section*.18}%
+\contentsline {paragraph}{Salida de activación en vivo.}{13}{section*.19}%
+\contentsline {paragraph}{Detección de falla de activación.}{13}{section*.20}%
+\contentsline {section}{\numberline {11}Diagrama de flujo del solver}{13}{section.11}%
+\contentsline {section}{\numberline {12}Driver manufacturado: \texttt {run\_convergence.py}}{15}{section.12}%
+\contentsline {subsection}{\numberline {12.1}Geometría y barrido de parámetros}{15}{subsection.12.1}%
+\contentsline {subsection}{\numberline {12.2}Método no lineal y controles de convergencia}{16}{subsection.12.2}%
+\contentsline {subsection}{\numberline {12.3}Controles de JFNK y de diagonal-Iion}{17}{subsection.12.3}%
+\contentsline {subsection}{\numberline {12.4}Solver lineal del PDE}{18}{subsection.12.4}%
+\contentsline {subsection}{\numberline {12.5}Integrador del ODE de states}{18}{subsection.12.5}%
+\contentsline {subsection}{\numberline {12.6}Parámetros LRE de alto orden por nivel-p}{18}{subsection.12.6}%
+\contentsline {subsection}{\numberline {12.7}Diagnósticos y control de corrida}{18}{subsection.12.7}%
+\contentsline {section}{\numberline {13}Resultados}{19}{section.13}%
+\contentsline {subsection}{\numberline {13.1}Benchmark 2D estilo Niederer}{19}{subsection.13.1}%
+\contentsline {subsubsection}{\numberline {13.1.1}Magnitudes de costo computacional}{19}{subsubsection.13.1.1}%
+\contentsline {subsubsection}{\numberline {13.1.2}Malla hexaédrica estructurada, sin híbrido (\texttt {\small frontAwareHybrid false})}{20}{subsubsection.13.1.2}%
+\contentsline {subsubsection}{\numberline {13.1.3}Malla hexaédrica estructurada, híbrido front-aware (\texttt {\small frontAwareHybrid true})}{22}{subsubsection.13.1.3}%
+\contentsline {subsubsection}{\numberline {13.1.4}Malla triangular no estructurada, sin híbrido}{23}{subsubsection.13.1.4}%
+\contentsline {subsubsection}{\numberline {13.1.5}Malla triangular no estructurada, híbrido front-aware}{24}{subsubsection.13.1.5}%
+\contentsline {paragraph}{Discusión de los resultados 2D (\texttt {\small Picard}).}{25}{section*.21}%
+\contentsline {subparagraph}{Valor convergido de referencia.}{26}{section*.22}%
+\contentsline {subparagraph}{Configuración recomendada.}{27}{section*.23}%
+\contentsline {subsection}{\numberline {13.2}Benchmark 3D estilo Niederer}{28}{subsection.13.2}%
+\contentsline {paragraph}{Discusión de los resultados 3D.}{28}{section*.24}%
+\contentsline {section}{\numberline {A}Tabla de dimensiones}{29}{appendix.Alph1}%
+\contentsline {section}{\numberline {B}Mapa de archivos}{29}{appendix.Alph2}%
+\contentsline {section}{\numberline {C}Back-ends de álgebra lineal y solver hermano}{29}{appendix.Alph3}%
+\contentsline {paragraph}{Solver hermano \texttt {\small highOrderElectroActivationFoamImplicit}.}{30}{section*.25}%
+\contentsline {section}{\numberline {D}Optimizaciones de rendimiento}{30}{appendix.Alph4}%
+\contentsline {subsection}{\numberline {D.1}Reutilización de la matriz y la factorización (Fase B)}{30}{subsection.Alph4.1}%
+\contentsline {subsection}{\numberline {D.2}Precondicionador de difusión para el JFNK (A3)}{30}{subsection.Alph4.2}%
+\contentsline {subsection}{\numberline {D.3}Integración del ODE iónico en paralelo (C1)}{30}{subsection.Alph4.3}%
+\contentsline {subsection}{\numberline {D.4}Precondicionadores AMG (C3)}{31}{subsection.Alph4.4}%
+\contentsline {paragraph}{Resumen de claves nuevas.}{31}{section*.26}%
+\contentsline {section}{\numberline {E}Experimentos de rendimiento}{31}{appendix.Alph5}%
+\contentsline {subsection}{\numberline {E.1}Fase B: idéntico y más rápido en Picard}{31}{subsection.Alph5.1}%
+\contentsline {subsection}{\numberline {E.2}A3: precondicionador de difusión en el JFNK}{32}{subsection.Alph5.2}%
+\contentsline {subsection}{\numberline {E.3}C1: paralelización del ODE (no ayuda en este problema)}{32}{subsection.Alph5.3}%
+\contentsline {subsection}{\numberline {E.4}Threading interno de PETSc/BLAS (contraproducente en Picard)}{32}{subsection.Alph5.4}%
+\contentsline {subsection}{\numberline {E.5}Solver lineal: AMG vs.\ ILU (el solve no es el cuello)}{33}{subsection.Alph5.5}%
+\contentsline {subsection}{\numberline {E.6}Síntesis y recomendaciones}{33}{subsection.Alph5.6}%

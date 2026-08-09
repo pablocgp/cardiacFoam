@@ -480,6 +480,21 @@ const Switch petscUseOptions
   : Switch(true)
 );
 
+// Phase B: when the assembled matrix only changes on its diagonal each
+// nonlinear iteration (diagonalIion), optionally reuse the existing
+// preconditioner instead of recomputing it (approximation; saves the ILU/LU
+// refactorisation). Default false = exact behaviour (recompute every update).
+const Switch petscReusePreconditioner
+(
+    spatialIntegrationProperties.found("implicitHOCoeffs")
+  ? spatialIntegrationProperties.subDict("implicitHOCoeffs").lookupOrDefault<Switch>
+    (
+        "petscReusePreconditioner",
+        false
+    )
+  : Switch(false)
+);
+
 const label implicitNonlinearIterations =
     spatialIntegrationProperties.found("implicitHOCoeffs")
   ? spatialIntegrationProperties.subDict("implicitHOCoeffs").lookupOrDefault<label>
@@ -682,6 +697,25 @@ const word jfnkPetscOptionsPrefix
         "activation_jfnk_"
     )
   : word("activation_jfnk_")
+);
+
+// Phase A3: preconditioner for the matrix-free JFNK Jacobian.
+//   "none"      : no preconditioner (legacy behaviour, unchanged results path).
+//   "diffusion" : right-preconditioning with M^{-1}, where M = AImplicit is the
+//                 (constant, SPD) implicit diffusion operator = the linear part
+//                 of the Jacobian. M is LU-factorised once (reused across steps),
+//                 so each Krylov step costs one cheap triangular solve; this
+//                 sharply cuts the number of matrix-free matvecs (each of which
+//                 re-integrates the ionic ODE, the dominant cost).
+const word jfnkPreconditioner
+(
+    spatialIntegrationProperties.found("implicitHOCoeffs")
+  ? spatialIntegrationProperties.subDict("implicitHOCoeffs").lookupOrDefault<word>
+    (
+        "jfnkPreconditioner",
+        "none"
+    )
+  : word("none")
 );
 
 // ----------------------------------------------------------------------- //

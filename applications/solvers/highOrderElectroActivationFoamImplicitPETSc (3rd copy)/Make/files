@@ -1,3 +1,0 @@
-highOrderElectroActivationFoamImplicitPETSc.C
-
-EXE = $(FOAM_USER_APPBIN)/highOrderElectroActivationFoamImplicitPETSc

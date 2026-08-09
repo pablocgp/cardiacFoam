@@ -1,0 +1,27 @@
+\subsection{Three-dimensional manufactured problem}
+\label{sec:en-results-3d}
+The tables in this subsection are generated directly from the
+current \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderManufacturedFDAImplicitPETSc/results/example0} result tree. The method-specific roots are \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderManufacturedFDAImplicitPETSc/results/example0/3D_CN_cons_Picard_RKF45}, \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderManufacturedFDAImplicitPETSc/results/example0/3D_CN_cons_diagonalIion_RKF45}, \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderManufacturedFDAImplicitPETSc/results/example0/3D_CN_cons_JFNK_RKF45}.
+All entries use \code{crankNicolson}, the \code{consistent} mass matrix, and \code{RKF45} for the state ODEs.
+The first column reports \code{Vm-states-Iion}: the $V_m$ reconstruction degree, the state treatment (\code{CCp*}, \code{GP}, or \code{na}), and the $\Iion$ quadrature/reconstruction setting.
+Fits use $N=10$--$30$ for the broad mesh range and $N=20$--$30$ for the fine-mesh range.
+The last two columns audit the nonlinear solver: \code{RB} counts rolled-back steps and $n_{\mathrm{nl}}$ summarises the nonlinear iterations per step (median/maximum).
+
+\subsubsection{\code{Picard}}
+\paragraph{$\Delta t=10^{-2}$}
+\input{tables/results_3D_Picard_dt_1p0em02_en.tex}
+\paragraph{$\Delta t=10^{-3}$}
+\input{tables/results_3D_Picard_dt_1p0em03_en.tex}
+
+\subsubsection{\code{diagonalIion}}
+\paragraph{$\Delta t=10^{-2}$}
+\input{tables/results_3D_diagonalIion_dt_1p0em02_en.tex}
+\paragraph{$\Delta t=10^{-3}$}
+\input{tables/results_3D_diagonalIion_dt_1p0em03_en.tex}
+
+\subsubsection{\code{JFNK}}
+\paragraph{$\Delta t=10^{-2}$}
+\input{tables/results_3D_JFNK_dt_1p0em02_en.tex}
+\paragraph{$\Delta t=10^{-3}$}
+\input{tables/results_3D_JFNK_dt_1p0em03_en.tex}
+

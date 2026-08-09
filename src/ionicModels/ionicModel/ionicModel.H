@@ -65,6 +65,15 @@ class ionicModel
         //- ODE solver
         autoPtr<ODESolver> odeSolver_;
 
+        //- Per-thread ODE solver pool for the optional OpenMP-parallel ODE
+        //  integration (Phase C1). Each solver shares this ODESystem; the
+        //  derivatives() callback must be re-entrant. Empty unless parallelODE_.
+        mutable PtrList<ODESolver> odeSolverPool_;
+
+        //- Enable OpenMP-parallel integration of the per-integration-point ODEs
+        //  (default false: legacy serial path, bit-for-bit unchanged).
+        mutable Switch parallelODE_;
+
         //- Copy of the model dictionary
         dictionary dict_;
 
@@ -204,6 +213,37 @@ public:
             if (!odeSolver_)
                 {odeSolver_.reset(ODESolver::New(*this, dict_));}
             return odeSolver_();
+        }
+
+        //- Whether OpenMP-parallel ODE integration is enabled (dictionary
+        //  entry "parallelODE", default false).
+        Switch parallelODE() const
+        {
+            return parallelODE_;
+        }
+
+        //- Ensure the per-thread ODE solver pool holds at least nThreads
+        //  independent solvers. Must be called serially (before entering a
+        //  parallel region): it constructs the missing solvers, each bound to
+        //  this ODESystem.
+        void ensureOdeSolverPool(const label nThreads)
+        {
+            const label current = odeSolverPool_.size();
+            if (current < nThreads)
+            {
+                odeSolverPool_.resize(nThreads);
+                for (label i = current; i < nThreads; ++i)
+                {
+                    odeSolverPool_.set(i, ODESolver::New(*this, dict_));
+                }
+            }
+        }
+
+        //- Access the ODE solver reserved for the given thread id. The pool
+        //  must have been sized by ensureOdeSolverPool() beforehand.
+        ODESolver& odeSolver(const label threadId)
+        {
+            return odeSolverPool_[threadId];
         }
 
         //- Step size for ODE solver

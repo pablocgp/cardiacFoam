@@ -1,0 +1,32 @@
+# Binarios eliminados de FOAM_USER_APPBIN el 2026-08-09
+# Huerfanos de cardiacFoam sin directorio de fuente en el working tree y sin
+# referencias en ningun driver, Allrun o controlDict de tutorials_electro.
+# 'git' = la fuente sigue en el historial de git y el binario es reconstruible.
+# 'irrecuperable' = no hay fuente en ningun lado.
+
+highOrderElectroActivationFoamFastPETSc                    irrecuperable
+highOrderElectroActivationFoamImplicitJfNK                 git
+highOrderElectroActivationFoamImplicitJfNK_PETSc           git
+highOrderElectroActivationFoamImplicitPETSc.prePatch       irrecuperable
+highOrderElectroActivationFoamImplicitResidual             irrecuperable
+highOrderManufacturedFDAExplicitFoam                       git
+highOrderManufacturedFDAExplicitFoamFull                   irrecuperable
+highOrderManufacturedFDAExplicitFoam_old                   irrecuperable
+highOrderManufacturedFDAExplicitFoamStates                 git
+highOrderManufacturedFDAFastPETSc                          irrecuperable
+highOrderManufacturedFDAImplicit                           git
+highOrderManufacturedFDAImplicitJfNK                       git
+highOrderManufacturedFDAImplicitJfNK_unstructured          git
+highOrderManufacturedFDAImplicitJfNK_unstructured_parallel irrecuperable
+highOrderManufacturedFDAImplicit_old                       irrecuperable
+highOrderManufacturedFDAKnowIion                           irrecuperable
+myTestFoam                                                 irrecuperable
+newelectroFoam                                             git
+singleCellElectroActivationFoam                            git
+testHighOrdeMMSFDA                                         irrecuperable
+testHighOrderHeatEquation                                  git
+testHighOrderHeatEquationFull                              irrecuperable
+testHighOrderHeatEquationNew                               irrecuperable
+testHighOrderMMSFDA                                        irrecuperable
+testHighOrderStationaryHeatEquation                        git
+electroPreStab                                             irrecuperable

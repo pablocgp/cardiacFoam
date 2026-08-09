@@ -1,13 +1,28 @@
+/* Modified for cardiacFoam (LRE -> movingLeastSquares port):
+     - pull in solids4foam's wmake-options, which is what actually defines
+       VERSION_SPECIFIC_INC (-DOPENFOAM_COM -DOPENFOAM_NOT_EXTEND). It was
+       already referenced below but never defined, so it expanded to nothing.
+       LRE.H did not care; symmTensor3rdOrder.H does, and without the define it
+       takes the foam-extend branch and fails to compile.
+     - added the highOrderAdapter include path
+     - Eigen taken from the solids4foam-ib-pc tree this is built against
+     - solids4FoamModels lnInclude path simplified ($(SOLIDS4FOAM_DIR) already
+       points at solids4foam-ib-pc)
+   No PETSc here: this test exercises the high-order coefficients only. */
+
+sinclude $(SOLIDS4FOAM_DIR)/etc/wmake-options
+
 EXE_INC = \
+    -I../../../src/highOrderAdapter \
     -I../../../src/ionicModels/lnInclude \
     -I../../../src/genericWriter/lnInclude \
     -I../../../src/couplingModels \
     -I$(LIB_SRC)/ODE/lnInclude \
     -I$(LIB_SRC)/finiteVolume/lnInclude \
     -I$(LIB_SRC)/meshTools/lnInclude \
-    -I$(SOLIDS4FOAM_DIR)/../solids4foam-ib-pc/src/solids4FoamModels/lnInclude \
+    -I$(SOLIDS4FOAM_DIR)/src/solids4FoamModels/lnInclude \
     $(VERSION_SPECIFIC_INC) \
-    -I/home/pablo/solids4foam-ib/ThirdParty/eigen3 \
+    -I$(SOLIDS4FOAM_DIR)/ThirdParty/eigen3 \
     -Wno-old-style-cast -Wno-deprecated-declarations -Wno-unused-parameter
 
 EXE_LIBS = \
@@ -17,4 +32,4 @@ EXE_LIBS = \
     -lfvOptions \
     -lmeshTools \
     -lODE \
-    -lsolids4FoamModels 
+    -lsolids4FoamModels

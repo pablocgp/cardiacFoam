@@ -12,7 +12,10 @@ LRECoeffs_p3.add("calcConditionNumber", false);
 // convergence at the boundary (replaces the O(1)/clipping fallback).
 LRECoeffs_p3.add("mirrorPatches", wordList(1, word("patch0")));
 
-LRE LREInterp_p3(
+// Modified for cardiacFoam: LRE -> highOrderInterp (adapter over the
+// parallel movingLeastSquares). Same three constructor arguments; the
+// LRE-style keys above are translated inside the adapter.
+highOrderInterp LREInterp_p3(
     mesh,
     includePatchInStencils,
     LRECoeffs_p3
@@ -67,10 +70,11 @@ volScalarField magError_HO_p3_vol
 
 double Linf_HO_p3 = gMax(magError_HO_p3_vol);
 
-autoPtr<List<List<vector>>> gradQuadPtr_p3 = LREInterp_p3.gradScalarFaceQuad(volTestFun);
-const List<List<vector>>& gradQuad_p3 = gradQuadPtr_p3();
+autoPtr<CompactListList<vector>> gradQuadPtr_p3 =
+    LREInterp_p3.gradScalarFaceQuad(volTestFun);
+const CompactListList<vector>& gradQuad_p3 = gradQuadPtr_p3();
 const CompactListList<point>& faceQuadPts_p3 = LREInterp_p3.faceQuadPoints();
-const CompactListList<scalar>& faceQuadW_p3 =  LREInterp_p3.faceQuadWeight();
+const CompactListList<scalar>& faceQuadW_p3 =  LREInterp_p3.faceQuadWeightPhysical();
 
 scalar L2_srf_HO_p3 = 0.0;
 scalar Linf_srf_HO_p3 = 0.0;

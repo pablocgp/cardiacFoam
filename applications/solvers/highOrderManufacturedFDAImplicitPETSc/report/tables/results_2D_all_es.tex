@@ -1,0 +1,33 @@
+\subsection{Problema manufacturado bidimensional}
+\label{sec:es-results-2d}
+Las tablas de esta subsección se generan directamente desde el árbol de
+resultados \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderManufacturedFDAImplicitPETSc/results/example0}. Las raíces por método son \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderManufacturedFDAImplicitPETSc/results/example0/2D_CN_cons_Picard_RKF45}, \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderManufacturedFDAImplicitPETSc/results/example0/2D_CN_cons_diagonalIion_RKF45}, \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderManufacturedFDAImplicitPETSc/results/example0/2D_CN_cons_JFNK_RKF45}.
+Todas las entradas usan \code{crankNicolson}, la matriz de masa
+\code{consistent} y \code{RKF45} para las ODEs de estado.
+La primera columna reporta \code{Vm-states-Iion}: el grado de reconstrucción
+de $V_m$, el tratamiento de estados (\code{CCp*}, \code{GP} o \code{na}) y el
+ajuste de cuadratura/reconstrucción de $\Iion$.
+Los ajustes usan $N=10$--$100$ para el rango amplio de mallas y
+$N=70$--$100$ para el rango de mallas finas.
+Las dos últimas columnas auditan el solver no lineal: \code{RB} cuenta los
+pasos revertidos (rollback) y $n_{\mathrm{nl}}$ resume las iteraciones no
+lineales por paso (mediana/máximo).
+
+\subsubsection{\code{Picard}}
+\paragraph{$\Delta t=10^{-2}$}
+\input{tables/results_2D_Picard_dt_1p0em02_es.tex}
+\paragraph{$\Delta t=10^{-3}$}
+\input{tables/results_2D_Picard_dt_1p0em03_es.tex}
+
+\subsubsection{\code{diagonalIion}}
+\paragraph{$\Delta t=10^{-2}$}
+\input{tables/results_2D_diagonalIion_dt_1p0em02_es.tex}
+\paragraph{$\Delta t=10^{-3}$}
+\input{tables/results_2D_diagonalIion_dt_1p0em03_es.tex}
+
+\subsubsection{\code{JFNK}}
+\paragraph{$\Delta t=10^{-2}$}
+\input{tables/results_2D_JFNK_dt_1p0em02_es.tex}
+\paragraph{$\Delta t=10^{-3}$}
+\input{tables/results_2D_JFNK_dt_1p0em03_es.tex}
+

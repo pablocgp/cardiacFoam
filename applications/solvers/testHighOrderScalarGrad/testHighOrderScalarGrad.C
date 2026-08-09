@@ -31,8 +31,10 @@ Authors
 #include "volFields.H"
 
 // HIGH ORDER //
-#include "hofvc.H"
-#include "LRE.H"
+// Modified for cardiacFoam: LRE replaced by highOrderInterp, the adapter over
+// solids4foam's parallel movingLeastSquares. hofvc.H dropped: it was included
+// but never used, and it now requires a registered solidModel.
+#include "highOrderInterp.H"
 // HIGH ORDER //
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
@@ -65,6 +67,89 @@ int main(int argc, char *argv[])
     }
 
     #include "highOrderInterpP1.H"
+
+    // Added for cardiacFoam: guard on the quadrature weight convention.
+    //
+    // LRE normalised its quadrature weights, so each face summed to 1 and each
+    // cell summed to 1, and callers multiplied by |Sf| or by the cell volume
+    // themselves. fvMeshQuadrature returns PHYSICAL weights that already carry
+    // the area/volume. Getting this wrong rescales a flux by |Sf| without
+    // changing its convergence rate, which is exactly the kind of error that
+    // survives a convergence study, so assert the convention here rather than
+    // trusting it.
+    {
+        const CompactListList<scalar>& fw =
+            LREInterp_p1.faceQuadWeightPhysical();
+        const CompactListList<scalar>& cw =
+            LREInterp_p1.cellQuadWeightPhysical();
+
+        // magSf() is a surfaceScalarField: its internal field only covers the
+        // internal faces, so boundary faces must go through the boundary field.
+        // faceQuadPoints/faceQuadWeights, by contrast, are indexed by global
+        // face ID over all mesh.nFaces().
+        scalar maxFaceErr = 0.0;
+
+        const surfaceScalarField& magSf = mesh.magSf();
+
+        auto checkFace = [&](const label faceI, const scalar area)
+        {
+            if (fw[faceI].empty() || area < SMALL)
+            {
+                return;   // empty patches carry no quadrature points
+            }
+            scalar sum = 0.0;
+            forAll(fw[faceI], qpI)
+            {
+                sum += fw[faceI][qpI];
+            }
+            maxFaceErr = max(maxFaceErr, mag(sum - area)/area);
+        };
+
+        for (label faceI = 0; faceI < mesh.nInternalFaces(); ++faceI)
+        {
+            checkFace(faceI, magSf[faceI]);
+        }
+
+        forAll(mesh.boundaryMesh(), patchI)
+        {
+            const polyPatch& pp = mesh.boundaryMesh()[patchI];
+            const fvsPatchScalarField& pMagSf = magSf.boundaryField()[patchI];
+
+            forAll(pp, i)
+            {
+                checkFace(pp.start() + i, pMagSf[i]);
+            }
+        }
+
+        scalar maxCellErr = 0.0;
+        forAll(cw, cellI)
+        {
+            scalar sum = 0.0;
+            forAll(cw[cellI], qpI)
+            {
+                sum += cw[cellI][qpI];
+            }
+            maxCellErr = max(maxCellErr, mag(sum - mesh.V()[cellI])/mesh.V()[cellI]);
+        }
+
+        reduce(maxFaceErr, maxOp<scalar>());
+        reduce(maxCellErr, maxOp<scalar>());
+
+        Info<< "Quadrature weight convention (physical, not normalised):" << nl
+            << "    max |sum(w_face) - magSf|/magSf = " << maxFaceErr << nl
+            << "    max |sum(w_cell) - V|/V         = " << maxCellErr << endl;
+
+        if (maxFaceErr > 1e-10 || maxCellErr > 1e-10)
+        {
+            FatalErrorInFunction
+                << "Quadrature weights are not the physical weights this code"
+                << " assumes." << nl
+                << "    face error = " << maxFaceErr
+                << ", cell error = " << maxCellErr
+                << abort(FatalError);
+        }
+    }
+
     #include "highOrderInterpP2.H"
     #include "highOrderInterpP3.H"
 

@@ -28,6 +28,33 @@ License
 #include "volFields.H"
 #include "HashTable.H"
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
+// OpenMP helpers that degrade gracefully to serial when the library is not
+// compiled with -fopenmp (Phase C1).
+namespace
+{
+    inline Foam::label ompThreadNum()
+    {
+#ifdef _OPENMP
+        return Foam::label(omp_get_thread_num());
+#else
+        return 0;
+#endif
+    }
+
+    inline Foam::label ompMaxThreads()
+    {
+#ifdef _OPENMP
+        return Foam::label(omp_get_max_threads());
+#else
+        return 1;
+#endif
+    }
+}
+
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
 
 namespace Foam
@@ -92,7 +119,7 @@ Foam::TNNP::TNNP
     (
         dict.lookupOrDefault<label>("TNNPMaxProtectionLogEntries", 1000000)
     ),
-    activeIntegrationPoint_(-1),
+    activeIntegrationPoint_(1, label(-1)),
     protectionCorrections_(0),
     protectionLogEntries_(0),
     protectionLogPtr_(),
@@ -340,17 +367,26 @@ void Foam::TNNP::correctStateComponent
 
     if (oldValue != correctedValue || !std::isfinite(oldValue))
     {
+        // state is a per-point (thread-local) buffer, so this write is safe.
         state[stateI] = correctedValue;
-        logProtection
-        (
-            t,
-            integrationPtI,
-            phase,
-            stateI,
-            oldValue,
-            correctedValue,
-            reason
-        );
+
+        // logProtection mutates shared bookkeeping (protectionCorrections_,
+        // protectionSummary_, the log file); serialise it so parallel ODE
+        // integration (Phase C1) stays correct. Protection events are
+        // exceptional, so the critical section has negligible cost.
+        #pragma omp critical(TNNPprotectionLog)
+        {
+            logProtection
+            (
+                t,
+                integrationPtI,
+                phase,
+                stateI,
+                oldValue,
+                correctedValue,
+                reason
+            );
+        }
     }
 }
 
@@ -583,9 +619,30 @@ void Foam::TNNP::solveODE
     const scalar tStart = stepStartTime * 1000;
     const scalar tEnd   = (stepStartTime + deltaT) * 1000;
     const label monitorCell = 0;
+    const label nPts = STATES_.size();
 
-    forAll(STATES_, integrationPtI)
+    // Phase C1: optionally integrate the per-integration-point ODEs in parallel.
+    // Each point is an independent ODE (derivatives() is re-entrant: it uses
+    // local scratch), so the only shared state that must be per-thread is the
+    // ODE solver (its RK working arrays) and the diagnostic activeIntegrationPoint_.
+    const bool runParallel = parallelODE() && (nPts > 1);
+    const label nThreads = runParallel ? ompMaxThreads() : 1;
+
+    if (runParallel)
     {
+        ensureOdeSolverPool(nThreads);
+    }
+    if (activeIntegrationPoint_.size() < nThreads)
+    {
+        activeIntegrationPoint_.setSize(nThreads, label(-1));
+    }
+
+    #pragma omp parallel for schedule(static) if(runParallel)
+    for (label integrationPtI = 0; integrationPtI < nPts; ++integrationPtI)
+    {
+        const label tid = ompThreadNum();
+        ODESolver& solver = runParallel ? odeSolver(tid) : odeSolver();
+
         scalarField& STATESI    = STATES_[integrationPtI];
         scalarField& ALGEBRAICI = ALGEBRAIC_[integrationPtI];
         scalarField& RATESI     = RATES_[integrationPtI];
@@ -597,13 +654,13 @@ void Foam::TNNP::solveODE
         {
             STATESI[0] = Vm[integrationPtI]*1000.0;
         }
-        activeIntegrationPoint_ = integrationPtI;
+        activeIntegrationPoint_[tid] = integrationPtI;
         protectState(STATESI, tStart, integrationPtI, "solveODE_start");
 
         // Clamp time step (ms)
         step = min(step, deltaT * 1000.0);
         // Advance ODE system for all states
-        odeSolver().solve(tStart, tEnd, STATESI, step);
+        solver.solve(tStart, tEnd, STATESI, step);
         protectState(STATESI, tEnd, integrationPtI, "solveODE_end");
 
         // Update algebraics and rates at tEnd (includes Iion and I_stim)
@@ -641,7 +698,7 @@ void Foam::TNNP::solveODE
         }
     }
 
-    activeIntegrationPoint_ = -1;
+    activeIntegrationPoint_ = label(-1);
 }
 
 void Foam::TNNP::derivatives
@@ -656,8 +713,16 @@ void Foam::TNNP::derivatives
 
     if (numericalProtection_)
     {
+        // Read the diagnostic point index for the calling thread (Phase C1):
+        // derivatives() runs on the same thread as the driving solveODE point.
+        const label tid = ompThreadNum();
+        const label activePt =
+            (tid < activeIntegrationPoint_.size())
+          ? activeIntegrationPoint_[tid]
+          : label(-1);
+
         scalarField yProtected(y);
-        protectState(yProtected, t, activeIntegrationPoint_, "derivatives");
+        protectState(yProtected, t, activePt, "derivatives");
 
         ::TNNPcomputeRates
         (

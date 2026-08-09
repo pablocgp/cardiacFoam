@@ -1,0 +1,25 @@
+\subsection{Two-dimensional manufactured problem}
+The tables in this subsection are generated directly from the current
+\path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderManufacturedFDAImplicitPETSc/results/example0} result tree. The method-specific roots are \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderManufacturedFDAImplicitPETSc/results/example0/2D_CN_cons_Picard_RKF45}, \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderManufacturedFDAImplicitPETSc/results/example0/2D_CN_cons_diagonalIion_RKF45}, \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderManufacturedFDAImplicitPETSc/results/example0/2D_CN_cons_JFNK_RKF45}.
+All entries use \code{crankNicolson}, the \code{consistent} mass matrix, and \code{RKF45} for the state ODEs.
+The first column reports \code{Vm-states-Iion}: the $V_m$ reconstruction degree, the state treatment (\code{CCp*}, \code{GP}, or \code{na}), and the $\Iion$ quadrature/reconstruction setting.
+Fits use $N=10$--$100$ for the broad mesh range and $N=70$--$100$ for the fine-mesh range.
+
+\subsubsection{\code{Picard}}
+\paragraph{$\Delta t=10^{-2}$}
+\input{tables/results_2D_Picard_dt_1p0em02.tex}
+\paragraph{$\Delta t=10^{-3}$}
+\input{tables/results_2D_Picard_dt_1p0em03.tex}
+
+\subsubsection{\code{diagonalIion}}
+\paragraph{$\Delta t=10^{-2}$}
+\input{tables/results_2D_diagonalIion_dt_1p0em02.tex}
+\paragraph{$\Delta t=10^{-3}$}
+\input{tables/results_2D_diagonalIion_dt_1p0em03.tex}
+
+\subsubsection{\code{JFNK}}
+\paragraph{$\Delta t=10^{-2}$}
+\input{tables/results_2D_JFNK_dt_1p0em02.tex}
+\paragraph{$\Delta t=10^{-3}$}
+\input{tables/results_2D_JFNK_dt_1p0em03.tex}
+

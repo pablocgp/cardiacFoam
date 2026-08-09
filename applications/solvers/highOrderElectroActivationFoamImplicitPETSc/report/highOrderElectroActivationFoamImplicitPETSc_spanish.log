@@ -1,0 +1,1151 @@
+This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2022/dev/Debian) (preloaded format=pdflatex 2026.1.30)  5 AUG 2026 14:43
+entering extended mode
+ restricted \write18 enabled.
+ %&-line parsing enabled.
+**highOrderElectroActivationFoamImplicitPETSc_spanish.tex
+(./highOrderElectroActivationFoamImplicitPETSc_spanish.tex
+LaTeX2e <2021-11-15> patch level 1
+L3 programming layer <2022-01-21>
+(/usr/share/texlive/texmf-dist/tex/latex/base/article.cls
+Document Class: article 2021/10/04 v1.4n Standard LaTeX document class
+(/usr/share/texlive/texmf-dist/tex/latex/base/size11.clo
+File: size11.clo 2021/10/04 v1.4n Standard LaTeX file (size option)
+)
+\c@part=\count185
+\c@section=\count186
+\c@subsection=\count187
+\c@subsubsection=\count188
+\c@paragraph=\count189
+\c@subparagraph=\count190
+\c@figure=\count191
+\c@table=\count192
+\abovecaptionskip=\skip47
+\belowcaptionskip=\skip48
+\bibindent=\dimen138
+)
+(/usr/share/texlive/texmf-dist/tex/latex/geometry/geometry.sty
+Package: geometry 2020/01/02 v5.9 Page Geometry
+
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/keyval.sty
+Package: keyval 2014/10/28 v1.15 key=value parser (DPC)
+\KV@toks@=\toks16
+)
+(/usr/share/texlive/texmf-dist/tex/generic/iftex/ifvtex.sty
+Package: ifvtex 2019/10/25 v1.7 ifvtex legacy package. Use iftex instead.
+
+(/usr/share/texlive/texmf-dist/tex/generic/iftex/iftex.sty
+Package: iftex 2020/03/06 v1.0d TeX engine tests
+))
+\Gm@cnth=\count193
+\Gm@cntv=\count194
+\c@Gm@tempcnt=\count195
+\Gm@bindingoffset=\dimen139
+\Gm@wd@mp=\dimen140
+\Gm@odd@mp=\dimen141
+\Gm@even@mp=\dimen142
+\Gm@layoutwidth=\dimen143
+\Gm@layoutheight=\dimen144
+\Gm@layouthoffset=\dimen145
+\Gm@layoutvoffset=\dimen146
+\Gm@dimlist=\toks17
+)
+(/usr/share/texlive/texmf-dist/tex/latex/base/inputenc.sty
+Package: inputenc 2021/02/14 v1.3d Input encoding file
+\inpenc@prehook=\toks18
+\inpenc@posthook=\toks19
+)
+(/usr/share/texlive/texmf-dist/tex/generic/babel/babel.sty
+Package: babel 2022/01/26 3.70 The Babel package
+\babel@savecnt=\count196
+\U@D=\dimen147
+\l@unhyphenated=\language87
+
+(/usr/share/texlive/texmf-dist/tex/generic/babel/txtbabel.def)
+\bbl@readstream=\read2
+\bbl@dirlevel=\count197
+
+(/usr/share/texlive/texmf-dist/tex/generic/babel-spanish/spanish.ldf
+Language: spanish.ldf 2021/05/27 v5.0q Spanish support from the babel system
+\es@quottoks=\toks20
+\es@quotdepth=\count198
+Package babel Info: Making " an active character on input line 570.
+Package babel Info: Making . an active character on input line 675.
+))
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsmath.sty
+Package: amsmath 2021/10/15 v2.17l AMS math features
+\@mathmargin=\skip49
+
+For additional information on amsmath, use the `?' option.
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amstext.sty
+Package: amstext 2021/08/26 v2.01 AMS text
+
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsgen.sty
+File: amsgen.sty 1999/11/30 v2.0 generic functions
+\@emptytoks=\toks21
+\ex@=\dimen148
+))
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsbsy.sty
+Package: amsbsy 1999/11/29 v1.2d Bold Symbols
+\pmbraise@=\dimen149
+)
+(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsopn.sty
+Package: amsopn 2021/08/26 v2.02 operator names
+)
+\inf@bad=\count199
+LaTeX Info: Redefining \frac on input line 234.
+\uproot@=\count266
+\leftroot@=\count267
+LaTeX Info: Redefining \overline on input line 399.
+\classnum@=\count268
+\DOTSCASE@=\count269
+LaTeX Info: Redefining \ldots on input line 496.
+LaTeX Info: Redefining \dots on input line 499.
+LaTeX Info: Redefining \cdots on input line 620.
+\Mathstrutbox@=\box50
+\strutbox@=\box51
+\big@size=\dimen150
+LaTeX Font Info:    Redeclaring font encoding OML on input line 743.
+LaTeX Font Info:    Redeclaring font encoding OMS on input line 744.
+\macc@depth=\count270
+\c@MaxMatrixCols=\count271
+\dotsspace@=\muskip16
+\c@parentequation=\count272
+\dspbrk@lvl=\count273
+\tag@help=\toks22
+\row@=\count274
+\column@=\count275
+\maxfields@=\count276
+\andhelp@=\toks23
+\eqnshift@=\dimen151
+\alignsep@=\dimen152
+\tagshift@=\dimen153
+\tagwidth@=\dimen154
+\totwidth@=\dimen155
+\lineht@=\dimen156
+\@envbody=\toks24
+\multlinegap=\skip50
+\multlinetaggap=\skip51
+\mathdisplay@stack=\toks25
+LaTeX Info: Redefining \[ on input line 2938.
+LaTeX Info: Redefining \] on input line 2939.
+)
+(/usr/share/texlive/texmf-dist/tex/latex/amsfonts/amssymb.sty
+Package: amssymb 2013/01/14 v3.01 AMS font symbols
+
+(/usr/share/texlive/texmf-dist/tex/latex/amsfonts/amsfonts.sty
+Package: amsfonts 2013/01/14 v3.01 Basic AMSFonts support
+\symAMSa=\mathgroup4
+\symAMSb=\mathgroup5
+LaTeX Font Info:    Redeclaring math symbol \hbar on input line 98.
+LaTeX Font Info:    Overwriting math alphabet `\mathfrak' in version `bold'
+(Font)                  U/euf/m/n --> U/euf/b/n on input line 106.
+))
+(/usr/share/texlive/texmf-dist/tex/latex/mathtools/mathtools.sty
+Package: mathtools 2021/02/02 v1.28 mathematical typesetting tools
+
+(/usr/share/texlive/texmf-dist/tex/latex/tools/calc.sty
+Package: calc 2017/05/25 v4.3 Infix arithmetic (KKT,FJ)
+\calc@Acount=\count277
+\calc@Bcount=\count278
+\calc@Adimen=\dimen157
+\calc@Bdimen=\dimen158
+\calc@Askip=\skip52
+\calc@Bskip=\skip53
+LaTeX Info: Redefining \setlength on input line 80.
+LaTeX Info: Redefining \addtolength on input line 81.
+\calc@Ccount=\count279
+\calc@Cskip=\skip54
+)
+(/usr/share/texlive/texmf-dist/tex/latex/mathtools/mhsetup.sty
+Package: mhsetup 2021/03/18 v1.4 programming setup (MH)
+)
+\g_MT_multlinerow_int=\count280
+\l_MT_multwidth_dim=\dimen159
+\origjot=\skip55
+\l_MT_shortvdotswithinadjustabove_dim=\dimen160
+\l_MT_shortvdotswithinadjustbelow_dim=\dimen161
+\l_MT_above_intertext_sep=\dimen162
+\l_MT_below_intertext_sep=\dimen163
+\l_MT_above_shortintertext_sep=\dimen164
+\l_MT_below_shortintertext_sep=\dimen165
+\xmathstrut@box=\box52
+\xmathstrut@dim=\dimen166
+)
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/graphicx.sty
+Package: graphicx 2021/09/16 v1.2d Enhanced LaTeX Graphics (DPC,SPQR)
+
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/graphics.sty
+Package: graphics 2021/03/04 v1.4d Standard LaTeX Graphics (DPC,SPQR)
+
+(/usr/share/texlive/texmf-dist/tex/latex/graphics/trig.sty
+Package: trig 2021/08/11 v1.11 sin cos tan (DPC)
+)
+(/usr/share/texlive/texmf-dist/tex/latex/graphics-cfg/graphics.cfg
+File: graphics.cfg 2016/06/04 v1.11 sample graphics configuration
+)
+Package graphics Info: Driver file: pdftex.def on input line 107.
+
+(/usr/share/texlive/texmf-dist/tex/latex/graphics-def/pdftex.def
+File: pdftex.def 2020/10/05 v1.2a Graphics/color driver for pdftex
+))
+\Gin@req@height=\dimen167
+\Gin@req@width=\dimen168
+)
+(/usr/share/texlive/texmf-dist/tex/latex/booktabs/booktabs.sty
+Package: booktabs 2020/01/12 v1.61803398 Publication quality tables
+\heavyrulewidth=\dimen169
+\lightrulewidth=\dimen170
+\cmidrulewidth=\dimen171
+\belowrulesep=\dimen172
+\belowbottomsep=\dimen173
+\aboverulesep=\dimen174
+\abovetopsep=\dimen175
+\cmidrulesep=\dimen176
+\cmidrulekern=\dimen177
+\defaultaddspace=\dimen178
+\@cmidla=\count281
+\@cmidlb=\count282
+\@aboverulesep=\dimen179
+\@belowrulesep=\dimen180
+\@thisruleclass=\count283
+\@lastruleclass=\count284
+\@thisrulewidth=\dimen181
+)
+(/usr/share/texlive/texmf-dist/tex/latex/tools/longtable.sty
+Package: longtable 2021-09-01 v4.17 Multi-page Table package (DPC)
+\LTleft=\skip56
+\LTright=\skip57
+\LTpre=\skip58
+\LTpost=\skip59
+\LTchunksize=\count285
+\LTcapwidth=\dimen182
+\LT@head=\box53
+\LT@firsthead=\box54
+\LT@foot=\box55
+\LT@lastfoot=\box56
+\LT@gbox=\box57
+\LT@cols=\count286
+\LT@rows=\count287
+\c@LT@tables=\count288
+\c@LT@chunks=\count289
+\LT@p@ftn=\toks26
+)
+(/usr/share/texlive/texmf-dist/tex/latex/tools/array.sty
+Package: array 2021/10/04 v2.5f Tabular extension package (FMi)
+\col@sep=\dimen183
+\ar@mcellbox=\box58
+\extrarowheight=\dimen184
+\NC@list=\toks27
+\extratabsurround=\skip60
+\backup@length=\skip61
+\ar@cellbox=\box59
+)
+(/usr/share/texlive/texmf-dist/tex/latex/hyperref/hyperref.sty
+Package: hyperref 2021-06-07 v7.00m Hypertext links for LaTeX
+
+(/usr/share/texlive/texmf-dist/tex/generic/ltxcmds/ltxcmds.sty
+Package: ltxcmds 2020-05-10 v1.25 LaTeX kernel commands for general use (HO)
+)
+(/usr/share/texlive/texmf-dist/tex/generic/pdftexcmds/pdftexcmds.sty
+Package: pdftexcmds 2020-06-27 v0.33 Utility functions of pdfTeX for LuaTeX (HO
+)
+
+(/usr/share/texlive/texmf-dist/tex/generic/infwarerr/infwarerr.sty
+Package: infwarerr 2019/12/03 v1.5 Providing info/warning/error messages (HO)
+)
+Package pdftexcmds Info: \pdf@primitive is available.
+Package pdftexcmds Info: \pdf@ifprimitive is available.
+Package pdftexcmds Info: \pdfdraftmode found.
+)
+(/usr/share/texlive/texmf-dist/tex/generic/kvsetkeys/kvsetkeys.sty
+Package: kvsetkeys 2019/12/15 v1.18 Key value parser (HO)
+)
+(/usr/share/texlive/texmf-dist/tex/generic/kvdefinekeys/kvdefinekeys.sty
+Package: kvdefinekeys 2019-12-19 v1.6 Define keys (HO)
+)
+(/usr/share/texlive/texmf-dist/tex/generic/pdfescape/pdfescape.sty
+Package: pdfescape 2019/12/09 v1.15 Implements pdfTeX's escape features (HO)
+)
+(/usr/share/texlive/texmf-dist/tex/latex/hycolor/hycolor.sty
+Package: hycolor 2020-01-27 v1.10 Color options for hyperref/bookmark (HO)
+)
+(/usr/share/texlive/texmf-dist/tex/latex/letltxmacro/letltxmacro.sty
+Package: letltxmacro 2019/12/03 v1.6 Let assignment for LaTeX macros (HO)
+)
+(/usr/share/texlive/texmf-dist/tex/latex/auxhook/auxhook.sty
+Package: auxhook 2019-12-17 v1.6 Hooks for auxiliary files (HO)
+)
+(/usr/share/texlive/texmf-dist/tex/latex/kvoptions/kvoptions.sty
+Package: kvoptions 2020-10-07 v3.14 Key value format for package options (HO)
+)
+\@linkdim=\dimen185
+\Hy@linkcounter=\count290
+\Hy@pagecounter=\count291
+
+(/usr/share/texlive/texmf-dist/tex/latex/hyperref/pd1enc.def
+File: pd1enc.def 2021-06-07 v7.00m Hyperref: PDFDocEncoding definition (HO)
+Now handling font encoding PD1 ...
+... no UTF-8 mapping file for font encoding PD1
+)
+(/usr/share/texlive/texmf-dist/tex/latex/hyperref/hyperref-langpatches.def
+File: hyperref-langpatches.def 2021-06-07 v7.00m Hyperref: patches for babel la
+nguages
+)
+(/usr/share/texlive/texmf-dist/tex/generic/intcalc/intcalc.sty
+Package: intcalc 2019/12/15 v1.3 Expandable calculations with integers (HO)
+)
+(/usr/share/texlive/texmf-dist/tex/generic/etexcmds/etexcmds.sty
+Package: etexcmds 2019/12/15 v1.7 Avoid name clashes with e-TeX commands (HO)
+)
+\Hy@SavedSpaceFactor=\count292
+
+(/usr/share/texlive/texmf-dist/tex/latex/hyperref/puenc.def
+File: puenc.def 2021-06-07 v7.00m Hyperref: PDF Unicode definition (HO)
+Now handling font encoding PU ...
+... no UTF-8 mapping file for font encoding PU
+)
+Package hyperref Info: Hyper figures OFF on input line 4192.
+Package hyperref Info: Link nesting OFF on input line 4197.
+Package hyperref Info: Hyper index ON on input line 4200.
+Package hyperref Info: Plain pages OFF on input line 4207.
+Package hyperref Info: Backreferencing OFF on input line 4212.
+Package hyperref Info: Implicit mode ON; LaTeX internals redefined.
+Package hyperref Info: Bookmarks ON on input line 4445.
+\c@Hy@tempcnt=\count293
+
+(/usr/share/texlive/texmf-dist/tex/latex/url/url.sty
+\Urlmuskip=\muskip17
+Package: url 2013/09/16  ver 3.4  Verb mode for urls, etc.
+)
+LaTeX Info: Redefining \url on input line 4804.
+\XeTeXLinkMargin=\dimen186
+
+(/usr/share/texlive/texmf-dist/tex/generic/bitset/bitset.sty
+Package: bitset 2019/12/09 v1.3 Handle bit-vector datatype (HO)
+
+(/usr/share/texlive/texmf-dist/tex/generic/bigintcalc/bigintcalc.sty
+Package: bigintcalc 2019/12/15 v1.5 Expandable calculations on big integers (HO
+)
+))
+\Fld@menulength=\count294
+\Field@Width=\dimen187
+\Fld@charsize=\dimen188
+Package hyperref Info: Hyper figures OFF on input line 6076.
+Package hyperref Info: Link nesting OFF on input line 6081.
+Package hyperref Info: Hyper index ON on input line 6084.
+Package hyperref Info: backreferencing OFF on input line 6091.
+Package hyperref Info: Link coloring OFF on input line 6096.
+Package hyperref Info: Link coloring with OCG OFF on input line 6101.
+Package hyperref Info: PDF/A mode OFF on input line 6106.
+LaTeX Info: Redefining \ref on input line 6146.
+LaTeX Info: Redefining \pageref on input line 6150.
+
+(/usr/share/texlive/texmf-dist/tex/latex/base/atbegshi-ltx.sty
+Package: atbegshi-ltx 2021/01/10 v1.0c Emulation of the original atbegshi
+package with kernel methods
+)
+\Hy@abspage=\count295
+\c@Item=\count296
+\c@Hfootnote=\count297
+)
+Package hyperref Info: Driver (autodetected): hpdftex.
+
+(/usr/share/texlive/texmf-dist/tex/latex/hyperref/hpdftex.def
+File: hpdftex.def 2021-06-07 v7.00m Hyperref driver for pdfTeX
+
+(/usr/share/texlive/texmf-dist/tex/latex/base/atveryend-ltx.sty
+Package: atveryend-ltx 2020/08/19 v1.0a Emulation of the original atveryend pac
+kage
+with kernel methods
+)
+\Fld@listcount=\count298
+\c@bookmark@seq@number=\count299
+
+(/usr/share/texlive/texmf-dist/tex/latex/rerunfilecheck/rerunfilecheck.sty
+Package: rerunfilecheck 2019/12/05 v1.9 Rerun checks for auxiliary files (HO)
+
+(/usr/share/texlive/texmf-dist/tex/generic/uniquecounter/uniquecounter.sty
+Package: uniquecounter 2019/12/15 v1.4 Provide unlimited unique counter (HO)
+)
+Package uniquecounter Info: New unique counter `rerunfilecheck' on input line 2
+86.
+)
+\Hy@SectionHShift=\skip62
+)
+(/usr/share/texlive/texmf-dist/tex/latex/placeins/placeins.sty
+Package: placeins 2005/04/18  v 2.2
+)
+(/usr/share/texlive/texmf-dist/tex/latex/xcolor/xcolor.sty
+Package: xcolor 2021/10/31 v2.13 LaTeX color extensions (UK)
+
+(/usr/share/texlive/texmf-dist/tex/latex/graphics-cfg/color.cfg
+File: color.cfg 2016/01/02 v1.6 sample color configuration
+)
+Package xcolor Info: Driver file: pdftex.def on input line 227.
+Package xcolor Info: Model `cmy' substituted by `cmy0' on input line 1352.
+Package xcolor Info: Model `hsb' substituted by `rgb' on input line 1356.
+Package xcolor Info: Model `RGB' extended on input line 1368.
+Package xcolor Info: Model `HTML' substituted by `rgb' on input line 1370.
+Package xcolor Info: Model `Hsb' substituted by `hsb' on input line 1371.
+Package xcolor Info: Model `tHsb' substituted by `hsb' on input line 1372.
+Package xcolor Info: Model `HSB' substituted by `hsb' on input line 1373.
+Package xcolor Info: Model `Gray' substituted by `gray' on input line 1374.
+Package xcolor Info: Model `wave' substituted by `hsb' on input line 1375.
+)
+(/usr/share/texlive/texmf-dist/tex/latex/caption/caption.sty
+Package: caption 2020/10/26 v3.5g Customizing captions (AR)
+
+(/usr/share/texlive/texmf-dist/tex/latex/caption/caption3.sty
+Package: caption3 2020/10/21 v2.2e caption3 kernel (AR)
+\captionmargin=\dimen189
+\captionmargin@=\dimen190
+\captionwidth=\dimen191
+\caption@tempdima=\dimen192
+\caption@indent=\dimen193
+\caption@parindent=\dimen194
+\caption@hangindent=\dimen195
+Package caption Info: Standard document class detected.
+)
+\c@caption@flags=\count300
+\c@continuedfloat=\count301
+Package caption Info: hyperref package is loaded.
+Package caption Info: longtable package is loaded.
+
+(/usr/share/texlive/texmf-dist/tex/latex/caption/ltcaption.sty
+Package: ltcaption 2020/05/30 v1.4b longtable captions (AR)
+))
+(/usr/share/texlive/texmf-dist/tex/latex/caption/subcaption.sty
+Package: subcaption 2020/10/07 v1.3j Sub-captions (AR)
+\c@subfigure=\count302
+\c@subtable=\count303
+)
+(/usr/share/texlive/texmf-dist/tex/latex/enumitem/enumitem.sty
+Package: enumitem 2019/06/20 v3.9 Customized lists
+\labelindent=\skip63
+\enit@outerparindent=\dimen196
+\enit@toks=\toks28
+\enit@inbox=\box60
+\enit@count@id=\count304
+\enitdp@description=\count305
+)
+(/usr/share/texlive/texmf-dist/tex/latex/algorithms/algorithm.sty
+Package: algorithm 2009/08/24 v0.1 Document Style `algorithm' - floating enviro
+nment
+
+(/usr/share/texlive/texmf-dist/tex/latex/float/float.sty
+Package: float 2001/11/08 v1.3d Float enhancements (AL)
+\c@float@type=\count306
+\float@exts=\toks29
+\float@box=\box61
+\@float@everytoks=\toks30
+\@floatcapt=\box62
+)
+(/usr/share/texlive/texmf-dist/tex/latex/base/ifthen.sty
+Package: ifthen 2020/11/24 v1.1c Standard LaTeX ifthen package (DPC)
+)
+\@float@every@algorithm=\toks31
+\c@algorithm=\count307
+)
+(/usr/share/texlive/texmf-dist/tex/latex/algorithmicx/algpseudocode.sty
+Package: algpseudocode 
+
+(/usr/share/texlive/texmf-dist/tex/latex/algorithmicx/algorithmicx.sty
+Package: algorithmicx 2005/04/27 v1.2 Algorithmicx
+
+Document Style algorithmicx 1.2 - a greatly improved `algorithmic' style
+\c@ALG@line=\count308
+\c@ALG@rem=\count309
+\c@ALG@nested=\count310
+\ALG@tlm=\skip64
+\ALG@thistlm=\skip65
+\c@ALG@Lnr=\count311
+\c@ALG@blocknr=\count312
+\c@ALG@storecount=\count313
+\c@ALG@tmpcounter=\count314
+\ALG@tmplength=\skip66
+)
+Document Style - pseudocode environments for use with the `algorithmicx' style
+) (/usr/share/texlive/texmf-dist/tex/latex/listings/listings.sty
+\lst@mode=\count315
+\lst@gtempboxa=\box63
+\lst@token=\toks32
+\lst@length=\count316
+\lst@currlwidth=\dimen197
+\lst@column=\count317
+\lst@pos=\count318
+\lst@lostspace=\dimen198
+\lst@width=\dimen199
+\lst@newlines=\count319
+\lst@lineno=\count320
+\lst@maxwidth=\dimen256
+
+(/usr/share/texlive/texmf-dist/tex/latex/listings/lstmisc.sty
+File: lstmisc.sty 2020/03/24 1.8d (Carsten Heinz)
+\c@lstnumber=\count321
+\lst@skipnumbers=\count322
+\lst@framebox=\box64
+)
+(/usr/share/texlive/texmf-dist/tex/latex/listings/listings.cfg
+File: listings.cfg 2020/03/24 1.8d listings configuration
+))
+Package: listings 2020/03/24 1.8d (Carsten Heinz)
+
+(/usr/share/texlive/texmf-dist/tex/latex/siunitx/siunitx.sty
+Package: siunitx 2022-02-02 v3.0.46 A comprehensive (SI) units package
+\l__siunitx_angle_tmp_dim=\dimen257
+\l__siunitx_angle_marker_box=\box65
+\l__siunitx_angle_unit_box=\box66
+\l__siunitx_compound_count_int=\count323
+
+(/usr/share/texlive/texmf-dist/tex/latex/translations/translations.sty
+Package: translations 2022/01/04 v1.11 internationalization of LaTeX2e packages
+ (CN)
+
+(/usr/share/texlive/texmf-dist/tex/latex/etoolbox/etoolbox.sty
+Package: etoolbox 2020/10/05 v2.5k e-TeX tools for LaTeX (JAW)
+\etb@tempcnta=\count324
+))
+\l__siunitx_number_exponent_fixed_int=\count325
+\l__siunitx_number_min_decimal_int=\count326
+\l__siunitx_number_min_integer_int=\count327
+\l__siunitx_number_round_precision_int=\count328
+\l__siunitx_number_group_minimum_int=\count329
+\l__siunitx_table_tmp_box=\box67
+\l__siunitx_table_tmp_dim=\dimen258
+\l__siunitx_table_column_width_dim=\dimen259
+\l__siunitx_table_integer_box=\box68
+\l__siunitx_table_decimal_box=\box69
+\l__siunitx_table_before_box=\box70
+\l__siunitx_table_after_box=\box71
+\l__siunitx_table_before_dim=\dimen260
+\l__siunitx_table_carry_dim=\dimen261
+\l__siunitx_unit_tmp_int=\count330
+\l__siunitx_unit_position_int=\count331
+\l__siunitx_unit_total_int=\count332
+
+(/usr/share/texlive/texmf-dist/tex/latex/l3packages/l3keys2e/l3keys2e.sty
+(/usr/share/texlive/texmf-dist/tex/latex/l3kernel/expl3.sty
+Package: expl3 2022-01-21 L3 programming layer (loader) 
+
+(/usr/share/texlive/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def
+File: l3backend-pdftex.def 2022-01-12 L3 backend support: PDF output (pdfTeX)
+\l__color_backend_stack_int=\count333
+\l__pdf_internal_box=\box72
+))
+Package: l3keys2e 2022-01-12 LaTeX2e option processing using LaTeX3 keys
+))
+(/usr/share/texlive/texmf-dist/tex/latex/microtype/microtype.sty
+Package: microtype 2021/12/10 v3.0b Micro-typographical refinements (RS)
+\MT@toks=\toks33
+\MT@count=\count334
+\MT@tempbox=\box73
+LaTeX Info: Redefining \leftprotrusion on input line 1010.
+LaTeX Info: Redefining \rightprotrusion on input line 1018.
+LaTeX Info: Redefining \textls on input line 1173.
+\MT@outer@kern=\dimen262
+LaTeX Info: Redefining \textmicrotypecontext on input line 1759.
+\MT@listname@count=\count335
+
+(/usr/share/texlive/texmf-dist/tex/latex/microtype/microtype-pdftex.def
+File: microtype-pdftex.def 2021/12/10 v3.0b Definitions specific to pdftex (RS)
+
+LaTeX Info: Redefining \lsstyle on input line 897.
+LaTeX Info: Redefining \lslig on input line 897.
+\MT@outer@space=\skip67
+)
+Package microtype Info: Loading configuration file microtype.cfg.
+
+(/usr/share/texlive/texmf-dist/tex/latex/microtype/microtype.cfg
+File: microtype.cfg 2021/12/10 v3.0b microtype main configuration file (RS)
+))
+(/usr/share/texlive/texmf-dist/tex/latex/multirow/multirow.sty
+Package: multirow 2021/03/15 v2.8 Span multiple rows of a table
+\multirow@colwidth=\skip68
+\multirow@cntb=\count336
+\multirow@dima=\skip69
+\bigstrutjot=\dimen263
+)
+Package hyperref Info: Option `colorlinks' set `true' on input line 22.
+
+(./highOrderElectroActivationFoamImplicitPETSc_spanish.aux
+LaTeX Info: Redefining \. on input line 22.
+LaTeX Info: Redefining \% on input line 22.
+)
+\openout1 = `highOrderElectroActivationFoamImplicitPETSc_spanish.aux'.
+
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
+LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
+LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 64.
+LaTeX Font Info:    ... okay on input line 64.
+
+*geometry* driver: auto-detecting
+*geometry* detected driver: pdftex
+*geometry* verbose mode - [ preamble ] result:
+* driver: pdftex
+* paper: a4paper
+* layout: <same size as paper>
+* layoutoffset:(h,v)=(0.0pt,0.0pt)
+* modes: 
+* h-part:(L,W,R)=(62.59596pt, 472.31595pt, 62.59596pt)
+* v-part:(T,H,B)=(62.59596pt, 719.85492pt, 62.59596pt)
+* \paperwidth=597.50787pt
+* \paperheight=845.04684pt
+* \textwidth=472.31595pt
+* \textheight=719.85492pt
+* \oddsidemargin=-9.67403pt
+* \evensidemargin=-9.67403pt
+* \topmargin=-46.67403pt
+* \headheight=12.0pt
+* \headsep=25.0pt
+* \topskip=11.0pt
+* \footskip=30.0pt
+* \marginparwidth=50.0pt
+* \marginparsep=10.0pt
+* \columnsep=10.0pt
+* \skip\footins=10.0pt plus 4.0pt minus 2.0pt
+* \hoffset=0.0pt
+* \voffset=0.0pt
+* \mag=1000
+* \@twocolumnfalse
+* \@twosidefalse
+* \@mparswitchfalse
+* \@reversemarginfalse
+* (1in=72.27pt=25.4mm, 1cm=28.453pt)
+
+LaTeX Info: Redefining \. on input line 64.
+LaTeX Info: Redefining \% on input line 64.
+(/usr/share/texlive/texmf-dist/tex/context/base/mkii/supp-pdf.mkii
+[Loading MPS to PDF converter (version 2006.09.02).]
+\scratchcounter=\count337
+\scratchdimen=\dimen264
+\scratchbox=\box74
+\nofMPsegments=\count338
+\nofMParguments=\count339
+\everyMPshowfont=\toks34
+\MPscratchCnt=\count340
+\MPscratchDim=\dimen265
+\MPnumerator=\count341
+\makeMPintoPDFobject=\count342
+\everyMPtoPDFconversion=\toks35
+) (/usr/share/texlive/texmf-dist/tex/latex/epstopdf-pkg/epstopdf-base.sty
+Package: epstopdf-base 2020-01-24 v2.11 Base part for package epstopdf
+Package epstopdf-base Info: Redefining graphics rule for `.eps' on input line 4
+85.
+
+(/usr/share/texlive/texmf-dist/tex/latex/latexconfig/epstopdf-sys.cfg
+File: epstopdf-sys.cfg 2010/07/13 v1.3 Configuration of (r)epstopdf for TeX Liv
+e
+))
+Package hyperref Info: Link coloring ON on input line 64.
+
+(/usr/share/texlive/texmf-dist/tex/latex/hyperref/nameref.sty
+Package: nameref 2021-04-02 v2.47 Cross-referencing by name of section
+
+(/usr/share/texlive/texmf-dist/tex/latex/refcount/refcount.sty
+Package: refcount 2019/12/15 v3.6 Data extraction from label references (HO)
+)
+(/usr/share/texlive/texmf-dist/tex/generic/gettitlestring/gettitlestring.sty
+Package: gettitlestring 2019/12/15 v1.6 Cleanup title references (HO)
+)
+\c@section@level=\count343
+)
+LaTeX Info: Redefining \ref on input line 64.
+LaTeX Info: Redefining \pageref on input line 64.
+LaTeX Info: Redefining \nameref on input line 64.
+
+(./highOrderElectroActivationFoamImplicitPETSc_spanish.out)
+(./highOrderElectroActivationFoamImplicitPETSc_spanish.out)
+\@outlinefile=\write3
+\openout3 = `highOrderElectroActivationFoamImplicitPETSc_spanish.out'.
+
+Package caption Info: Begin \AtBeginDocument code.
+Package caption Info: float package is loaded.
+Package caption Info: listings package is loaded.
+Package caption Info: End \AtBeginDocument code.
+\c@lstlisting=\count344
+
+(/usr/share/texlive/texmf-dist/tex/latex/translations/translations-basic-dictio
+nary-spanish.trsl
+File: translations-basic-dictionary-spanish.trsl (spanish translation file `tra
+nslations-basic-dictionary')
+)
+Package translations Info: loading dictionary `translations-basic-dictionary' f
+or `spanish'. on input line 64.
+LaTeX Info: Redefining \microtypecontext on input line 64.
+Package microtype Info: Applying patch `item' on input line 64.
+Package microtype Info: Applying patch `toc' on input line 64.
+Package microtype Info: Applying patch `eqnum' on input line 64.
+Package microtype Info: Applying patch `footnote' on input line 64.
+Package microtype Info: Generating PDF output.
+Package microtype Info: Character protrusion enabled (level 2).
+Package microtype Info: Using default protrusion set `alltext'.
+Package microtype Info: Automatic font expansion enabled (level 2),
+(microtype)             stretch: 20, shrink: 20, step: 1, non-selected.
+Package microtype Info: Using default expansion set `alltext-nott'.
+LaTeX Info: Redefining \showhyphens on input line 64.
+Package microtype Info: No adjustment of tracking.
+Package microtype Info: No adjustment of interword spacing.
+Package microtype Info: No adjustment of character kerning.
+
+(/usr/share/texlive/texmf-dist/tex/latex/microtype/mt-cmr.cfg
+File: mt-cmr.cfg 2013/05/19 v2.2 microtype config. file: Computer Modern Roman 
+(RS)
+)
+Package microtype Info: Loading generic protrusion settings for font family
+(microtype)             `cmtt' (encoding: OT1).
+(microtype)             For optimal results, create family-specific settings.
+(microtype)             See the microtype manual for details.
+LaTeX Font Info:    Trying to load font information for U+msa on input line 66.
+
+
+(/usr/share/texlive/texmf-dist/tex/latex/amsfonts/umsa.fd
+File: umsa.fd 2013/01/14 v3.01 AMS symbols A
+)
+(/usr/share/texlive/texmf-dist/tex/latex/microtype/mt-msa.cfg
+File: mt-msa.cfg 2006/02/04 v1.1 microtype config. file: AMS symbols (a) (RS)
+)
+LaTeX Font Info:    Trying to load font information for U+msb on input line 66.
+
+
+(/usr/share/texlive/texmf-dist/tex/latex/amsfonts/umsb.fd
+File: umsb.fd 2013/01/14 v3.01 AMS symbols B
+)
+(/usr/share/texlive/texmf-dist/tex/latex/microtype/mt-msb.cfg
+File: mt-msb.cfg 2005/06/01 v1.0 microtype config. file: AMS symbols (b) (RS)
+)
+Overfull \hbox (98.4101pt too wide) in paragraph at lines 112--123
+[]\OT1/cmr/m/n/10 (-20) Todos los par^^Same-tros al-gor^^S^^Ptmi-cos se ex-po-n
+en a trav^^Ses de los dic-cio-na-rios \OT1/cmtt/m/n/10 constant/spatialIntegrat
+ionProperties
+ []
+
+(./highOrderElectroActivationFoamImplicitPETSc_spanish.toc
+LaTeX Info: Redefining \. on input line 1.
+LaTeX Info: Redefining \% on input line 1.
+ [1
+
+{/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map}]
+LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10.95> not available
+(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 52.
+ [2])
+\tf@toc=\write4
+\openout4 = `highOrderElectroActivationFoamImplicitPETSc_spanish.toc'.
+
+Package microtype Info: Loading generic protrusion settings for font family
+(microtype)             `cmss' (encoding: OT1).
+(microtype)             For optimal results, create family-specific settings.
+(microtype)             See the microtype manual for details.
+ [3] [4]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 287.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\theta' on input line 287.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 287.
+
+[5]
+LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10> not available
+(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 381.
+
+Overfull \hbox (1.27669pt too wide) in paragraph at lines 398--402
+\OT1/cmr/m/n/10.95 (-20) con $\OT1/cmr/bx/n/10.95 (-20) d[] \OT1/cmr/m/n/10.95 
+(-20) = \OT1/cmr/bx/n/10.95 (-20) x[] \OMS/cmsy/m/n/10.95 ^^@ \OT1/cmr/bx/n/10.
+95 (-20) C[]$\OT1/cmr/m/n/10.95 (-20) . Una sal-va-guar-da de-gra-da si-len-cio
+-sa-men-te a la for-ma lum-ped cuan-do \OT1/cmtt/m/n/10 useHighOrder[]Vm
+ []
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 419.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `subscript' on input line 419.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 419.
+
+[6] [7]
+Overfull \hbox (77.18845pt too wide) in paragraph at lines 558--569
+ [] 
+ []
+
+
+Overfull \hbox (48.72841pt too wide) in paragraph at lines 570--572
+\OT1/cmtt/m/n/10 LRECoeffs[]states \OT1/cmr/m/n/10.95 (-20) (en \OT1/cmtt/m/n/1
+0 highOrderCoeffs\OT1/cmr/m/n/10.95 (-20) ) fi-ja el or-den de re-cons-truc-ci^
+^Son; es re-que-ri-do por \OT1/cmtt/m/n/10 cellCentredReconstruct
+ []
+
+
+Overfull \hbox (0.93141pt too wide) in paragraph at lines 623--631
+\OT1/cmr/m/n/10.95 (-20) La im-ple-men-ta-ci^^Son real usa \OT1/cmtt/m/n/10 rel
+ativeL2Difference \OT1/cmr/m/n/10.95 (-20) pa-ra $\OML/cmm/m/it/10.95 R[]$ \OT1
+/cmr/m/n/10.95 (-20) y $\OML/cmm/m/it/10.95 R[]$\OT1/cmr/m/n/10.95 (-20) , y \O
+T1/cmtt/m/n/10 maxStateRelativeL2Difference
+ []
+
+
+Overfull \hbox (37.74245pt too wide) in paragraph at lines 623--631
+\OT1/cmr/m/n/10.95 (-20) cri-te-rio de sta-tes \OT1/cmtt/m/n/10 nonlinearStates
+Tolerance \OT1/cmr/m/n/10.95 (-20) se in-clu-ye so-lo cuan-do \OT1/cmtt/m/n/10 
+nonlinearRequireStatesConvergence=true\OT1/cmr/m/n/10.95 (-20) . 
+ []
+
+[8] [9]
+Overfull \hbox (31.2024pt too wide) in paragraph at lines 740--742
+[]\OT1/cmr/m/n/10.95 (-20) El sis-te-ma li-neal de New-ton $\OMS/cmsy/m/n/10.95
+ J[]\OML/cmm/m/it/10.95 ^^N \OT1/cmr/m/n/10.95 (-20) = \OMS/cmsy/m/n/10.95 ^^@\
+OT1/cmss/m/n/10.95 (-20) F[]$ \OT1/cmr/m/n/10.95 (-20) se re-suel-ve con un bac
+k-end ele-gi-do por \OT1/cmtt/m/n/10 jfnkLinearSolverBackend\OT1/cmr/m/n/10.95 
+(-20) : 
+ []
+
+[10]
+Overfull \hbox (6.69492pt too wide) in paragraph at lines 830--834
+[]\OT1/cmr/m/n/10.95 (-20) El en-sam-bla-je y el al-ma-ce-na-mien-to de las ma-
+tri-ces ($\OT1/cmr/bx/n/10.95 (-20) M$\OT1/cmr/m/n/10.95 (-20) , $\OT1/cmr/bx/n
+/10.95 (-20) K$\OT1/cmr/m/n/10.95 (-20) , $\OT1/cmr/bx/n/10.95 (-20) L$\OT1/cmr
+/m/n/10.95 (-20) , $\OT1/cmr/bx/n/10.95 (-20) A$\OT1/cmr/m/n/10.95 (-20) ) usan
+ \OT1/cmr/m/it/10.95 (-20) siem-pre \OT1/cmtt/m/n/10 Eigen::SparseMatrix\OT1/cm
+r/m/n/10.95 (-20) .
+ []
+
+LaTeX Font Info:    Trying to load font information for OMS+cmr on input line 8
+57.
+(/usr/share/texlive/texmf-dist/tex/latex/base/omscmr.fd
+File: omscmr.fd 2019/12/16 v2.5j Standard LaTeX font definitions
+)
+LaTeX Font Info:    Font shape `OMS/cmr/m/n' in size <10.95> not available
+(Font)              Font shape `OMS/cmsy/m/n' tried instead on input line 857.
+ [11]
+Overfull \hbox (47.38495pt too wide) in paragraph at lines 925--927
+[]\OT1/cmr/bx/n/10.95 (-20) Clamp de $\OML/cmm/m/it/10.95 V$ \OT1/cmr/bx/n/10.9
+5 (-20) pa-ra las ta-sas \OT1/cmr/m/n/10.95 (-20) (si \OT1/cmtt/m/n/10 TNNPClam
+pVmForRates\OT1/cmr/m/n/10.95 (-20) ): re-cor-tar a $[ $\OT1/cmtt/m/n/10 TNNPVM
+inForRates\OT1/cmr/m/n/10.95 (-20) , \OT1/cmtt/m/n/10 TNNPVMaxForRates$ \OT1/cm
+r/m/n/10.95 (-20) ]$. 
+ []
+
+[12]
+Package hyperref Info: bookmark level for unknown algorithm defaults to 0 on in
+put line 1010.
+ [13]
+Underfull \hbox (badness 1014) in paragraph at lines 1089--1092
+[] \OT1/cmr/m/n/10.95 (+20) Re-sol-ver $\OT1/cmr/bx/n/10.95 (+20) A[]\OT1/cmss/
+m/n/10.95 (+20) V[] \OT1/cmr/m/n/10.95 (+20) = \OT1/cmss/m/n/10.95 (+20) r[]$ \
+OT1/cmr/m/n/10.95 (+20) re-fres-can-do s^^Solo los va-lo-res de la ma-triz (\OT
+1/cmr/m/it/10.95 (+20) Va-lue-sOnly\OT1/cmr/m/n/10.95 (+20) ); con
+ []
+
+[14]
+LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <14.4> not available
+(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 1141.
+
+
+Overfull \hbox (235.38179pt too wide) in paragraph at lines 1145--1152
+[]\OT1/cmr/m/n/10.95 (-20) El script de con-ver-gen-cia \OT1/cmtt/m/n/10 /home/
+pablo/OpenFOAM/pablo-v2312/run/tutorials[]electro/highOrderManufacturedFDAImpli
+citJfNK/run[]convergence.py
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1161--1161
+[]|\OT1/cmr/m/n/10.95 (+20) conteos de cel-das de
+ []
+
+
+Overfull \hbox (93.50015pt too wide) in paragraph at lines 1170--1170
+[]|\OT1/cmtt/m/n/10 spatialIntegrationProperties.implicitScheme| 
+ []
+
+
+Overfull \hbox (72.50034pt too wide) in paragraph at lines 1174--1174
+[]|\OT1/cmtt/m/n/10 spatialIntegrationProperties.massMatrix| 
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1178--1179
+[]|\OT1/cmtt/m/n/10 useHighOrder[]Vm \OT1/cmr/m/n/10.95 (+20) /
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1178--1179
+\OT1/cmtt/m/n/10 useHighOrder[]Iion \OT1/cmr/m/n/10.95 (+20) +
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1180--1183
+[]|\OT1/cmr/m/n/10.95 (+20) Tupla \OT1/cmtt/m/n/10 (nivel-Vm,
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1180--1183
+\OT1/cmtt/m/n/10 nivel-Iion/states)\OT1/cmr/m/n/10.95 (+20) . El ni-vel
+ []
+
+
+Underfull \hbox (badness 2035) in paragraph at lines 1184--1187
+\OT1/cmr/m/n/10.95 (+20) ex-po-nen-te del pe-so ra-dial \OT1/cmtt/m/n/10 k\OT1/
+cmr/m/n/10.95 (+20) , y
+ []
+
+[15]
+Overfull \hbox (0.38994pt too wide) in alignment at lines 1191--1194
+ [] [] [] 
+ []
+
+
+Underfull \hbox (badness 1454) in paragraph at lines 1196--1198
+[]|\OT1/cmr/m/n/10.95 (+20) Selecciona la es-tra-te-gia no
+ []
+
+
+Overfull \hbox (3.52502pt too wide) in paragraph at lines 1200--1200
+[]|\OT1/cmtt/m/n/10 IMPLICIT[]MIN[]NONLINEAR[]ITERATIONS| 
+ []
+
+
+Underfull \hbox (badness 6708) in paragraph at lines 1208--1209
+[]|\OT1/cmr/m/n/10.95 (+20) Correcci^^Son re-la-ti-va de la
+ []
+
+
+Overfull \hbox (19.27489pt too wide) in paragraph at lines 1213--1213
+[]|\OT1/cmtt/m/n/10 NONLINEAR[]REQUIRE[]STATES[]CONVERGENCE| 
+ []
+
+
+Overfull \hbox (31.55228pt too wide) in paragraph at lines 1214--1214
+[]|\OT1/cmtt/m/n/10 nonlinearRequireStatesConvergence| 
+ []
+
+
+Overfull \hbox (0.38994pt too wide) in alignment at lines 1194--1226
+ [] [] [] 
+ []
+
+[16]
+Overfull \hbox (0.38994pt too wide) in alignment at lines 1229--1232
+ [] [] [] 
+ []
+
+
+Overfull \hbox (0.38994pt too wide) in alignment at lines 1232--1268
+ [] [] [] 
+ []
+
+
+Overfull \hbox (0.38994pt too wide) in alignment at lines 1271--1274
+ [] [] [] 
+ []
+
+
+Underfull \hbox (badness 4927) in paragraph at lines 1276--1278
+[]|\OT1/cmr/m/n/10.95 (+20) Elige el back-end en-sam-bla-do:
+ []
+
+
+Underfull \hbox (badness 1975) in paragraph at lines 1279--1282
+\OT1/cmr/m/n/10.95 (+20) y dia-go-na-lIion pa-ra $\OT1/cmr/bx/n/10.95 (+20) A\O
+T1/cmss/m/n/10.95 (+20) V \OT1/cmr/m/n/10.95 (+20) = \OT1/cmss/m/n/10.95 (+20) 
+r$
+ []
+
+
+Underfull \hbox (badness 2591) in paragraph at lines 1279--1282
+\OT1/cmr/m/n/10.95 (+20) pea-do a KS-P/PC en PETSc).
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1282--1282
+[]|\OT1/cmtt/m/n/10 PETSC[]LINEAR[]KSP[]TYPE \OT1/cmr/m/n/10.95 (+20) /
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1283--1283
+[]|\OT1/cmtt/m/n/10 petscLinearKspType \OT1/cmr/m/n/10.95 (+20) /
+ []
+
+
+Underfull \hbox (badness 1748) in paragraph at lines 1284--1286
+[]|\OT1/cmr/m/n/10.95 (+20) Tipo de KSP y pre-con-di-cio-na-
+ []
+
+
+Overfull \hbox (0.38994pt too wide) in alignment at lines 1274--1291
+ [] [] [] 
+ []
+
+[17]
+Overfull \hbox (0.38994pt too wide) in alignment at lines 1294--1297
+ [] [] [] 
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1298--1299
+[]|\OT1/cmtt/m/n/10 stateODESolver \OT1/cmr/m/n/10.95 (+20) /
+ []
+
+
+Overfull \hbox (26.30232pt too wide) in paragraph at lines 1298--1299
+\OT1/cmtt/m/n/10 timeIntegrationProperties.solver| 
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1301--1302
+[]|\OT1/cmtt/m/n/10 stateODEAbsTol \OT1/cmr/m/n/10.95 (+20) /
+ []
+
+
+Overfull \hbox (26.30232pt too wide) in paragraph at lines 1301--1302
+\OT1/cmtt/m/n/10 timeIntegrationProperties.absTol| 
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1304--1305
+[]|\OT1/cmtt/m/n/10 stateODERelTol \OT1/cmr/m/n/10.95 (+20) /
+ []
+
+
+Overfull \hbox (26.30232pt too wide) in paragraph at lines 1304--1305
+\OT1/cmtt/m/n/10 timeIntegrationProperties.relTol| 
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1308--1309
+[]|\OT1/cmtt/m/n/10 stateODEInitialStep \OT1/cmr/m/n/10.95 (+20) /
+ []
+
+
+Overfull \hbox (0.38994pt too wide) in alignment at lines 1297--1315
+ [] [] [] 
+ []
+
+LaTeX Font Info:    Trying to load font information for OMS+cmtt on input line 
+1322.
+LaTeX Font Info:    No file OMScmtt.fd. on input line 1322.
+
+LaTeX Font Warning: Font shape `OMS/cmtt/m/n' undefined
+(Font)              using `OMS/cmsy/m/n' instead
+(Font)              for symbol `textbraceleft' on input line 1322.
+
+
+Overfull \hbox (0.38994pt too wide) in alignment at lines 1326--1329
+ [] [] [] 
+ []
+
+
+Overfull \hbox (0.38994pt too wide) in alignment at lines 1329--1336
+ [] [] [] 
+ []
+
+[18] [19]
+LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <9> not available
+(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 1458.
+
+ [20] [21] [22] [23] [24] [25] [26] [27] [28]
+Overfull \hbox (317.71976pt too wide) in paragraph at lines 2081--2082
+[]|\OT1/cmtt/m/n/10 applications/solvers/highOrderElectroActivationFoamImplicit
+PETSc/highOrderElectroActivationFoamImplicitPETSc.C| 
+ []
+
+
+Overfull \hbox (62.8334pt too wide) in paragraph at lines 2112--2125
+ [] 
+ []
+
+
+Overfull \hbox (19.63783pt too wide) in paragraph at lines 2127--2133
+[]\OT1/cmr/m/n/10.95 (-20) Los par^^Same-tros de con-ver-gen-cia (\OT1/cmtt/m/n
+/10 nonlinearTolerance\OT1/cmr/m/n/10.95 (-20) , \OT1/cmtt/m/n/10 jfnkEpsilon\O
+T1/cmr/m/n/10.95 (-20) , \OT1/cmtt/m/n/10 jfnkLineSearch*\OT1/cmr/m/n/10.95 (-2
+0) , \OT1/cmtt/m/n/10 jfnkInitGuess*\OT1/cmr/m/n/10.95 (-20) ,
+ []
+
+[29] [30]
+Underfull \hbox (badness 10000) in paragraph at lines 2248--2250
+[]|\OT1/cmr/m/n/10.95 (+20) Ahora acep-ta \OT1/cmtt/m/n/10 gamg\OT1/cmr/m/n/10.
+95 (+20) /\OT1/cmtt/m/n/10 hypre \OT1/cmr/m/n/10.95 (+20) (y alias
+ []
+
+
+Overfull \hbox (21.80753pt too wide) in paragraph at lines 2277--2288
+ [] 
+ []
+
+[31] [32] [33] (./highOrderElectroActivationFoamImplicitPETSc_spanish.aux
+LaTeX Info: Redefining \. on input line 22.
+LaTeX Info: Redefining \% on input line 22.
+)
+
+LaTeX Font Warning: Some font shapes were not available, defaults substituted.
+
+Package rerunfilecheck Info: File `highOrderElectroActivationFoamImplicitPETSc_
+spanish.out' has not changed.
+(rerunfilecheck)             Checksum: 20F9D521A481EA03D0933B814C16F702;15190.
+ ) 
+Here is how much of TeX's memory you used:
+ 22489 strings out of 478287
+ 407828 string characters out of 5849289
+ 811987 words of memory out of 5000000
+ 39878 multiletter control sequences out of 15000+600000
+ 499214 words of font info for 263 fonts, out of 8000000 for 9000
+ 1141 hyphenation exceptions out of 8191
+ 70i,12n,89p,1048b,1100s stack positions out of 5000i,500n,10000p,200000b,80000s
+</usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></us
+r/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/shar
+e/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx8.pfb></usr/share/texli
+ve/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx9.pfb></usr/share/texlive/texm
+f-dist/fonts/type1/public/amsfonts/cm/cmcsc10.pfb></usr/share/texlive/texmf-dis
+t/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/share/texlive/texmf-dist/font
+s/type1/public/amsfonts/cm/cmmi10.pfb></usr/share/texlive/texmf-dist/fonts/type
+1/public/amsfonts/cm/cmmi12.pfb></usr/share/texlive/texmf-dist/fonts/type1/publ
+ic/amsfonts/cm/cmmi6.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsf
+onts/cm/cmmi8.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm
+/cmmi9.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.
+pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb></u
+sr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr17.pfb></usr/shar
+e/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr6.pfb></usr/share/texliv
+e/texmf-dist/fonts/type1/public/amsfonts/cm/cmr7.pfb></usr/share/texlive/texmf-
+dist/fonts/type1/public/amsfonts/cm/cmr8.pfb></usr/share/texlive/texmf-dist/fon
+ts/type1/public/amsfonts/cm/cmr9.pfb></usr/share/texlive/texmf-dist/fonts/type1
+/public/amsfonts/cm/cmss10.pfb></usr/share/texlive/texmf-dist/fonts/type1/publi
+c/amsfonts/cm/cmss8.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfo
+nts/cm/cmsy10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm
+/cmsy6.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.
+pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmti10.pfb></
+usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmti9.pfb></usr/sha
+re/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt10.pfb></usr/share/tex
+live/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt12.pfb></usr/share/texlive/t
+exmf-dist/fonts/type1/public/amsfonts/cm/cmtt9.pfb></usr/share/texlive/texmf-di
+st/fonts/type1/public/amsfonts/symbols/msam10.pfb></usr/share/texlive/texmf-dis
+t/fonts/type1/public/amsfonts/symbols/msbm10.pfb>
+Output written on highOrderElectroActivationFoamImplicitPETSc_spanish.pdf (33 p
+ages, 530659 bytes).
+PDF statistics:
+ 810 PDF objects out of 1000 (max. 8388607)
+ 707 compressed objects within 8 object streams
+ 203 named destinations out of 1000 (max. 500000)
+ 71665 words of extra memory for PDF output out of 74296 (max. 10000000)
+

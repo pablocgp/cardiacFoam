@@ -1,0 +1,16 @@
+highOrderManufacturedFDAImplicitPETScDistributed.C
+
+/* Added for cardiacFoam: this is a working copy of
+   highOrderManufacturedFDAImplicitPETScParallel, taken once the LRE ->
+   movingLeastSquares port was verified against the serial reference (10
+   configurations, convergence orders within 0.021).
+
+   That sibling keeps the verified state: it uses the parallel high-order
+   library but still assembles a single Eigen sparse matrix and hands the
+   finished CSR to PETSc purely as a linear solver, which is serial by
+   construction.
+
+   This copy is where the linear algebra becomes genuinely distributed. Keeping
+   the two side by side means the algebra change can be compared against a
+   known-good baseline instead of against the memory of one. */
+EXE = $(FOAM_USER_APPBIN)/highOrderManufacturedFDAImplicitPETScDistributed
