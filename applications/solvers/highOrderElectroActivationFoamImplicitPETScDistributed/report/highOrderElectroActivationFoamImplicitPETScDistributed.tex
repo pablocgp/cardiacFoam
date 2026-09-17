@@ -2470,6 +2470,138 @@ table produced so far. That is a decision to take deliberately, not a side
 effect to absorb.
 
 % ================================================================== %
+
+\subsection{Verification cases: what was run and where it lives}
+\label{sec:elec-parverif-cases}
+
+Every case below sits under
+\code{tutorials\_electro/electroTestParallelVerification/}. The driver is
+\code{tutorials\_electro/electroDistValidation/}; the directories here are
+copies of it with one setting changed each.
+
+\begin{center}
+\begin{tabular}{@{}llp{6.2cm}@{}}
+\toprule
+Directory & Test & What it establishes \\
+\midrule
+\code{electroA3\_np1}, \code{\_np2}, \code{\_np4}
+  & A3, physical acceptance
+  & activation time at P8 and conduction velocity, full run to activation \\
+\code{electroA4\_np2}, \code{\_np4}
+  & A4, decomposition invariance
+  & \code{simple} instead of \code{scotch}: a different cut geometry \\
+\code{electroTri\_np1}, \code{\_np2}, \code{\_np4}
+  & unstructured mesh
+  & the gmsh route, 1500 cells \\
+\code{matrix\_el\_2D\_np1}, \code{\_np2}, \code{matrix\_el\_3D\_*}
+  & method matrix
+  & Picard / JFNK / diagonalIion, hexa + triangular, 2-D and 3-D \\
+\code{jac\_2D\_np1}, \code{jac\_2D\_np2}
+  & preconditioner isolation
+  & \code{jacobi}, the only rank-independent preconditioner \\
+\code{perf\_\{ilu,jac,gamg,hypre\}\_np\{1,2\}}
+  & linear-solver performance
+  & $\Delta x = 0.5$\,mm, 640 cells \\
+\code{perf025\_\{ilu,jac,gamg,hypre\}\_np\{1,2\}}
+  & idem, refined
+  & $\Delta x = 0.25$\,mm, 2560 cells \\
+\code{pre\_\{0p0,0p1\}\_np\{1,2\}}
+  & stabilisation, before
+  & built with the \code{electroPreStab} binary \\
+\code{post\_\{0p0,0p1\}\_np\{1,2\}}
+  & stabilisation, after
+  & built with the ported binary \\
+\code{stab\_\{0p0,0p1\}\_np\{1,2\}}
+  & first baseline attempt
+  & \emph{discarded}: rebuilds landed mid-sweep \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{A3, physical acceptance} (\code{electroA3\_*}). Hexa,
+$\Delta x = 0.5$\,mm, $\Delta t = 10^{-4}$, triad $(p3,\mathrm{CCp3},p3)$, run
+until the wavefront reaches P8. Sequential runs on an idle machine, so the wall
+times are valid.
+
+\begin{center}
+\begin{tabular}{@{}rlrrrrr@{}}
+\toprule
+Ranks & Status & $T_{P8}$ [ms] & dev. & CV [m/s] & Wall [s] & Speed-up \\
+\midrule
+1 & OK & 52.0795930112 & ---            & 0.38388 & 310.3 & $1.00\times$ \\
+2 & OK & 52.0795930123 & \num{2.11e-11} & 0.38388 & 177.0 & $1.75\times$ \\
+4 & OK & 52.0795930133 & \num{4.03e-11} & 0.38388 & 102.9 & $3.01\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\code{OK} is the most important entry in each row: it is the binary
+conduction-block detector, and it says the wavefront crosses every partition
+cut. The $0.5\,\%$ tolerance proposed for $|\Delta T_{P8}|/T_{P8}$ was
+\emph{wrong by eight orders of magnitude} --- the observed spread is
+\num{4e-11}. Picard converges to the same fixed point deterministically, so a
+loose stopping residual introduces no drift.
+
+\paragraph{A4, decomposition invariance} (\code{electroA4\_*}). The same run cut
+with \code{simple} ($n = (2\,1\,1)$ and $(2\,2\,1)$) rather than \code{scotch}:
+\code{OK} in both, $T_{P8}$ within \num{9.22e-11} of serial, CV identical to
+five decimals. Two unrelated cut geometries agreeing is far stronger evidence
+than several rank counts under one method.
+
+\paragraph{Unstructured mesh} (\code{electroTri\_*}). 1500 cells through the
+gmsh route: \code{OK} at 1, 2 and 4 ranks, $T_{P8}$ within \num{6.55e-11},
+speed-up $1.65\times$ and $2.84\times$.
+
+\paragraph{Linear-solver performance} (\code{perf\_*}, \code{perf025\_*}).
+Krylov iterations per nonlinear iteration vary by more than a factor three
+between preconditioners while the wall times agree to within 8\,\%, at both mesh
+sizes. \emph{The linear solve is not the bottleneck} --- the ionic ODEs are ---
+so changing preconditioner buys nothing here. Refining $0.5 \to 0.25$\,mm
+multiplies the cost by $4.3$, i.e. essentially linearly in cell count, and the
+iteration counts stay flat (ilu 3.0, hypre 4.0, jacobi 8.0), so no crossover
+appears. \code{gamg} failed on the finer mesh and was not diagnosed.
+
+\paragraph{Preconditioner isolation} (\code{jac\_2D\_*}). \code{ilu} has no
+MPIAIJ implementation and is wrapped in block-Jacobi in parallel, which is
+partition-dependent by construction; \code{jacobi} is purely diagonal and
+therefore the same operator at every rank count. Switching to it collapsed the
+$np=1$ vs $np=2$ trajectory differences: five of six configurations became
+\emph{identical}, and the row counts matched in all six (\code{triangular} with
+Picard went from $184$ vs $275$ rows to $184$ vs $184$).
+
+\paragraph{Processor-face stabilisation} (\code{pre\_*} vs \code{post\_*}).
+Deviation of the residual trace between $np=1$ and $np=2$ at $\alpha=0.1$:
+
+\begin{center}
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+Mesh & Method & Before & After & $\alpha=0$ control & Gain \\
+\midrule
+hexa       & Picard       & \num{3.23e-09} & \num{9.06e-12} & \num{8.53e-12} & $356\times$ \\
+hexa       & JFNK         & \num{2.58e-05} & \num{2.59e-05} & \num{2.48e-05} & $1\times$ \\
+hexa       & diagonalIion & \num{1.27e-08} & \num{4.51e-10} & \num{2.28e-10} & $28\times$ \\
+triangular & Picard       & \num{2.45e-07} & \num{4.68e-11} & \num{9.55e-12} & $5240\times$ \\
+triangular & JFNK         & \num{4.44e-06} & \num{4.43e-06} & \num{4.64e-06} & $1\times$ \\
+triangular & diagonalIion & \num{1.59e-07} & \num{6.17e-09} & \num{5.59e-10} & $26\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Serial output is bit-identical (SHA-256) in all twelve configurations, at both
+$\alpha$ values. The assembled paths collapse onto the $\alpha=0$ control, which
+is the achievable floor. JFNK does not move, and that is expected: its deviation
+is dominated by its own preconditioner --- the Eigen ILUT of the diagonal block,
+partition-dependent by construction --- not by the assembled stabilisation. The
+same \num{2.48e-05} appears with \code{ilu} and with \code{jacobi}, which is what
+identified it.
+
+Two \emph{distinct} binaries were built for this comparison,
+\code{electroPreStab} and the ported solver, because a first attempt
+(\code{stab\_*}) had rebuilds landing while the sweep was still running. That
+matters: had the ``before'' already contained the fix, the ``after'' would have
+been identical, and a null result is indistinguishable from a working one.
+
+
 \section{Performance optimisations}
 \label{sec:optim}
 % ================================================================== %

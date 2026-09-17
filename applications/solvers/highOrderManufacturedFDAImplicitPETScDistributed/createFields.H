@@ -33,19 +33,12 @@ IOdictionary spatialIntegrationProperties
     )
 );
 
-// State-ODE integrator and its tolerances.
-Info<< "Reading time integration properties (ODE solver controls)\n" << endl;
-IOdictionary timeIntegrationProperties
-(
-    IOobject
-    (
-        "timeIntegrationProperties",
-        runTime.constant(),
-        mesh,
-        IOobject::READ_IF_PRESENT,
-        IOobject::NO_WRITE
-    )
-);
+// Modified for cardiacFoam: constant/timeIntegrationProperties is no longer
+// read. All it supplied here were second NAMES for the state-ODE controls
+// (solver, initialODEStep, absTol, relTol, maxSteps), which are read as
+// stateODE* from implicitHOCoeffs and always won when both were present - two
+// names for one setting. The launchers still write the file, for the electro
+// solver's benefit; this solver ignores it.
 
 // Optional overrides of the manufactured solution's parameters.
 Info<< "Reading exact solution properties (optional)\n" << endl;
@@ -367,7 +360,7 @@ surfaceScalarField fluxVm_HO
 );
 
 // ----------------------------------------------------------------------- //
-// Solver controls (mirror highOrderElectroActivationFoamImplicitJfNK).
+// Solver controls.
 // ----------------------------------------------------------------------- //
 
 const Switch useHighOrder_Vm
@@ -379,24 +372,163 @@ const Switch useHighOrder_Vm
 // over the cell, which is what makes the source term match the order of the
 // diffusion term. Evaluating a nonlinear function at the centre is only
 // second-order accurate however good the operator is.
+// Modified for cardiacFoam: useHighOrder_states was the previous name of this
+// key and is no longer accepted. A dictionary that still carries it is refused
+// rather than ignored: ignoring it would quietly fall back to the default and
+// change the order the case was written to measure. The old name was wrong
+// anyway - this key is the quadrature of Iion, while how the states are treated
+// is stateIntegrationMode plus LRECoeffs_states.
+if (spatialIntegrationProperties.found("useHighOrder_states"))
+{
+    FatalErrorInFunction
+        << "useHighOrder_states was renamed to useHighOrder_Iion." << nl
+        << "It selects the quadrature of the ionic source, not the treatment"
+        << " of the states: that is stateIntegrationMode."
+        << exit(FatalError);
+}
+
 const Switch useHighOrder_Iion
 (
-    spatialIntegrationProperties.found("useHighOrder_Iion")
-  ? spatialIntegrationProperties.lookupOrDefault<Switch>("useHighOrder_Iion", true)
-  : spatialIntegrationProperties.lookupOrDefault<Switch>("useHighOrder_states", true)
+    spatialIntegrationProperties.lookupOrDefault<Switch>("useHighOrder_Iion", true)
 );
 
 // --------------------------------------------------------------------
 // Time discretisation and mass operator
 // --------------------------------------------------------------------
-// Theta scheme: backwardEuler (theta = 1, O(dt)) or crankNicolson
-// (theta = 1/2, O(dt^2)).
+// Two families:
+//
+//   theta scheme  backwardEuler (theta = 1, O(dt)) or crankNicolson
+//                 (theta = 1/2, O(dt^2));
+//   BDF-k         BDF1, BDF2, BDF3, BDF4 - fully implicit, O(dt^k).
+//
+// BDF1 and backwardEuler are the same scheme and are asserted to produce
+// byte-identical operators.
+//
+// BDF5 and BDF6 are deliberately absent. Dahlquist's second barrier says no
+// A-stable linear multistep method has order above 2, so everything past BDF2
+// is only A(alpha)-stable: alpha = 86.0 deg for BDF3 and 73.4 for BDF4, which a
+// diffusion-dominated spectrum stays well inside, but 51.8 for BDF5 and 17.8
+// for BDF6, which the reaction Jacobian of a depolarisation front does not
+// respect. BDF7 and beyond are zero-unstable and do not exist.
+//
+// Worth knowing when choosing between the families: Crank-Nicolson is A-stable
+// but NOT L-stable - its amplification factor tends to -1 rather than 0 as
+// lambda*dt -> -infinity, so the stiffest modes are not damped, they ring.
+// BDF2 is second order AND L-stable, so on a stiff front it is the better of
+// the two second-order options.
 const word implicitScheme
 (
     spatialIntegrationProperties.lookupOrDefault<word>
     (
         "implicitScheme",
         "backwardEuler"
+    )
+);
+
+// How the k-1 extra levels a BDF-k step needs are supplied before the first
+// step, when no history exists yet.
+//
+//   ESDIRK3   take the first k-1 steps with ESDIRK3 and rotate the results
+//             into the history. DEFAULT, and the only mode that preserves the
+//             order of BDF3 and BDF4.
+//   exact     evaluate the manufactured solution at t0 - dt, t0 - 2 dt, ...
+//             Looks like the natural choice for a verification solver and is
+//             not: it is O(tau_h dt) wrong with respect to the semi-discrete
+//             system and caps the observed order at 1 (see below). Needs an
+//             exact solution, which a physical solver never has.
+//   constant  repeat V^0. O(dt) wrong, so it also caps the order at 1, with a
+//             constant that does not shrink with the mesh.
+//
+// exact and constant are kept ONLY so the cost of a bad startup stays
+// measurable (suite test M20), not as usable options.
+//
+// ESDIRK3 is the only mode here that supplies starting values consistent with
+// the SEMI-DISCRETE system rather than with the PDE, which is exactly what the
+// other two get wrong. It is also self-starting, so it needs no exact solution
+// and ports to a physical solver unchanged - which matters, because a solver
+// with no manufactured solution has no other option, and because a multistep
+// method must be RESTARTED at any discontinuity in the source (a stimulus
+// switching on or off invalidates the history it interpolates through).
+//
+// ESDIRK3 is sufficient for every BDF offered: a one-step method of order p
+// leaves starting values accurate to O(dt^(p+1)), so it covers BDF up to k = 4.
+// ESDIRK3 on the current binary BDF4 fits 3.89 by Cauchy self-convergence
+// (suite test M02) and 3.94 against the analytic solution (M22).
+//
+// The solver REFUSES a startup of insufficient order rather than running it:
+// that failure produces no error and no warning, only a quietly capped order,
+// which is the trap the exact/constant modes fell into and cost a full
+// diagnosis to find.
+//
+// Why that distinction decides the observed order, measured rather than
+// argued: a k-step method needs starting values accurate to O(dt^k). Seeding
+// from the exact PDE solution is accurate to O(tau_h dt), because the exact
+// solution of the PDE is NOT the solution of the semi-discrete system and the
+// mismatch scales with the span of the history. That pins the global order at
+// 1 with a coefficient proportional to the spatial truncation error, and the
+// cap lifts only when tau_h <~ dt^(k-1).
+//
+// Measured on a 2-D hexa MMS case by suite test M20, on BDF3, isolating the
+// startup as e(dt) = ||V_startup(dt) - V_ESDIRK3(dt)|| at the same dt and the
+// same mesh, so that BDF3's own truncation error cancels and what is left is
+// what the startup introduced:
+//
+//   exact      e ~ dt^1.01 at N=40 and dt^1.13 at N=80, with e falling 15.5x
+//              (= 2^3.95) per mesh refinement - the coefficient is tau_h.
+//   constant   e ~ dt^1.00 on both meshes, with e UNCHANGED by refinement
+//              (ratio 1.00) - the coefficient is dVm*/dt, which does not
+//              depend on h.
+//
+// That h-dependence is the whole difference between the two modes; at N=40
+// constant's e is 1.28e4 times exact's, which is the ratio of those two
+// coefficients. Judging this on raw Cauchy differences instead does NOT work:
+// they mix the startup term with BDF3's own O(dt^3) error, which is identical
+// on both meshes, and the mesh ratio comes out diluted.
+//
+// A ramp over BDF orders (BDF1, then BDF2, ...) is deliberately NOT offered:
+// it changes a_0 at each of the first k-1 steps, so it needs AImplicit rebuilt
+// and every cached factorisation invalidated, and its own first step is only
+// O(dt^2) accurate anyway. ESDIRK3 costs one extra constant matrix and is
+// third order, so it dominates that option.
+const word bdfStartup
+(
+    spatialIntegrationProperties.lookupOrDefault<word>
+    (
+        "bdfStartup",
+        "ESDIRK3"
+    )
+);
+
+// Which manufactured solution the run is verified against.
+//
+//   sines    (default) V = sqrt(1+t) cos(pi x) cos(2 pi y) ..., with the
+//            states built on the polynomial G. Smooth and non-polynomial, so
+//            no reconstruction here is exact on it and the measured SPATIAL
+//            order is the scheme's.
+//   uniform  every spatial factor is 1, so V = sqrt(1+t) and the states are
+//            functions of t alone. Every reconstruction, quadrature and flux
+//            in this solver is exact on a constant, so the spatial error is
+//            zero to roundoff and the error against the exact solution is
+//            purely TEMPORAL. That is what makes a temporal order measurable
+//            against the analytic solution rather than against a second
+//            numerical one.
+//
+// The catch, and the reason sines stays the default: a constant has zero
+// Laplacian, so under uniform the diffusion operator contributes nothing and
+// only the time integration of the reaction system is being verified.
+// Diffusion is covered on the sines profile by Cauchy self-convergence
+// (suite test M02); the uniform profile is suite test M22.
+//
+// Why not a profile that is exact AND diffusive: it would have to be a
+// discrete eigenfunction of the LRE operator, which no closed form gives, and
+// the zeroGradient boundaries rule out the linear profile that would
+// otherwise work.
+const word manufacturedSolution
+(
+    spatialIntegrationProperties.lookupOrDefault<word>
+    (
+        "manufacturedSolution",
+        "sines"
     )
 );
 
@@ -408,7 +540,7 @@ const word massMatrixType
     spatialIntegrationProperties.lookupOrDefault<word>
     (
         "massMatrix",
-        "lumped"
+        "consistent"
     )
 );
 
@@ -420,10 +552,17 @@ const dictionary implicitHOCoeffs
 // --------------------------------------------------------------------
 // Linear solver for the assembled branches (Picard / diagonalIion)
 // --------------------------------------------------------------------
-// Solver name in backend-neutral spelling (GMRES, BiCGSTAB, SparseLU).
+// Solver name in backend-neutral spelling, exactly one of GMRES, BiCGSTAB and
+// SparseLU. Every option key below has a single accepted spelling, compared
+// case-sensitively, and is validated here at start-up - see requireOneOf.
 const word implicitLinearSolver
 (
     implicitHOCoeffs.lookupOrDefault<word>("linearSolver", "GMRES")
+);
+
+requireOneOf
+(
+    "linearSolver", implicitLinearSolver, {"GMRES", "BiCGSTAB", "SparseLU"}
 );
 
 // Eigen or PETSc. Only PETSc works at more than one rank: Eigen has no
@@ -432,6 +571,19 @@ const word linearSolverBackend
 (
     implicitHOCoeffs.lookupOrDefault<word>("linearSolverBackend", "PETSc")
 );
+
+requireOneOf("linearSolverBackend", linearSolverBackend, {"PETSc", "Eigen"});
+
+// GMRES exists only on the PETSc side, and it is the default of linearSolver. 
+// Without this a case that switched the backend to Eigen and nothing else ran 
+// through the whole set-up and died in the first linear solve.
+if (linearSolverBackend == "Eigen" && implicitLinearSolver == "GMRES")
+{
+    FatalErrorInFunction
+        << "linearSolver GMRES is not available on the Eigen backend." << nl
+        << "With linearSolverBackend Eigen use BiCGSTAB or SparseLU."
+        << exit(FatalError);
+}
 
 // Relative residual at which the linear solve stops. Tight here because a
 // verification run must not have the linear solve above the discretisation
@@ -447,14 +599,23 @@ const label implicitMaxIterations
     implicitHOCoeffs.lookupOrDefault<label>("maxIterations", 2000)
 );
 
-// PETSc-specific overrides of the above.
+// PETSc KSP of the assembled solve, in PETSc's own spelling. Its default is the
+// TRANSLATION of linearSolver (GMRES -> gmres, BiCGSTAB -> bcgs, SparseLU ->
+// preonly), not the raw word: the default used to be linearSolver itself, a
+// name from the neutral vocabulary sitting inside a key of PETSc's. Set it only
+// to choose a KSP linearSolver has no name for, which in practice means cg.
 const word petscLinearKspType
 (
     implicitHOCoeffs.lookupOrDefault<word>
     (
         "petscLinearKspType",
-        implicitLinearSolver
+        petscKspTypeForLinearSolver(implicitLinearSolver)
     )
+);
+
+requireOneOf
+(
+    "petscLinearKspType", petscLinearKspType, {"gmres", "bcgs", "cg", "preonly"}
 );
 
 // Preconditioner. NOTE for parallel comparisons: PETSc wraps ilu and lu in
@@ -464,6 +625,16 @@ const word petscLinearKspType
 const word petscLinearPcType
 (
     implicitHOCoeffs.lookupOrDefault<word>("petscLinearPcType", "ilu")
+);
+
+// A closed list: the preconditioners the suite uses and tests (M07, M18). Any
+// other PETSc PC can still be tried through the options database, e.g.
+// -fdalinear_pc_type asm, which does not go through this dictionary.
+requireOneOf
+(
+    "petscLinearPcType",
+    petscLinearPcType,
+    {"none", "jacobi", "ilu", "lu", "gamg", "hypre"}
 );
 
 // Restart length m of GMRES(m); ignored by the other KSP types.
@@ -650,10 +821,20 @@ const word jfnkLinearSolverBackend
     implicitHOCoeffs.lookupOrDefault<word>("jfnkLinearSolverBackend", "PETSc")
 );
 
+requireOneOf
+(
+    "jfnkLinearSolverBackend", jfnkLinearSolverBackend, {"PETSc", "Eigen"}
+);
+
 // KSP type of the inner solve; GMRES, since the Jacobian is not symmetric.
 const word jfnkPetscKspType
 (
     implicitHOCoeffs.lookupOrDefault<word>("jfnkPetscKspType", "gmres")
+);
+
+requireOneOf
+(
+    "jfnkPetscKspType", jfnkPetscKspType, {"gmres", "bcgs", "cg", "preonly"}
 );
 
 // PETSc PC for the inner solve; usually none, because the preconditioning
@@ -661,6 +842,13 @@ const word jfnkPetscKspType
 const word jfnkPetscPcType
 (
     implicitHOCoeffs.lookupOrDefault<word>("jfnkPetscPcType", "none")
+);
+
+requireOneOf
+(
+    "jfnkPetscPcType",
+    jfnkPetscPcType,
+    {"none", "jacobi", "ilu", "lu", "gamg", "hypre"}
 );
 
 // Restart length of the inner GMRES.
@@ -793,10 +981,24 @@ const word jfnkPreconditionerKspType
     implicitHOCoeffs.lookupOrDefault<word>("jfnkPreconditionerKspType", "preonly")
 );
 
+requireOneOf
+(
+    "jfnkPreconditionerKspType",
+    jfnkPreconditionerKspType,
+    {"gmres", "bcgs", "cg", "preonly"}
+);
+
 // See jfnkPreconditionerKspType.
 const word jfnkPreconditionerPcType
 (
     implicitHOCoeffs.lookupOrDefault<word>("jfnkPreconditionerPcType", "ilu")
+);
+
+requireOneOf
+(
+    "jfnkPreconditionerPcType",
+    jfnkPreconditionerPcType,
+    {"none", "jacobi", "ilu", "lu", "gamg", "hypre"}
 );
 
 // Tolerance and iteration cap of that inner application; both are nominal
@@ -843,6 +1045,16 @@ const Switch writeNonlinearResiduals
     implicitHOCoeffs.lookupOrDefault<Switch>("writeNonlinearResiduals", true)
 );
 
+// Escribir Vm, los estados y los campos exacto/error del ULTIMO instante, para
+// abrirlos en ParaView o compararlos contra otra corrida. No alcanza con que los
+// campos sean AUTO_WRITE: runTime.write() solo escribe en un write time, y con el
+// writeInterval que ponen los lanzadores eso no ocurre nunca. Ver el writeNow()
+// del final del solver.
+const Switch writeFinalFields
+(
+    implicitHOCoeffs.lookupOrDefault<Switch>("writeFinalFields", false)
+);
+
 // Print the setup/loop/post timing breakdown and the memory checkpoints.
 const Switch profileTimings
 (
@@ -881,6 +1093,54 @@ const Switch memoryOptimizationAdaptiveTripletReserve
     (
         "memoryOptimizationAdaptiveTripletReserve",
         true
+    )
+);
+
+// Added for cardiacFoam: how often the per-step "Time step N : t = ... ,
+// RHS Linf = ..." line is printed. Was a hard-coded `nSteps % 50`.
+//
+// Note this also gates updateNumericalLaplacian(), because the printed
+// RHS Linf cannot be formed without it - the cadence and the diagnostic are
+// coupled by construction, so setting this to 1 makes every step pay for the
+// Laplacian. That is the intended trade when a test needs a time-resolved
+// trace; it is the wrong default, hence 50.
+const label stepLogInterval
+(
+    max
+    (
+        implicitHOCoeffs.lookupOrDefault<label>("stepLogInterval", 50),
+        label(1)
+    )
+);
+
+// Added for cardiacFoam: the chunk sizes of the two chunked assemblies, which
+// used to be hard-coded 50000 locals.
+//
+// They are capacity controls - K is assembled as sum_i K_chunk_i and
+// addTripletIfNeeded filters individual contributions, not accumulated ones, so
+// the chunking is transparent to the result. They are exposed because that
+// claim was untestable while the value was baked into the binary: verifying it
+// needs the SAME mesh assembled with more than one chunk and with exactly one,
+// and with 50000 fixed any given mesh gives only one of the two. With the key,
+// the regression test is a 900-cell case at chunk = 100 against the default.
+//
+// Note the chunk size does change the floating-point summation ORDER of K, so
+// compare with a tolerance, not bitwise.
+const label assemblyFaceChunk
+(
+    max
+    (
+        implicitHOCoeffs.lookupOrDefault<label>("assemblyFaceChunk", 50000),
+        label(1)
+    )
+);
+
+const label assemblyCellChunk
+(
+    max
+    (
+        implicitHOCoeffs.lookupOrDefault<label>("assemblyCellChunk", 50000),
+        label(1)
     )
 );
 
@@ -936,24 +1196,41 @@ const Switch memoryOptimizationCompactMassAssembly
 // State-ODE integration
 // --------------------------------------------------------------------
 // Integrator for the local reaction ODEs: RKF45 (adaptive, embedded 4(5)
-// error estimate) or RK4 (fixed step).
+// error estimate), RK4 (fixed step) or Euler. Validated here: it used to be
+// checked only inside the ODE advance, i.e. on the first step of the time loop,
+// after the whole set-up had run.
 const word stateODESolver
 (
-    implicitHOCoeffs.lookupOrDefault<word>
-    (
-        "stateODESolver",
-        timeIntegrationProperties.lookupOrDefault<word>("solver", "RKF45")
-    )
+    implicitHOCoeffs.lookupOrDefault<word>("stateODESolver", "RKF45")
+);
+
+requireOneOf("stateODESolver", stateODESolver, {"RKF45", "RK4", "Euler"});
+
+// Which polynomial in time drives the state ODEs across a PDE step.
+//
+//   history  (default) the interpolant through the Vm levels the scheme has
+//            already stored: the k+1 levels of BDF-k, or the stage values of
+//            the ESDIRK startup. Costs nothing but the interpolation itself.
+//   linear   the two-node ramp between V^n and the candidate, which is what
+//            every scheme used before. Kept ONLY so its cost stays measurable:
+//            it caps every BDF at order 2, and nothing reports it. The ramp
+//            is O(dt^2) wrong pointwise, O(dt^3) once integrated over the
+//            step, so O(dt^2) globally. Suite test M21: BDF4 fits 2.04 with
+//            it and 3.89 with history.
+//
+// backwardEuler, crankNicolson and BDF1 store no level older than V^n, so they
+// take the two-node ramp under either value and are unaffected. So is the
+// gaussPointODE state mode, which always uses the ramp: raising it would mean
+// storing every level at every quadrature point.
+const word stateODEDriver
+(
+    implicitHOCoeffs.lookupOrDefault<word>("stateODEDriver", "history")
 );
 
 // First sub-step attempted; the adaptive controller takes over from there.
 const scalar stateODEInitialStep
 (
-    implicitHOCoeffs.lookupOrDefault<scalar>
-    (
-        "stateODEInitialStep",
-        timeIntegrationProperties.lookupOrDefault<scalar>("initialODEStep", 1.0e-5)
-    )
+    implicitHOCoeffs.lookupOrDefault<scalar>("stateODEInitialStep", 1.0e-5)
 );
 
 // Absolute and relative tolerances of the adaptive sub-stepping. These set
@@ -962,40 +1239,35 @@ const scalar stateODEInitialStep
 // asked to be.
 const scalar stateODEAbsTol
 (
-    implicitHOCoeffs.lookupOrDefault<scalar>
-    (
-        "stateODEAbsTol",
-        timeIntegrationProperties.lookupOrDefault<scalar>("absTol", SMALL)
-    )
+    implicitHOCoeffs.lookupOrDefault<scalar>("stateODEAbsTol", SMALL)
 );
 
 // See stateODEAbsTol.
 const scalar stateODERelTol
 (
-    implicitHOCoeffs.lookupOrDefault<scalar>
-    (
-        "stateODERelTol",
-        timeIntegrationProperties.lookupOrDefault<scalar>
-        (
-            "relTol",
-            implicitHOCoeffs.lookupOrDefault<scalar>("stateODETolerance", 1.0e-4)
-        )
-    )
+    implicitHOCoeffs.lookupOrDefault<scalar>("stateODERelTol", 1.0e-4)
 );
 
 // Cap on sub-steps per PDE step, so a stiff point cannot hang the run.
 const label stateODEMaxSteps
 (
-    implicitHOCoeffs.lookupOrDefault<label>
-    (
-        "stateODEMaxSteps",
-        timeIntegrationProperties.lookupOrDefault<label>
-        (
-            "maxSteps",
-            implicitHOCoeffs.lookupOrDefault<label>("stateODEMaxSubSteps", 1000000000)
-        )
-    )
+    implicitHOCoeffs.lookupOrDefault<label>("stateODEMaxSteps", 1000000000)
 );
+
+// Modified for cardiacFoam: stateODETolerance and stateODEMaxSubSteps were older
+// names of stateODERelTol and stateODEMaxSteps. Refused rather than ignored,
+// for the same reason as useHighOrder_states: ignoring one would quietly fall
+// back to the default tolerance and change the accuracy the case asked for.
+for (const char* oldKey : {"stateODETolerance", "stateODEMaxSubSteps"})
+{
+    if (implicitHOCoeffs.found(oldKey))
+    {
+        FatalErrorInFunction
+            << oldKey << " is no longer accepted." << nl
+            << "Use stateODERelTol and stateODEMaxSteps."
+            << exit(FatalError);
+    }
+}
 
 // Integrate the per-point ODEs with OpenMP. Numerically identical either
 // way (each point is an independent ODE); it pays off only where the ODE
@@ -1123,7 +1395,7 @@ if (!highOrderCoeffs.found(IionCoeffsName))
     FatalErrorInFunction
         << "highOrderCoeffs does not contain LRECoeffs_Iion (required for "
         << "the Iion quadrature)." << nl
-        << abort(FatalError);
+        << exit(FatalError);
 }
 
 // Stencil parameters echoed to the log so a run records what it was built
@@ -1219,7 +1491,7 @@ if (buildStateInterp)
             << "stateIntegrationMode = cellCentredReconstruct requires "
             << "highOrderCoeffs/LRECoeffs_states (state-reconstruction "
             << "interpolator)." << nl
-            << abort(FatalError);
+            << exit(FatalError);
     }
 
     dictionary lreCoeffsStates(highOrderCoeffs.subDict("LRECoeffs_states"));

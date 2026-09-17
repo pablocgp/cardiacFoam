@@ -1883,7 +1883,6 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         wordList debugNames_;
         label tissue_;
         word odeSolverName_;
-        scalar odeInitialStepMs_;
         scalar odeAbsTol_;
         scalar odeRelTol_;
         label odeMaxSteps_;
@@ -2235,7 +2234,32 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             }
 
             scalar tau = 0.0;
-            scalar h = stepMs > SMALL ? min(dtMs, stepMs) : min(dtMs, odeInitialStepMs_);
+            // Modified for cardiacFoam: the `initialODEStep` fallback that used
+            // to sit on the false arm of this expression is gone, and with it
+            // the member and the dictionary read.
+            //
+            // It was unreachable. `stepMs` is stepMs_[slotI], which the
+            // constructor seeds for EVERY slot with max(1000*initialDeltaT,
+            // SMALL) ms, and each call overwrites it with a positive h. So the
+            // condition is already true on the very first call and the false arm
+            // could only be taken with deltaT == 0. Measured: sweeping
+            // `initialODEStep` over four orders (1e-3 to 1e-7) moved APD90 by
+            // exactly 0.0000 ms and the trace by 0.0000 mV, while a control
+            // (Euler at dt=1e-4) moved 6.6 ms in the same table - so the null was
+            // the solver's, not the metric's (test E03).
+            //
+            // It was also dimensionally wrong: the member was named ...Ms and
+            // used here against dtMs (milliseconds), but the dictionary value
+            // sits among quantities in SECONDS, so activating it would have
+            // applied a step 1000x smaller than the dictionary asked for.
+            //
+            // Removed rather than wired up: the adaptive controller demonstrably
+            // does not care what the first sub-step is, so the knob would only
+            // have changed the cost of the first call - and it would have done so
+            // in units nobody agreed on. If a real initial-step control is ever
+            // wanted, it needs the seconds-to-milliseconds conversion and a test
+            // that measures cost, not the answer.
+            scalar h = min(dtMs, stepMs);
             if (h <= SMALL) h = dtMs;
             const scalar hMin = max(dtMs*1.0e-12, SMALL);
             scalarField yTrial(NUM_STATES, 0.0);
@@ -2348,7 +2372,6 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             debugNames_(),
             tissue_(tissueFlag(dict.lookupOrDefault<word>("tissue", "epicardialCells"))),
             odeSolverName_(dict.lookupOrDefault<word>("solver", dict.lookupOrDefault<word>("stateODESolver", "RKF45"))),
-            odeInitialStepMs_(dict.lookupOrDefault<scalar>("initialODEStep", dict.lookupOrDefault<scalar>("stateODEInitialStep", 1.0e-5))),
             odeAbsTol_(max(dict.lookupOrDefault<scalar>("absTol", dict.lookupOrDefault<scalar>("stateODEAbsTol", 1.0e-9)), scalar(SMALL))),
             odeRelTol_(max(dict.lookupOrDefault<scalar>("relTol", dict.lookupOrDefault<scalar>("stateODERelTol", 1.0e-6)), scalar(SMALL))),
             odeMaxSteps_(dict.lookupOrDefault<label>("maxSteps", dict.lookupOrDefault<label>("stateODEMaxSteps", 10000))),
@@ -3080,12 +3103,34 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
     {
         stateResiduals = 0.0;
 
-        if (current.empty() || previous.empty())
+        // Modified for cardiacFoam: this function is COLLECTIVE - it reduces
+        // twice per state below - so every rank has to reach every reduction,
+        // and reach it the same number of times.
+        //
+        // What was here before returned 0.0 early when a rank's state array came
+        // up empty, which is exactly what happens to a rank whose partition has
+        // no cells. That rank skipped both reductions while the others blocked
+        // in them: not a wrong number, a HANG. Reproduced on a 2-cell mesh with
+        // `simple (4 1 1)` and with `scotch` at np=8 - both killed at the
+        // timeout, while the same case at np=1 finishes in one second (test
+        // E19).
+        //
+        // So the empty case is now handled by letting the accumulation loops
+        // below contribute nothing: `forAll(current, ...)` over an empty field
+        // iterates zero times, num and den stay 0, and the rank still takes part
+        // in every reduce.
+        //
+        // The trip count needs the same treatment. `current[0].size()` is
+        // rank-local and cannot even be read on an empty rank, so it is reduced:
+        // otherwise two ranks could run this loop a different number of times
+        // and desynchronise the reductions for the same reason.
+        label nStates = stateResiduals.size();
+        if (!current.empty())
         {
-            return 0.0;
+            nStates = min(current[0].size(), stateResiduals.size());
         }
+        reduce(nStates, minOp<label>());
 
-        const label nStates = min(current[0].size(), stateResiduals.size());
         scalar maxResidual = 0.0;
 
         for (label stateI = 0; stateI < nStates; ++stateI)
@@ -3351,7 +3396,7 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
           : runTime.path()
         );
 
-        return base/"postProcessing"/"highOrderElectroActivationFoamImplicitPETSc";
+        return base/"postProcessing"/"highOrderElectroActivationFoamImplicitPETScDistributed";
     }
 
 
@@ -4518,6 +4563,7 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         const highOrderInterp& LREInterp,
         const scalar stabilisationAlpha,
         const label tripletsPerFaceReserve,
+        const label faceChunk,
         SpMat& K
     )
     {
@@ -4537,7 +4583,6 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
 
         const label nCells = mesh.nCells();
         const label nInternalFaces = neighbour.size();
-        const label faceChunk = 50000;
 
         std::vector<Triplet> triplets;
         const label reserveFaces = min(max(mesh.nFaces(), label(1)), faceChunk);
@@ -4602,10 +4647,28 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                     {
                         const label col = curStencil[cI];
                         const vector gCoeff = faceGradCoeffs[faceI][qpI][cI];
+                        // Modified for cardiacFoam: the FACE tensor is the
+                        // average of the two cells, not the owner's. The same
+                        // fluxCoeff goes into both rows below, so using
+                        // conductivity[own] made the face's diffusivity depend
+                        // on which cell the mesh happens to call the owner.
+                        // Invisible with a uniform D, where the two tensors are
+                        // equal - and with a non-uniform D it made K depend on
+                        // the PARTITION, because a face that is internal in
+                        // serial becomes a coupled face whose owner is
+                        // rank-local. Measured before the fix on an alternating
+                        // D: max|dK|/max|K| = 2.1e-01 at np=2 and np=4, against
+                        // 4.8e-15 with a uniform D (test M15).
+                        //
+                        // With a uniform D this is bit-identical to the old
+                        // expression: 0.5*(x + x) is exact in floating point.
+                        const tensor Df =
+                            0.5*(conductivity[own] + conductivity[nei]);
+
                         const scalar fluxCoeff =
                             // Modified for cardiacFoam: no area
                             // factor, w is a physical weight.
-                            w*(n & (conductivity[own] & gCoeff));
+                            w*(n & (Df & gCoeff));
 
                         addTripletIfNeeded
                         (
@@ -4721,13 +4784,24 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         List<labelList> nbrTaylorCols;
         List<scalarField> nbrTaylorCoeffs;
 
-        if (stabilisationAlpha > SMALL && Pstream::parRun())
+        // Modified for cardiacFoam: the conductivity swap is NOT gated on the
+        // stabilisation any more. The coupled-face flux below needs the far
+        // cell's tensor to form the face average, whatever alpha is - see the
+        // note at the internal-face flux. The low-order assembly swaps it on
+        // Pstream::parRun() alone for the same reason.
+        //
+        // Still here rather than inside the chunk loop, and still collective:
+        // every rank takes this branch or none does.
+        if (Pstream::parRun())
         {
             syncTools::swapBoundaryCellList
             (
                 mesh, conductivity.primitiveField(), nbrConductivity
             );
+        }
 
+        if (stabilisationAlpha > SMALL && Pstream::parRun())
+        {
             exchangeCoupledFaceRows
             (
                 mesh,
@@ -4817,6 +4891,29 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                 // Modified for cardiacFoam: must be UList<label> BY VALUE, not
                 // a labelList reference - see the note on
                 // CompactListList in the header comment.
+                // Modified for cardiacFoam: the face tensor, matching the
+                // internal-face loop. This loop is reached by BOTH processor
+                // patches and Dirichlet patches, and the two are not the same
+                // face:
+                //
+                //   - across a processor cut there IS a cell on the far side, so
+                //     the face tensor is the average of the two. This is the half
+                //     of the fix that closes the partition dependence; changing
+                //     only the internal-face loop fixes the SERIAL operator and
+                //     leaves parallel building the same physical face with two
+                //     different tensors, one per rank.
+                //   - on a physical boundary there is no neighbour cell, so the
+                //     owner's tensor IS the face tensor. Indexing nbrConductivity
+                //     here would read an entry swapBoundaryCellList never filled.
+                //
+                // patch.coupled() implies processorFvPatch (anything else
+                // FatalErrors above), which implies parRun, so nbrConductivity is
+                // populated whenever this branch is taken.
+                const tensor Dface =
+                    patch.coupled()
+                  ? 0.5*(conductivity[own] + nbrConductivity[bStart + faceI])
+                  : conductivity[own];
+
                 const UList<label> curStencil = faceStencils[globalFaceI];
 
                 forAll(faceQP[globalFaceI], qpI)
@@ -4831,7 +4928,7 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                         const scalar fluxCoeff =
                             // Modified for cardiacFoam: no area
                             // factor, w is a physical weight.
-                            w*(n & (conductivity[own] & gCoeff));
+                            w*(n & (Dface & gCoeff));
 
                         addTripletIfNeeded(triplets, own, col, fluxCoeff/max(V[own], SMALL));
                     }
@@ -6018,6 +6115,67 @@ int main(int argc, char* argv[])
 
     #include "createFields.H"
 
+    // Added for cardiacFoam: reject Vm boundary conditions the assembly cannot
+    // represent, at startup, instead of producing a silently wrong answer.
+    //
+    // The patch dispatchers key off the Vm patch field's TYPE NAME and only
+    // branch on the four types below. Anything else used to fall out of the
+    // bottom of the `if` - and it did so in four different ways, because the
+    // orthogonal dispatcher has no `else` at all while the high-order one drops
+    // into the Dirichlet-style flux loop. Measured before this check:
+    // `fixedGradient` with a 50 V/m applied flux and `calculated` both produced
+    // a trace IDENTICAL to `zeroGradient`, exit 0, no warning. The requested
+    // boundary condition never reached the operator.
+    //
+    // Checked on every rank: `processor` patches only exist in parallel, and a
+    // rank-local list would disagree between ranks.
+    {
+        const wordHashSet supportedVmPatchTypes
+        ({
+            word("empty"),
+            zeroGradientFvPatchScalarField::typeName,
+            word("processor"),
+            fixedValueFvPatchScalarField::typeName,
+            word("fixedVoltage")
+        });
+
+        wordHashSet offending;
+        forAll(mesh.boundary(), patchI)
+        {
+            const fvPatch& patch = mesh.boundary()[patchI];
+            const word bcType =
+                patch.lookupPatchField<volScalarField, scalar>("Vm").type();
+
+            if (!supportedVmPatchTypes.found(bcType))
+            {
+                offending.insert(bcType);
+            }
+        }
+
+        if (!offending.empty())
+        {
+            FatalErrorInFunction
+                << "Unsupported boundary condition(s) on Vm: "
+                << offending.sortedToc() << nl
+                << "The assembly only implements " << supportedVmPatchTypes.sortedToc()
+                << nl
+                << "Any other type is silently ignored by the operator, which"
+                << " produces a plausible but wrong answer rather than an error."
+                << exit(FatalError);
+        }
+    }
+
+    // Added for cardiacFoam: report the chunk size and how many chunks it
+    // actually produces on THIS rank. Without the second number a chunking test
+    // cannot tell whether it exercised the multi-chunk path at all - the count
+    // is local, so a mesh that needs two chunks in serial can need one per rank
+    // in parallel.
+    Info<< "Assembly chunking     : faceChunk = " << assemblyFaceChunk << endl;
+    Pout<< "Assembly chunking     : nInternalFaces = " << mesh.nInternalFaces()
+        << " -> " << (mesh.nInternalFaces() + assemblyFaceChunk - 1)
+                     /assemblyFaceChunk
+        << " face chunk(s)" << endl;
+
     const auto tStartTotal = std::chrono::steady_clock::now();
     const auto tStartSetup = tStartTotal;
 
@@ -6288,6 +6446,7 @@ int main(int argc, char* argv[])
             LREInterp_VmPtr(),
             stabilisationAlpha,
             stiffnessTripletsPerFaceReserve,
+            assemblyFaceChunk,
             K
         );
     }
@@ -7082,6 +7241,29 @@ int main(int argc, char* argv[])
             nonlinearMethod == "JFNK"
          || nonlinearMethod == "jfnk";
 
+        // Added for cardiacFoam: reject an unknown method instead of silently
+        // falling through to Picard.
+        //
+        // The failure this prevents is not a bad run, it is a bad STUDY: a typo
+        // in a sweep script collapses the whole method matrix onto Picard while
+        // the directories are still named after JFNK and diagonalIion and every
+        // run exits 0. Measured before the fix, `nonlinearMethod Picrad`
+        // produced a trace bit-identical to Picard with no warning.
+        //
+        // The MMS solver has always validated this; the two now agree.
+        const bool usePicard =
+            nonlinearMethod == "Picard"
+         || nonlinearMethod == "picard";
+
+        if (!useDiagonalIion && !useJFNK && !usePicard)
+        {
+            FatalErrorInFunction
+                << "Unknown nonlinearMethod " << nonlinearMethod << nl
+                << "Valid options are Picard, JFNK and diagonalIion"
+                << " (aliases: picard, jfnk, diagonal, localDiagonal)."
+                << exit(FatalError);
+        }
+
         Field<Field<scalar>> statesGuess(statesOld);
         evaluateNonlinearFields(VmGuess, statesGuess, IionGuess, true);
 
@@ -7832,7 +8014,7 @@ int main(int argc, char* argv[])
         ++nSteps;
         ++runTime;
 
-        if (nSteps <= 5 || nSteps % 100 == 0)
+        if (nSteps <= 5 || nSteps % stepLogInterval == 0)
         {
             Info<< "Step " << nSteps
                 << " time = " << runTime.value()

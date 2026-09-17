@@ -806,21 +806,40 @@ the requested stencil is small relative to the candidate set.
 
 ## H. Not done yet
 
-**The JFNK path has not been exercised in parallel.** Done for the electro
-solver (section I.7). Not yet done for the MMS solver.
+**The JFNK path has not been exercised in parallel.** Done for both solvers.
+Electro: section I.7. MMS: the method matrix (`matrix_mms_{2D,3D}_np{1,2}`, one
+results tree per method) ran Picard, JFNK and diagonalIion at np=1 and np=2, in
+2-D and 3-D, on hexa and triangular, 24 runs at alpha=0.1 and 24 at alpha=0, all
+exit 0. Corrected 2026-08-10.
 
 **`run_convergence.py` has no parallel support.** Done for the electro solver in
 `tutorials_electro/electroDistValidation/` (section I); the MMS driver already
 had it.
 
-**The electro solver has not been ported.** Done - see section I. Note that the
-Dirichlet piece anticipated here turned out not to be needed: no case in the
-benchmark uses a Dirichlet condition on `Vm`.
+**The electro solver has not been ported.** Done - see section I. The Dirichlet
+piece anticipated here is still missing, and "not needed" was too generous: no
+case in the benchmark uses a Dirichlet condition on `Vm`, but a case that does
+gets a silently wrong answer rather than an error. Measured 2026-08-10 on the
+low-order path, 640 cells, `walls` set to `fixedValue -0.040`: the run exits 0
+and `max(Vm)` reaches -19.8 mV by step 5 against -66.7 mV for the insulated
+control, an error of 47 mV that grows every step. The diagonal `-a/V` term is
+assembled, so the boundary IS clamped - to zero, not to the requested value,
+because the `+a*Vm_b/V` lift is never formed. `Vm.boundaryField()` is only ever
+read for `.type()`, so the patch value cannot reach the operator at all. On the
+high-order path the run instead dies inside solids4foam with
+`patchFaceQuadValues is not implemented for field type scalar`, which is an
+accidental library abort, not a check. An explicit `FatalError` on
+`fixedValue`/`fixedVoltage` is the fix.
 
-**The RKF45 adaptive-step carry is still discarded per call.** Noted while
-fixing the hybrid scratch (I.3): every call restarts from ~1e-13 ms and climbs
-by a factor 4 per sub-step, wasting roughly 20 sub-steps per point per step.
-Making the carry real is a large results change and deserves its own decision.
+**The RKF45 adaptive-step carry is still discarded per call.** WRONG AS WRITTEN -
+corrected 2026-08-10. In the electro solver `stepMs` is a `scalar&` bound to the
+persistent member `stepMs_[slotI]`, seeded once in the constructor with
+`1000*initialDeltaT` ms and left untouched by `initialiseStates()`, so the carry
+IS real and there is no `1e-13` anywhere. What is actually open is narrower and
+listed in `OPEN-ITEMS.md`: the rollback path restores `states` but not `stepMs_`;
+the acceptance test `err <= 1.0 || h <= hMin` accepts a step at `hMin` regardless
+of its error; and `stepMs_` is indexed by scratch slot, so the `h` history
+depends on the integration mode and on the partition.
 
 **The triangular_Unstr meshes are not in R1.** They archive a gmsh `.msh` plus a
 boundary-type rewrite performed by the tutorial driver, so reproducing them

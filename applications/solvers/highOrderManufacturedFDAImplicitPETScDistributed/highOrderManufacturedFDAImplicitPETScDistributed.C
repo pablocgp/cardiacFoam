@@ -38,6 +38,7 @@ Added for cardiacFoam: distributed-linear-algebra variant.
 #include <sys/resource.h>
 #include <string>
 #include <vector>
+#include <initializer_list>
 #ifdef __GLIBC__
 #include <malloc.h>
 #endif
@@ -48,11 +49,63 @@ Added for cardiacFoam: distributed-linear-algebra variant.
 namespace
 {
     using SpMat = Eigen::SparseMatrix<scalar, Eigen::RowMajor>;
+
+    // Added for cardiacFoam: which manufactured solution is in force.
+    //
+    //   mmsSines    the default, V = sqrt(1+t) cos(pi x) cos(2 pi y) ...
+    //   mmsUniform  V = sqrt(1+t), with every spatial factor equal to one.
+    //
+    // The uniform profile exists so that temporal order can be measured
+    // against the ANALYTIC solution instead of against a second numerical one.
+    // Every reconstruction, quadrature and flux in this solver is exact on a
+    // constant field, so the spatial error is zero to roundoff and the whole
+    // remaining error is temporal. With the sines profile that is impossible
+    // at a fixed mesh: the spatial error (2.5e-05 on the 2-D N=40 hexa case)
+    // buries every temporal error below it, which is what made the first
+    // version of suite test M02 fit order 0.563 for Crank-Nicolson.
+    //
+    // What it costs, stated because the test must not oversell itself: the
+    // Laplacian of a constant is zero, so the uniform profile leaves the
+    // DIFFUSION operator inert and verifies the time integration of the
+    // reaction system alone. Diffusion is covered by the Cauchy self-
+    // convergence test on the sines profile. A profile that is both exactly
+    // representable AND has non-zero diffusion would have to be a discrete
+    // eigenfunction of the LRE operator, which no closed form gives; the
+    // boundary conditions are zeroGradient, which also rules out a linear one.
+    enum MmsProfile { mmsSines, mmsUniform };
+
+    // Set once in main() from the dictionary, before the first exact value is
+    // evaluated, and read-only afterwards - including from the OpenMP loops.
+    MmsProfile mmsProfile = mmsSines;
     // Added for cardiacFoam: global row offset of this rank's block of cells,
     // i.e. globalIndex::localStart(). Constant for the whole run (one mesh, one
     // decomposition), so it is set once in main() rather than threaded through
     // every linear-solver signature. Zero in serial.
     label gRowStart = 0;
+    bool gRowStartSet = false;
+
+    // Modified for cardiacFoam: read through an accessor that refuses to serve
+    // the initial 0. The assignment happens in main, after the interpolator is
+    // built, and every PETSc row insertion reads it. A future code path that
+    // touched a matrix before that point would offset by 0 on EVERY rank, so
+    // ranks > 0 would write their rows on top of rank 0's: a corrupt operator
+    // and a plausible wrong answer, never an error. Nothing does that today -
+    // this makes it impossible rather than merely unlikely.
+    label globalRowStart()
+    {
+        if (!gRowStartSet)
+        {
+            FatalErrorInFunction
+                << "The global row offset was read before it was set."
+                << " It is assigned once in main from"
+                << " LREInterp_Vm.globalCells().localStart(); reaching a PETSc"
+                << " matrix before that offsets every rank's rows by 0 and"
+                << " corrupts the operator."
+                << exit(FatalError);
+        }
+
+        return gRowStart;
+    }
 
     using Triplet = Eigen::Triplet<scalar>;
     using EigVec = Eigen::Matrix<scalar, Eigen::Dynamic, 1>;
@@ -87,7 +140,7 @@ namespace
     {
         const PetscInt nLocalRows = static_cast<PetscInt>(A.rows());
         const PetscInt nGlobalCols = static_cast<PetscInt>(A.cols());
-        const PetscInt rStart = static_cast<PetscInt>(gRowStart);
+        const PetscInt rStart = static_cast<PetscInt>(globalRowStart());
         const PetscInt rEnd = rStart + nLocalRows;
 
         std::vector<PetscInt> dNnz(nLocalRows, 0);
@@ -277,90 +330,122 @@ namespace
     };
 
 
-    // Lower-case copy of a dictionary word, so user input is matched
-    // case-insensitively throughout.
-    std::string lowerWord(const word& value)
+    // Modified for cardiacFoam: every dictionary option has exactly ONE accepted
+    // spelling, compared case-sensitively, and anything else stops the run at
+    // start-up with the list of valid values.
+    //
+    // This replaces lowerWord, which matched user input case-insensitively and
+    // had accumulated aliases on top of it: SparseLU/sparselu/lu, Picard/picard,
+    // diagonalIion/diagonal/localDiagonal, RKF45/RKT45/rkf45 and more. Two
+    // spellings for one thing is exactly how the SparseLU bug hid: one test in
+    // the code compared case-sensitively and another did not, so the same word
+    // took a different path in each place.
+    void requireOneOf
+    (
+        const char* key,
+        const word& value,
+        std::initializer_list<const char*> valid
+    )
     {
-        std::string result(value.c_str());
-        std::transform
-        (
-            result.begin(),
-            result.end(),
-            result.begin(),
-            [](unsigned char c){ return std::tolower(c); }
-        );
-        return result;
+        for (const char* v : valid)
+        {
+            if (value == v)
+            {
+                return;
+            }
+        }
+
+        std::string options;
+        for (const char* v : valid)
+        {
+            if (!options.empty())
+            {
+                options += ", ";
+            }
+            options += v;
+        }
+
+        FatalErrorInFunction
+            << "Unknown " << key << ": " << value << nl
+            << "Valid options are " << options.c_str()
+            << " (exact spelling, case-sensitive)."
+            << exit(FatalError);
     }
 
     // True when a linearSolverBackend / jfnkLinearSolverBackend key selects
     // PETSc rather than the Eigen path.
+    //
+    // Modified for cardiacFoam: the name is VALIDATED rather than tested
+    // against a two-entry whitelist whose else-branch was Eigen. Any value that
+    // was not the PETSc name used to select the serial backend in silence, so a
+    // typo in a dictionary moved the whole run onto it without a word in the
+    // log - the same failure mode as "nonlinearMethod Picrad" in the electro
+    // solver, which collapsed a method matrix onto one method. One spelling
+    // each, PETSc and Eigen; the aliases petsc and ksp are gone.
     bool usesPetscBackend(const word& backend)
     {
-        const std::string b = lowerWord(backend);
-        return b == "petsc" || b == "ksp";
+        requireOneOf("linear solver backend", backend, {"PETSc", "Eigen"});
+        return backend == "PETSc";
     }
 
-    // Map the backend-neutral solver names used by the dictionaries onto PETSc
-    // KSP type names, so one case file drives either backend. Names PETSc
-    // already knows pass through. The direct solvers become "preonly" - it is
-    // PCLU that does the factorisation.
-    std::string petscKspTypeName(const word& kspType)
+    // Modified for cardiacFoam: the (KSP, PC) pair a linearSolver request really
+    // means for PETSc, resolved in ONE place and used by every PETSc solve.
+    //
+    // It used to live inside solveSparseSystem only, so the two other PETSc
+    // solvers - the cached Picard one and the ESDIRK stage one - took
+    // petscLinearKspType and petscLinearPcType raw. With linearSolver SparseLU
+    // that meant KSP preonly from the name mapping but PC ilu from its default:
+    // ONE application of ILU standing in for the inverse of A. preonly does not
+    // iterate, so the tolerance was never checked, and Picard converged - to the
+    // fixed point of the wrong operator. Measured on 2-D hexa N=20, p3 triad,
+    // Crank-Nicolson, Picard, serial: Vm_L2 1.130e-04 against 2.438e-05 with
+    // gmres, zero non-converged steps, no warning of any kind.
+    //
+    // A direct solve is preonly + lu whatever petscLinearPcType says, so that is
+    // what SparseLU resolves to. BiCGSTAB needs no case of its own: the default
+    // of petscLinearKspType is already its translation (see
+    // petscKspTypeForLinearSolver), and a petscLinearKspType written explicitly
+    // is an explicit choice that should win.
+    void resolvePetscKspPc
+    (
+        const word& linearSolver,
+        const word& petscKspType,
+        const word& petscPcType,
+        word& kspType,
+        word& pcType
+    )
     {
-        const std::string s = lowerWord(kspType);
+        kspType = petscKspType;
+        pcType = petscPcType;
 
-        if
-        (
-            s == "petsc"
-         || s == "gmres"
-         || s == "kspgmres"
-         || s == "jfnk"
-        )
+        if (linearSolver == "SparseLU")
+        {
+            kspType = "preonly";
+            pcType = "lu";
+        }
+    }
+
+    // Added for cardiacFoam: the PETSc KSP a backend-neutral linearSolver name
+    // stands for, used as the default of petscLinearKspType. SparseLU becomes
+    // preonly because in PETSc a direct solve is not a Krylov method: it is PCLU
+    // applied once (resolvePetscKspPc is what sets that PC).
+    //
+    // This replaces petscKspTypeName and petscPcTypeName, which accepted any
+    // capitalisation plus a list of aliases (kspgmres, jfnk, petsc, bicgstab,
+    // sparselu, off, false, nopc, ilut, jakobi) and passed anything else through
+    // to PETSc unchecked. The KSP and PC keys are now validated at start-up
+    // against closed lists of PETSc's own names, so nothing is left to translate.
+    word petscKspTypeForLinearSolver(const word& linearSolver)
+    {
+        if (linearSolver == "GMRES")
         {
             return "gmres";
         }
-        if (s == "bicgstab" || s == "bcgs")
+        if (linearSolver == "BiCGSTAB")
         {
             return "bcgs";
         }
-        if (s == "sparselu" || s == "lu")
-        {
-            return "preonly";
-        }
-
-        return s;
-    }
-
-    // Map preconditioner names onto PETSc PC type names, absorbing the
-    // spellings the dictionaries have accumulated and the AMG aliases. Anything
-    // else passes through, so any PC PETSc supports can be named directly.
-    std::string petscPcTypeName(const word& pcType)
-    {
-        const std::string s = lowerWord(pcType);
-
-        if
-        (
-            s == "off"
-         || s == "false"
-         || s == "none"
-         || s == "nopc"
-        )
-        {
-            return "none";
-        }
-        if (s == "ilut")
-        {
-            return "ilu";
-        }
-        if (s == "jakobi")
-        {
-            return "jacobi";
-        }
-        if (s == "lu" || s == "sparselu")
-        {
-            return "lu";
-        }
-
-        return s;
+        return "preonly";
     }
 
     // Added for cardiacFoam: incomplete and complete LU are sequential-only
@@ -374,7 +459,7 @@ namespace
     // on each block, or stays empty when no wrapping is needed.
     std::string petscParallelPcTypeName(const word& pcType, std::string& subPc)
     {
-        const std::string s = petscPcTypeName(pcType);
+        const std::string s = std::string(pcType);
         subPc.clear();
 
         if (Pstream::parRun() && (s == "ilu" || s == "lu"))
@@ -390,7 +475,7 @@ namespace
     // a restart length configured.
     bool isGmresType(const word& kspType)
     {
-        return petscKspTypeName(kspType) == "gmres";
+        return std::string(kspType) == "gmres";
     }
 
     // RAII guard around PetscInitialize/PetscFinalize. Finalises only if it was
@@ -576,7 +661,7 @@ namespace
             clear();
 
             n_ = A.rows();
-            rowStart_ = static_cast<PetscInt>(gRowStart);
+            rowStart_ = static_cast<PetscInt>(globalRowStart());
             nGlobalCols_ = static_cast<PetscInt>(A.cols());
             const PetscInt nLocalRows = static_cast<PetscInt>(A.rows());
 
@@ -592,7 +677,7 @@ namespace
             checkPetscError(KSPCreate(PETSC_COMM_WORLD, &ksp_), "KSPCreate");
             checkPetscError(KSPSetOperators(ksp_, A_, A_), "KSPSetOperators");
 
-            const std::string kspName = petscKspTypeName(kspType);
+            const std::string kspName = std::string(kspType);
             // Modified for cardiacFoam: in parallel an ilu/lu request becomes
             // block-Jacobi with that factorisation on each block; see
             // petscParallelPcTypeName. subPcName is empty otherwise, and the
@@ -600,7 +685,7 @@ namespace
             std::string subPcName;
             const std::string outerPcName =
                 petscParallelPcTypeName(pcType, subPcName);
-            const std::string pcName = petscPcTypeName(pcType);
+            const std::string pcName = std::string(pcType);
             checkPetscError(KSPSetType(ksp_, kspName.c_str()), "KSPSetType");
 
             PC pc = nullptr;
@@ -1036,7 +1121,7 @@ namespace
                 "KSPSetOperators(cached shell)"
             );
 
-            const std::string kspName = petscKspTypeName(kspType);
+            const std::string kspName = std::string(kspType);
             checkPetscError
             (
                 KSPSetType(ksp_, kspName.c_str()),
@@ -1104,7 +1189,7 @@ namespace
             }
             else
             {
-                const std::string pcName = petscPcTypeName(pcType);
+                const std::string pcName = std::string(pcType);
                 checkPetscError
                 (
                     PCSetType(pc, pcName.c_str()),
@@ -1233,6 +1318,57 @@ namespace
         scalar relL2;
     };
 
+    // Wall time and call counts of the phases INSIDE the time loop, kept as one
+    // struct rather than ten loose scalars so that writeSummary takes one more
+    // argument instead of ten more positional ones.
+    //
+    // The pair that matters is nonlinearEval (the ionic ODEs and the source,
+    // which is what the OpenMP threads split) against sparseLinearSolve (PETSc,
+    // which is what the MPI ranks split): their ratio is the parallelisable
+    // fraction of the loop MEASURED, rather than inferred backwards from an
+    // observed speedup. The JFNK entries stay zero on a Picard run.
+    //
+    // Only accumulated when profileTimings is on. They are still written out
+    // when it is off - as zeros, which a reader can tell apart from a key that
+    // is not there at all.
+    struct FineGrainedTimings
+    {
+        scalar nonlinearEvalWallTime = 0.0;
+        label nonlinearEvalCalls = 0;
+        scalar sparseLinearSolveWallTime = 0.0;
+        label sparseLinearSolveCalls = 0;
+        scalar gmresWallTime = 0.0;
+        label gmresCalls = 0;
+        scalar preconditionerSetupWallTime = 0.0;
+        label preconditionerSetups = 0;
+        scalar preconditionerApplyWallTime = 0.0;
+        label preconditionerApplications = 0;
+
+        // Las dos mitades de reconstructStatesAtIionIntegrationPoints, que es
+        // lo unico caro del camino cellCentredReconstruct que NO tiene hilos.
+        //
+        // Separarlas decide donde vale la pena trabajar y donde no:
+        //   stateReconDeriv  - grad/hessian/thirdDeriv, dentro de
+        //                      movingLeastSquares (solids4foam). Hilarlo
+        //                      significa tocar biblioteca compartida.
+        //   stateReconExpand - la expansion de Taylor en los puntos de Gauss,
+        //                      en este archivo. Se hila quitando el contador
+        //                      corrido, que es un cambio chico y local.
+        // Si la primera domina, el cambio chico no sirve de nada.
+        scalar stateReconDerivWallTime = 0.0;
+        scalar stateReconExpandWallTime = 0.0;
+        label stateReconCalls = 0;
+
+        // Lo mismo para reconstructVmAtIionIntegrationPoints, que recibio la
+        // misma fusion. Se miden por separado y no se suman a las de arriba
+        // porque son dos caminos independientes: el de Vm corre SIEMPRE que
+        // useHighOrder_Iion este activo, mientras el de estados corre solo en
+        // cellCentredReconstruct. Sumarlos esconderia cual de los dos paga.
+        scalar vmReconDerivWallTime = 0.0;
+        scalar vmReconExpandWallTime = 0.0;
+        label vmReconCalls = 0;
+    };
+
     // One row of the per-time-step nonlinear history: iteration counts, the
     // coupled and per-field residuals, whether the step converged or was rolled
     // back, and the linear-solver and line-search work it took. Written to
@@ -1266,6 +1402,13 @@ namespace
     // measured order is the scheme's, not the test function's.
     scalar computeF(const point& p, const label dim)
     {
+        // Exactly representable by every reconstruction here, so the spatial
+        // error vanishes and what is left is the temporal error.
+        if (mmsProfile == mmsUniform)
+        {
+            return 1.0;
+        }
+
         const scalar pi = constant::mathematical::pi;
 
         if (dim == 1)
@@ -1287,6 +1430,14 @@ namespace
     // from zero (so the square root in u2 is safe).
     scalar computeG(const point& p, const label dim)
     {
+        // Uniform too, and it has to be: u2 = 1/((1+t) sqrt(G)) is not a
+        // polynomial, so a varying G would put a spatial reconstruction error
+        // back into the states and defeat the whole point of the mode.
+        if (mmsProfile == mmsUniform)
+        {
+            return 1.0;
+        }
+
         if (dim == 1)
         {
             return 1.0 + p.x();
@@ -1416,6 +1567,14 @@ namespace
     // from cell 0 because the manufactured setup uses a uniform conductivity.
     scalar computeBeta(const volTensorField& conductivity, const label dim)
     {
+        // A constant has zero Laplacian, so there is nothing for beta to
+        // cancel and the ionic current reduces to the term that supplies
+        // dV/dt.
+        if (mmsProfile == mmsUniform)
+        {
+            return 0.0;
+        }
+
         const tensor& D = conductivity[0];
         const scalar pi2 = sqr(constant::mathematical::pi);
 
@@ -1519,43 +1678,219 @@ namespace
         return std::sqrt(gSum(sqr(fld.primitiveField())));
     }
 
-    // theta of the time scheme: 1 for backward Euler, 1/2 for Crank-Nicolson.
-    // Anything else is a fatal dictionary error rather than a silent default.
-    scalar thetaFromScheme(const word& scheme)
+    // Coefficients of the time discretisation, for the two families the solver
+    // supports. Both reduce to the SAME pair of operators, which is why adding
+    // BDF costs almost nothing here:
+    //
+    //   theta family   M (V^{n+1} - V^n)/dt
+    //                    = lapScale K (theta V^{n+1} + (1-theta) V^n)
+    //                    + theta s^{n+1} + (1-theta) s^n
+    //
+    //   BDF-k          (M/dt) sum_{j=0}^{k} a_j V^{n+1-j}
+    //                    = lapScale K V^{n+1} + s^{n+1}
+    //
+    //     A = (a_0/dt) M - theta lapScale K        (theta = 1 for BDF)
+    //     B = M/dt + (1-theta) lapScale K          (= M/dt for BDF)
+    //
+    // and the step solves A V^{n+1} = B H + source, where the history vector H
+    // is V^n for the theta family and -sum_{j>=1} a_j V^{n+1-j} for BDF. So a
+    // BDF step is still ONE mass-matrix product, not k of them: the linear
+    // combination of the stored levels is formed first, as a field.
+    //
+    // BDF1 and backwardEuler are the same scheme: a_0 = 1, a_1 = -1 gives
+    // H = V^n and A = M/dt - lapScale K, byte for byte.
+    struct TimeSchemeCoeffs
     {
-        if (scheme == "backwardEuler")
+        scalar theta = 1.0;
+        //- 0 for the theta family, k for BDF-k
+        label bdfOrder = 0;
+        //- a_0 .. a_k, trailing entries zero. a_0 is what scales M in A.
+        FixedList<scalar, 5> a;
+
+        TimeSchemeCoeffs()
         {
-            return 1.0;
+            a[0] = 1.0;
+            a[1] = -1.0;
+            a[2] = 0.0;
+            a[3] = 0.0;
+            a[4] = 0.0;
         }
-        else if (scheme == "crankNicolson")
+    };
+
+    // Butcher tableau of an ESDIRK: Explicit first stage, Singly Diagonally
+    // Implicit Runge-Kutta. Three properties matter here and each earns its
+    // letter:
+    //
+    //   Explicit first stage  raises the STAGE order to 2. Plain DIRK has stage
+    //                         order 1 and suffers order reduction on stiff
+    //                         problems - the observed order falls towards the
+    //                         stage order - which is exactly the regime a
+    //                         depolarisation front lives in.
+    //   Singly diagonally     every implicit stage shares the same gamma, so
+    //                         ONE matrix, M/(gamma dt) - lapScale K, serves all
+    //                         of them and is assembled once like AImplicit.
+    //   Stiffly accurate      b equals the last row, so V^{n+1} = Y_s and
+    //                         R(infinity) = 0, i.e. L-stable.
+    //
+    // Why this exists next to BDF at all: Dahlquist's second barrier applies
+    // only to LINEAR MULTISTEP methods, so L-stability above order 2 is
+    // available here and provably not there (BDF3 is A(86.0 deg), BDF4
+    // A(73.4)). It is also self-starting, which is what lets it supply the
+    // starting values BDF-k needs.
+    struct EsdirkTableau
+    {
+        label nStages = 0;
+        label order = 0;
+        scalar gamma = 0.0;
+        //- Lower-triangular including the diagonal; entries above it are zero
+        FixedList<FixedList<scalar, 6>, 6> a;
+        //- Abscissae. c[nStages - 1] == 1 for a stiffly accurate method
+        FixedList<scalar, 6> c;
+    };
+
+    // ESDIRK3(2)4L[2]SA: four stages, classical order 3, L-stable, stiffly
+    // accurate.
+    //
+    // gamma is the root of gamma^3 - 3 gamma^2 + (3/2) gamma - 1/6 = 0 in
+    // (1/4, 1/2), which is what buys order 3 together with L-stability.
+    //
+    // The remaining coefficients are NOT transcribed from a table. They were
+    // obtained by solving the order conditions for this structure - c = [0,
+    // 2 gamma, 3/5, 1], row sums equal to c, b equal to the last row - and then
+    // checked: all four third-order conditions (sum b = 1, sum b c = 1/2,
+    // sum b c^2 = 1/3, sum b a c = 1/6) hold to ~1e-41, while the fourth-order
+    // condition sum b c^3 = 1/4 misses by 1.4e-3. So the method is exactly
+    // third order, and the check would have caught a mistyped digit, which a
+    // transcribed tableau would not.
+    EsdirkTableau esdirk3Tableau()
+    {
+        EsdirkTableau tb;
+        tb.nStages = 4;
+        tb.order = 3;
+        tb.gamma = 0.435866521508458999416;
+
+        forAll(tb.c, i)
         {
-            return 0.5;
+            tb.c[i] = 0.0;
+            forAll(tb.a[i], j)
+            {
+                tb.a[i][j] = 0.0;
+            }
         }
 
-        FatalErrorInFunction
-            << "Unknown implicitScheme: " << scheme << nl
-            << "Valid options are backwardEuler or crankNicolson"
-            << exit(FatalError);
+        const scalar g = tb.gamma;
 
-        return 1.0;
+        tb.c[0] = 0.0;
+        tb.c[1] = 2.0*g;
+        tb.c[2] = 0.6;
+        tb.c[3] = 1.0;
+
+        tb.a[1][0] = g;
+        tb.a[1][1] = g;
+
+        tb.a[2][0] =  0.257648246066427245800;
+        tb.a[2][1] = -0.093514767574886245216;
+        tb.a[2][2] =  g;
+
+        tb.a[3][0] =  0.187641024346723825161;
+        tb.a[3][1] = -0.595297473576954948048;
+        tb.a[3][2] =  0.971789927721772123471;
+        tb.a[3][3] =  g;
+
+        return tb;
     }
 
-    // Collapse the accepted spellings of the massMatrix key onto the two modes
-    // the code branches on, lumped and consistent.
+    // Coefficients of the requested scheme. An unknown name is a fatal
+    // dictionary error rather than a silent default.
+    TimeSchemeCoeffs timeSchemeCoeffs(const word& scheme)
+    {
+        TimeSchemeCoeffs c;
+
+        if (scheme == "backwardEuler")
+        {
+            c.theta = 1.0;
+            c.bdfOrder = 0;
+            return c;
+        }
+
+        if (scheme == "crankNicolson")
+        {
+            c.theta = 0.5;
+            c.bdfOrder = 0;
+            return c;
+        }
+
+        // BDF is fully implicit in K, so theta = 1, and the source is wanted at
+        // t^{n+1} only - one source evaluation per step FEWER than
+        // Crank-Nicolson needs.
+        c.theta = 1.0;
+
+        if (scheme == "BDF1")
+        {
+            c.bdfOrder = 1;
+            c.a[0] =  1.0;
+            c.a[1] = -1.0;
+        }
+        else if (scheme == "BDF2")
+        {
+            c.bdfOrder = 2;
+            c.a[0] =  3.0/2.0;
+            c.a[1] = -2.0;
+            c.a[2] =  1.0/2.0;
+        }
+        else if (scheme == "BDF3")
+        {
+            c.bdfOrder = 3;
+            c.a[0] =  11.0/6.0;
+            c.a[1] = -3.0;
+            c.a[2] =  3.0/2.0;
+            c.a[3] = -1.0/3.0;
+        }
+        else if (scheme == "BDF4")
+        {
+            c.bdfOrder = 4;
+            c.a[0] =  25.0/12.0;
+            c.a[1] = -4.0;
+            c.a[2] =  3.0;
+            c.a[3] = -4.0/3.0;
+            c.a[4] =  1.0/4.0;
+        }
+        else
+        {
+            FatalErrorInFunction
+                << "Unknown implicitScheme: " << scheme << nl
+                << "Valid options are backwardEuler, crankNicolson, BDF1,"
+                << " BDF2, BDF3 and BDF4." << nl
+                << "ESDIRK is not a scheme here: it exists only to supply the"
+                << " starting values BDF needs, via the bdfStartup key." << nl
+                << "BDF5 and BDF6 are deliberately not offered: past BDF2 no"
+                << " linear multistep method is A-stable (Dahlquist), and the"
+                << " A(alpha) wedge closes from 86.0 deg at BDF3 and 73.4 at"
+                << " BDF4 to 51.8 at BDF5 and 17.8 at BDF6. BDF7 and beyond"
+                << " are zero-unstable."
+                << exit(FatalError);
+        }
+
+        return c;
+    }
+
+    // The massMatrix key, validated. It used to collapse diagonal onto lumped and
+    // consistentHO onto consistent; each mode now has a single spelling.
     word normalizedMassMatrixType(const word& massMatrix)
     {
-        if (massMatrix == "lumped" || massMatrix == "diagonal")
+        if (massMatrix == "lumped")
         {
             return "lumped";
         }
-        else if (massMatrix == "consistent" || massMatrix == "consistentHO")
+        else if (massMatrix == "consistent")
         {
             return "consistent";
         }
 
         FatalErrorInFunction
             << "Unknown massMatrix: " << massMatrix << nl
-            << "Valid options are lumped (or diagonal) and consistent (or consistentHO)"
+            << "Valid options are lumped and consistent (exact spelling,"
+            << " case-sensitive)."
             << exit(FatalError);
 
         return "lumped";
@@ -1707,15 +2042,6 @@ namespace
     scalar gNorm(const EigVec& v)
     {
         return std::sqrt(gSquaredNorm(v));
-    }
-
-    // Global inner product of two distributed vectors, so a convergence test or
-    // an orthogonalisation does not see only this rank's block.
-    scalar gDot(const EigVec& a, const EigVec& b)
-    {
-        scalar s = a.dot(b);
-        reduce(s, sumOp<scalar>());
-        return s;
     }
 
     // Modified for cardiacFoam: globally reduced. Its neighbour
@@ -2015,6 +2341,7 @@ namespace
         const highOrderInterp& LREInterp,
         const scalar coefficient,
         const bool compactRows,
+        const label cellChunk,
         SpMat& M
     )
     {
@@ -2038,7 +2365,6 @@ namespace
         // Modified for cardiacFoam: local rows, global columns (MPIAIJ layout).
         const globalIndex& gc = LREInterp.globalCells();
         const label nGlobalCells = gc.totalSize();
-        const label cellChunk = 50000;
 
         std::vector<Triplet> triplets;
         if (compactRows)
@@ -3061,6 +3387,7 @@ namespace
         const highOrderInterp& LREInterp,
         const scalar stabilisationAlpha,
         const label tripletsPerFaceReserve,
+        const label faceChunk,
         SpMat& K
     )
     {
@@ -3091,8 +3418,6 @@ namespace
         const globalIndex& gc = LREInterp.globalCells();
         const label nGlobalCells = gc.totalSize();
         const label nInternalFaces = neighbour.size();
-        const label faceChunk = 50000;
-
 
         std::vector<Triplet> triplets;
         // Reserve for a full chunk without forcing the tet/stabilised worst
@@ -3164,8 +3489,27 @@ namespace
                         // gone. LRE normalised its face quadrature weights to
                         // sum to 1, so the caller supplied |Sf|; fvMeshQuadrature
                         // returns physical weights that already sum to |Sf|.
+                        //
+                        // Modified for cardiacFoam: the FACE tensor is the
+                        // average of the two cells, not the owner's. The same
+                        // fluxCoeff goes into both rows below, so using
+                        // conductivity[own] made the face's diffusivity depend on
+                        // which cell the mesh happens to call the owner. That is
+                        // invisible with a uniform D, where the two tensors are
+                        // equal - and with a non-uniform D it made K depend on
+                        // the PARTITION, because a face that is internal in
+                        // serial becomes a coupled face whose owner is
+                        // rank-local. Measured before the fix on an alternating
+                        // D: max|dK|/max|K| = 2.1e-01 at np=2 and np=4 against
+                        // 4.8e-15 with a uniform D (test M15).
+                        //
+                        // With a uniform D this is bit-identical to the old
+                        // expression: 0.5*(x + x) is exact in floating point.
+                        const tensor Df =
+                            0.5*(conductivity[own] + conductivity[nei]);
+
                         const scalar fluxCoeff =
-                            w*(n & (conductivity[own] & gCoeff));
+                            w*(n & (Df & gCoeff));
 
 
                         addTripletIfNeeded
@@ -3281,13 +3625,24 @@ namespace
         List<labelList> nbrTaylorCols;
         List<scalarField> nbrTaylorCoeffs;
 
-        if (stabilisationAlpha > SMALL && Pstream::parRun())
+        // Modified for cardiacFoam: the conductivity swap is NOT gated on the
+        // stabilisation any more. The coupled-face flux below needs the far
+        // cell's tensor to form the face average, whatever alpha is - see the
+        // note at the internal-face flux. The low-order assembly swaps it on
+        // Pstream::parRun() alone for the same reason.
+        //
+        // Still outside the chunk loop, and still collective: every rank takes
+        // this branch or none does.
+        if (Pstream::parRun())
         {
             syncTools::swapBoundaryCellList
             (
                 mesh, conductivity.primitiveField(), nbrConductivity
             );
+        }
 
+        if (stabilisationAlpha > SMALL && Pstream::parRun())
+        {
             exchangeCoupledFaceRows
             (
                 mesh,
@@ -3374,6 +3729,30 @@ namespace
                 const scalar area = mag(Sf) + VSMALL;
                 const vector n = Sf/area;
 
+                // Modified for cardiacFoam: the face tensor, matching the
+                // internal-face loop. This loop is reached by BOTH processor
+                // patches and Dirichlet patches, and the two cases are not the
+                // same face:
+                //
+                //   - across a processor cut there IS a cell on the far side, so
+                //     the face tensor is the average of the two. This is the half
+                //     of the fix that closes the partition dependence; changing
+                //     only the internal-face loop fixes the SERIAL operator and
+                //     leaves parallel building the same physical face with two
+                //     different tensors, one per rank.
+                //   - on a physical boundary there is no neighbour cell, so the
+                //     owner's tensor is the face tensor. Indexing
+                //     nbrConductivity here would read an entry that
+                //     swapBoundaryCellList never filled.
+                //
+                // patch.coupled() implies processorFvPatch (anything else
+                // FatalErrors above), which implies parRun, so nbrConductivity is
+                // populated whenever this branch is taken.
+                const tensor Dface =
+                    patch.coupled()
+                  ? 0.5*(conductivity[own] + nbrConductivity[bStart + faceI])
+                  : conductivity[own];
+
                 const UList<label> curStencil = faceStencils[globalFaceI];
 
                 forAll(faceQP[globalFaceI], qpI)
@@ -3389,7 +3768,7 @@ namespace
                         // Modified for cardiacFoam: physical quadrature weights
                         // already carry |Sf| (see the internal-face loop above).
                         const scalar fluxCoeff =
-                            w*(n & (conductivity[own] & gCoeff));
+                            w*(n & (Dface & gCoeff));
 
                         addTripletIfNeeded
                         (
@@ -3777,22 +4156,12 @@ namespace
     {
         if (usesPetscBackend(linearSolverBackend))
         {
-            word kspType(petscKspType);
-            word pcType(petscPcType);
-
-            if (linearSolver == "SparseLU" || linearSolver == "LU")
-            {
-                kspType = "preonly";
-                pcType = "lu";
-            }
-            else if
+            word kspType;
+            word pcType;
+            resolvePetscKspPc
             (
-                linearSolver == "BiCGSTAB"
-             && petscKspType == linearSolver
-            )
-            {
-                kspType = "bcgs";
-            }
+                linearSolver, petscKspType, petscPcType, kspType, pcType
+            );
 
             PetscKspMatrixSolver solver;
             solver.reset
@@ -3808,6 +4177,27 @@ namespace
             );
 
             return solver.solve(b, linearIterations, linearError);
+        }
+
+        // Modified for cardiacFoam: the Eigen backend is serial only, and the
+        // comment above this function said so without enforcing it. K carries
+        // LOCAL rows and GLOBAL columns (the MPIAIJ layout, see
+        // assembleStiffnessMatrix), so in parallel it is rectangular by design
+        // and Eigen's SparseLU/BiCGSTAB die on an eigen_assert naming a file
+        // inside the library - not this solver, not the key that selected them,
+        // and not the word "parallel".
+        if (Pstream::parRun())
+        {
+            FatalErrorInFunction
+                << "linearSolverBackend = " << linearSolverBackend
+                << " selects the Eigen backend, which is serial only." << nl
+                << "The assembled matrix has " << A.rows()
+                << " local rows and " << A.cols()
+                << " global columns, so Eigen would be handed a rectangular"
+                << " system." << nl
+                << "Set 'linearSolverBackend PETSc;' to run on "
+                << Pstream::nProcs() << " ranks."
+                << exit(FatalError);
         }
 
         return solveSparseSystemEigen
@@ -4125,13 +4515,11 @@ namespace
             LREInterp_Vm.faceQuadWeightPhysical();
 
         const surfaceVectorField nHat(mesh.Sf()/mesh.magSf());
-        const scalarField& magSfInternal = mesh.magSf().internalField();
 
         for (label faceI = 0; faceI < mesh.nInternalFaces(); ++faceI)
         {
             const label owner = mesh.owner()[faceI];
             const vector& faceNormal = nHat[faceI];
-            const scalar faceArea = magSfInternal[faceI];
 
             fluxVm_HO[faceI] = 0.0;
 
@@ -4167,7 +4555,6 @@ namespace
             }
 
             const label start = mesh.boundaryMesh()[patchI].start();
-            const scalarField& pMagSf = mesh.magSf().boundaryField()[patchI];
             const vectorField& pNormals = nHat.boundaryField()[patchI];
 
             forAll(patchFlux, faceI)
@@ -4175,7 +4562,6 @@ namespace
                 const label globalFaceI = start + faceI;
                 const label owner = mesh.owner()[globalFaceI];
                 const vector& faceNormal = pNormals[faceI];
-                const scalar faceArea = pMagSf[faceI];
 
                 patchFlux[faceI] = 0.0;
 
@@ -4267,95 +4653,52 @@ namespace
         sourceVm.correctBoundaryConditions();
     }
 
-    // Reconstruct Vm at every ionic quadrature point, from the cell values, at
-    // the order of the interpolator. This is what makes the source term
-    // high-order: evaluating a nonlinear function at the cell centre and
-    // multiplying by the volume is only first-order accurate however good the
-    // diffusion operator is.
-    void reconstructVmAtIionIntegrationPoints
+    // Value of a field at a stencil entry, which may live on another rank.
+    // Replicates movingLeastSquares::fieldValue, which is private to the
+    // library: local cells index the local field, remote ones index the
+    // per-processor halo that remoteFieldPerProc() returned.
+    inline scalar stencilValue
     (
-        const volScalarField& Vm,
-        const Switch useHighOrderVm,
-        const highOrderInterp& LREInterp_Vm,
-        const highOrderInterp& LREInterp_Iion,
-        scalarField& VmIntegrationPoints
+        const label globalCellID,
+        const globalIndex& globalCells,
+        const Map<FixedList<label, 2>>& remoteLocation,
+        const UList<scalar>& localField,
+        const List<Field<scalar>>& remoteField
     )
     {
-        const fvMesh& mesh = Vm.mesh();
-        const vectorField& C = mesh.C();
-        const CompactListList<point>& cellIionQuadP =
-            LREInterp_Iion.cellQuadPoints();
-
-        label integrationPointI = 0;
-
-        if (useHighOrderVm)
+        if (globalCells.isLocal(globalCellID))
         {
-            const bool twoD = mesh.nGeometricD() == 2;
-
-            tmp<volVectorField> tGradVm = LREInterp_Vm.grad(Vm);
-            const vectorField& gradVm = tGradVm->internalField();
-
-            tmp<volSymmTensorField> tHessVm;
-            const symmTensorField* hessVm = nullptr;
-            if (LREInterp_Vm.order() >= 2)
-            {
-                tHessVm = LREInterp_Vm.hessian(Vm);
-                hessVm = &(tHessVm->internalField());
-            }
-
-            autoPtr<List<highOrderInterp::symmTensor3Order>> thirdVmPtr;
-            const List<highOrderInterp::symmTensor3Order>* thirdVm = nullptr;
-            if (LREInterp_Vm.order() >= 3)
-            {
-                thirdVmPtr = LREInterp_Vm.thirdDeriv(Vm);
-                thirdVm = &thirdVmPtr();
-            }
-
-            forAll(mesh.cells(), cellI)
-            {
-                const scalar Vc = Vm[cellI];
-                const vector& gradVc = gradVm[cellI];
-                const vector& xc = C[cellI];
-
-                const symmTensor* H = hessVm ? &((*hessVm)[cellI]) : nullptr;
-                const highOrderInterp::symmTensor3Order* T3 =
-                    thirdVm ? &((*thirdVm)[cellI]) : nullptr;
-
-                forAll(cellIionQuadP[cellI], qI)
-                {
-                    const vector d = cellIionQuadP[cellI][qI] - xc;
-                    VmIntegrationPoints[integrationPointI] =
-                        reconstructFromTaylor(Vc, gradVc, H, T3, d, twoD);
-                    ++integrationPointI;
-                }
-            }
+            return localField[globalCells.toLocal(globalCellID)];
         }
-        else
-        {
-            tmp<volVectorField> tGradVm = fvc::grad(Vm);
-            const vectorField& gradVm = tGradVm->internalField();
 
-            forAll(mesh.cells(), cellI)
-            {
-                const scalar Vc = Vm[cellI];
-                const vector& gradVc = gradVm[cellI];
-                const vector& xc = C[cellI];
-
-                forAll(cellIionQuadP[cellI], qI)
-                {
-                    const vector d = cellIionQuadP[cellI][qI] - xc;
-                    VmIntegrationPoints[integrationPointI] = Vc + (gradVc & d);
-                    ++integrationPointI;
-                }
-            }
-        }
+        const FixedList<label, 2>& loc = remoteLocation[globalCellID];
+        return remoteField[loc[0]][loc[1]];
     }
 
-    // Reconstruct the cell-centred states (u1,u2,u3) at the Iion Gauss points
-    // using a dedicated high-order LRE (LREInterp_states). Mirrors the
-    // high-order branch of reconstructVmAtIionIntegrationPoints, but evaluates
-    // the three state fields in a single pass over the cells. Used by
-    // stateIntegrationMode = cellCentredReconstruct.
+    // Reconstruct the cell-centred states at the ionic quadrature points.
+    //
+    // Modified for cardiacFoam: this used to call LREInterp_states.grad(),
+    // .hessian() and .thirdDeriv() - up to NINE separate passes over the mesh,
+    // each with its own halo exchange, its own field allocation and its own
+    // serial stencil walk - and then run a second serial loop for the Taylor
+    // expansion. Measured at p3 on a 300x300 mesh, that was 70% of the ionic
+    // work and none of it was threaded, which is what capped OpenMP scaling at
+    // 1.20x there while MPI reached 2.79x on the same work.
+    //
+    // The library keeps the expensive part (the QR fits that produce the
+    // coefficients) cached, and exposes both the coefficients and the halo
+    // exchange, so the evaluation can be driven from here instead. Doing so
+    // buys three things:
+    //
+    //   1. it is threaded, which the library's loops are not;
+    //   2. the nine quantities are accumulated in ONE walk of the stencil
+    //      instead of nine, so each neighbour value is fetched once;
+    //   3. no volField is allocated and no boundary condition is evaluated -
+    //      only the internal values are ever read below.
+    //
+    // The arithmetic is identical to movingLeastSquares::grad/secondGrad/
+    // thirdGrad, including the trailing coefficient that carries the cell's own
+    // contribution at index stencil.size().
     void reconstructStatesAtIionIntegrationPoints
     (
         const volScalarField& u1,
@@ -4365,86 +4708,380 @@ namespace
         const highOrderInterp& LREInterp_Iion,
         scalarField& u1IntegrationPoints,
         scalarField& u2IntegrationPoints,
-        scalarField& u3IntegrationPoints
+        scalarField& u3IntegrationPoints,
+        const Switch useOpenMP,
+        const label openMPThreshold,
+        const Switch profileTimings,
+        FineGrainedTimings& fineTimings
     )
     {
         const fvMesh& mesh = u1.mesh();
         const vectorField& C = mesh.C();
         const bool twoD = mesh.nGeometricD() == 2;
+        const label nCells = mesh.nCells();
+        const label order = LREInterp_states.order();
+
         const CompactListList<point>& cellIionQuadP =
             LREInterp_Iion.cellQuadPoints();
+        // Where each cell's quadrature points start in the flat arrays. Taken
+        // from the container instead of being counted along the loop: a running
+        // counter is a dependency between iterations and would make the loop
+        // unparallelisable.
+        const labelList& ipOffsets = cellIionQuadP.offsets();
 
-        // Gradients (always), Hessians (order >= 2), third derivs (order >= 3)
-        // of each state field from the state interpolator.
-        tmp<volVectorField> tGradU1 = LREInterp_states.grad(u1);
-        tmp<volVectorField> tGradU2 = LREInterp_states.grad(u2);
-        tmp<volVectorField> tGradU3 = LREInterp_states.grad(u3);
-        const vectorField& gradU1 = tGradU1->internalField();
-        const vectorField& gradU2 = tGradU2->internalField();
-        const vectorField& gradU3 = tGradU3->internalField();
+        const auto tDerivStart = std::chrono::steady_clock::now();
 
-        tmp<volSymmTensorField> tHessU1, tHessU2, tHessU3;
-        const symmTensorField* hessU1 = nullptr;
-        const symmTensorField* hessU2 = nullptr;
-        const symmTensorField* hessU3 = nullptr;
-        if (LREInterp_states.order() >= 2)
+        // Halo exchange: MPI, once per field, outside the threaded region.
+        const auto& stencilData = LREInterp_states.mls().stencilData();
+        const globalIndex& globalCells = stencilData.globalCells();
+        const Map<FixedList<label, 2>>& remoteLoc =
+            stencilData.remoteCellLocation();
+        const CompactListList<label>& stencils = stencilData.cellsStencil();
+
+        const scalarField& u1I = u1.primitiveField();
+        const scalarField& u2I = u2.primitiveField();
+        const scalarField& u3I = u3.primitiveField();
+
+        const List<Field<scalar>> u1Remote = stencilData.remoteFieldPerProc(u1I);
+        const List<Field<scalar>> u2Remote = stencilData.remoteFieldPerProc(u2I);
+        const List<Field<scalar>> u3Remote = stencilData.remoteFieldPerProc(u3I);
+
+        // Coefficients of the local fit. Already built and cached by the
+        // library; the Hessian and third-derivative lists are empty below the
+        // order that defines them, hence the guards on their use.
+        const CompactListList<vector>& gradCoeffs =
+            LREInterp_states.QRGradCoeffs();
+        const CompactListList<symmTensor>& hessCoeffs =
+            LREInterp_states.cellHessianCoeffs();
+        const CompactListList<highOrderInterp::symmTensor3Order>& thirdCoeffs =
+            LREInterp_states.cellThirdDerivCoeffs();
+
+        const bool haveHess = (order >= 2);
+        const bool haveThird = (order >= 3);
+
+        const auto tExpandStart = std::chrono::steady_clock::now();
+
+        // One pass: gather the stencil once, form every derivative, expand.
+        // Each iteration writes only its own cell's slice of the output arrays,
+        // so there is nothing to reduce and nothing to guard.
+        #pragma omp parallel for schedule(static) \
+                if(useOpenMP && nCells >= openMPThreshold)
+        for (label cellI = 0; cellI < nCells; ++cellI)
         {
-            tHessU1 = LREInterp_states.hessian(u1);
-            tHessU2 = LREInterp_states.hessian(u2);
-            tHessU3 = LREInterp_states.hessian(u3);
-            hessU1 = &(tHessU1->internalField());
-            hessU2 = &(tHessU2->internalField());
-            hessU3 = &(tHessU3->internalField());
-        }
+            const UList<label>& stencil = stencils[cellI];
+            const UList<vector>& gc = gradCoeffs[cellI];
 
-        autoPtr<List<highOrderInterp::symmTensor3Order>> thirdU1Ptr, thirdU2Ptr, thirdU3Ptr;
-        const List<highOrderInterp::symmTensor3Order>* thirdU1 = nullptr;
-        const List<highOrderInterp::symmTensor3Order>* thirdU2 = nullptr;
-        const List<highOrderInterp::symmTensor3Order>* thirdU3 = nullptr;
-        if (LREInterp_states.order() >= 3)
-        {
-            thirdU1Ptr = LREInterp_states.thirdDeriv(u1);
-            thirdU2Ptr = LREInterp_states.thirdDeriv(u2);
-            thirdU3Ptr = LREInterp_states.thirdDeriv(u3);
-            thirdU1 = &thirdU1Ptr();
-            thirdU2 = &thirdU2Ptr();
-            thirdU3 = &thirdU3Ptr();
-        }
+            vector gU1 = vector::zero;
+            vector gU2 = vector::zero;
+            vector gU3 = vector::zero;
 
-        label integrationPointI = 0;
-        forAll(mesh.cells(), cellI)
-        {
-            const vector& xc = C[cellI];
+            symmTensor HU1 = symmTensor::zero;
+            symmTensor HU2 = symmTensor::zero;
+            symmTensor HU3 = symmTensor::zero;
 
-            const scalar u1c = u1[cellI];
-            const scalar u2c = u2[cellI];
-            const scalar u3c = u3[cellI];
+            highOrderInterp::symmTensor3Order TU1 =
+                highOrderInterp::symmTensor3Order::zero;
+            highOrderInterp::symmTensor3Order TU2 =
+                highOrderInterp::symmTensor3Order::zero;
+            highOrderInterp::symmTensor3Order TU3 =
+                highOrderInterp::symmTensor3Order::zero;
 
-            const vector& gU1 = gradU1[cellI];
-            const vector& gU2 = gradU2[cellI];
-            const vector& gU3 = gradU3[cellI];
-
-            const symmTensor* HU1 = hessU1 ? &((*hessU1)[cellI]) : nullptr;
-            const symmTensor* HU2 = hessU2 ? &((*hessU2)[cellI]) : nullptr;
-            const symmTensor* HU3 = hessU3 ? &((*hessU3)[cellI]) : nullptr;
-
-            const highOrderInterp::symmTensor3Order* TU1 =
-                thirdU1 ? &((*thirdU1)[cellI]) : nullptr;
-            const highOrderInterp::symmTensor3Order* TU2 =
-                thirdU2 ? &((*thirdU2)[cellI]) : nullptr;
-            const highOrderInterp::symmTensor3Order* TU3 =
-                thirdU3 ? &((*thirdU3)[cellI]) : nullptr;
-
-            forAll(cellIionQuadP[cellI], qI)
+            forAll(stencil, cI)
             {
-                const vector d = cellIionQuadP[cellI][qI] - xc;
-                u1IntegrationPoints[integrationPointI] =
-                    reconstructFromTaylor(u1c, gU1, HU1, TU1, d, twoD);
-                u2IntegrationPoints[integrationPointI] =
-                    reconstructFromTaylor(u2c, gU2, HU2, TU2, d, twoD);
-                u3IntegrationPoints[integrationPointI] =
-                    reconstructFromTaylor(u3c, gU3, HU3, TU3, d, twoD);
-                ++integrationPointI;
+                const label gid = stencil[cI];
+
+                const scalar v1 =
+                    stencilValue(gid, globalCells, remoteLoc, u1I, u1Remote);
+                const scalar v2 =
+                    stencilValue(gid, globalCells, remoteLoc, u2I, u2Remote);
+                const scalar v3 =
+                    stencilValue(gid, globalCells, remoteLoc, u3I, u3Remote);
+
+                gU1 += gc[cI]*v1;
+                gU2 += gc[cI]*v2;
+                gU3 += gc[cI]*v3;
+
+                if (haveHess)
+                {
+                    const symmTensor& hcI = hessCoeffs[cellI][cI];
+                    HU1 += hcI*v1;
+                    HU2 += hcI*v2;
+                    HU3 += hcI*v3;
+                }
+
+                if (haveThird)
+                {
+                    const highOrderInterp::symmTensor3Order& tcI =
+                        thirdCoeffs[cellI][cI];
+                    TU1 += tcI*v1;
+                    TU2 += tcI*v2;
+                    TU3 += tcI*v3;
+                }
+            }
+
+            // Trailing entry: the cell's own contribution.
+            const label last = stencil.size();
+            const scalar u1c = u1I[cellI];
+            const scalar u2c = u2I[cellI];
+            const scalar u3c = u3I[cellI];
+
+            gU1 += gc[last]*u1c;
+            gU2 += gc[last]*u2c;
+            gU3 += gc[last]*u3c;
+
+            if (haveHess)
+            {
+                const symmTensor& hcL = hessCoeffs[cellI][last];
+                HU1 += hcL*u1c;
+                HU2 += hcL*u2c;
+                HU3 += hcL*u3c;
+            }
+
+            if (haveThird)
+            {
+                const highOrderInterp::symmTensor3Order& tcL =
+                    thirdCoeffs[cellI][last];
+                TU1 += tcL*u1c;
+                TU2 += tcL*u2c;
+                TU3 += tcL*u3c;
+            }
+
+            // Taylor expansion at this cell's quadrature points, while the
+            // derivatives are still in registers.
+            const symmTensor* pHU1 = haveHess ? &HU1 : nullptr;
+            const symmTensor* pHU2 = haveHess ? &HU2 : nullptr;
+            const symmTensor* pHU3 = haveHess ? &HU3 : nullptr;
+            const highOrderInterp::symmTensor3Order* pTU1 =
+                haveThird ? &TU1 : nullptr;
+            const highOrderInterp::symmTensor3Order* pTU2 =
+                haveThird ? &TU2 : nullptr;
+            const highOrderInterp::symmTensor3Order* pTU3 =
+                haveThird ? &TU3 : nullptr;
+
+            const vector& xc = C[cellI];
+            const label base = ipOffsets[cellI];
+            const UList<point>& qp = cellIionQuadP[cellI];
+
+            forAll(qp, qI)
+            {
+                const vector d = qp[qI] - xc;
+                const label ip = base + qI;
+
+                u1IntegrationPoints[ip] =
+                    reconstructFromTaylor(u1c, gU1, pHU1, pTU1, d, twoD);
+                u2IntegrationPoints[ip] =
+                    reconstructFromTaylor(u2c, gU2, pHU2, pTU2, d, twoD);
+                u3IntegrationPoints[ip] =
+                    reconstructFromTaylor(u3c, gU3, pHU3, pTU3, d, twoD);
+            }
+        }
+
+        if (profileTimings)
+        {
+            const auto tEnd = std::chrono::steady_clock::now();
+            // La primera mitad es ahora solo el intercambio de halo; la segunda
+            // es el bucle fusionado (derivadas + expansion), que es el hilado.
+            fineTimings.stateReconDerivWallTime +=
+                std::chrono::duration<scalar>(tExpandStart - tDerivStart).count();
+            fineTimings.stateReconExpandWallTime +=
+                std::chrono::duration<scalar>(tEnd - tExpandStart).count();
+            ++fineTimings.stateReconCalls;
+        }
+    }
+
+    // Reconstruct Vm at every ionic quadrature point, from the cell values, at
+    // the order of the interpolator. This is what makes the source term
+    // high-order: evaluating a nonlinear function at the cell centre and
+    // multiplying by the volume is only first-order accurate however good the
+    // diffusion operator is.
+    //
+    // Modified for cardiacFoam: fused and threaded, for the same reasons as
+    // reconstructStatesAtIionIntegrationPoints above and by the same means.
+    // This used to call LREInterp_Vm.grad(), .hessian() and .thirdDeriv() -
+    // three passes over the mesh, each with its own halo exchange, its own
+    // volField allocation and its own serial stencil walk - and then a fourth
+    // serial loop for the Taylor expansion.
+    //
+    // It is the HOTTER of the two reconstructions and was the one still left
+    // unfused: it runs whenever useHighOrder_Iion is on, from four call sites,
+    // whereas the state reconstruction runs only under cellCentredReconstruct,
+    // from two.
+    //
+    // Note this is deliberately NOT movingLeastSquares::cellDerivatives(), the
+    // fused evaluator the library now offers. That one is serial - the MLS
+    // sources carry no OpenMP pragma and solids4FoamModels is not even built
+    // with -fopenmp - and threading this loop is most of the point. What the
+    // library provides, and what is used here, is the cached coefficient
+    // tables plus the halo exchange.
+    //
+    // The arithmetic is identical to movingLeastSquares::grad/secondGrad/
+    // thirdGrad, including the trailing coefficient that carries the cell's own
+    // contribution at index stencil.size().
+    void reconstructVmAtIionIntegrationPoints
+    (
+        const volScalarField& Vm,
+        const Switch useHighOrderVm,
+        const highOrderInterp& LREInterp_Vm,
+        const highOrderInterp& LREInterp_Iion,
+        scalarField& VmIntegrationPoints,
+        const Switch useOpenMP,
+        const label openMPThreshold,
+        const Switch profileTimings,
+        FineGrainedTimings& fineTimings
+    )
+    {
+        const fvMesh& mesh = Vm.mesh();
+        const vectorField& C = mesh.C();
+        const bool twoD = mesh.nGeometricD() == 2;
+        const label nCells = mesh.nCells();
+
+        const CompactListList<point>& cellIionQuadP =
+            LREInterp_Iion.cellQuadPoints();
+        // Where each cell's quadrature points start in the flat array. Taken
+        // from the container rather than counted along the loop: the running
+        // counter this replaces was a dependency between iterations, and was
+        // the only thing making either branch unparallelisable.
+        const labelList& ipOffsets = cellIionQuadP.offsets();
+
+        const scalarField& VmI = Vm.primitiveField();
+
+        if (useHighOrderVm)
+        {
+            const label order = LREInterp_Vm.order();
+
+            const auto tDerivStart = std::chrono::steady_clock::now();
+
+            // Halo exchange: MPI, once, outside the threaded region.
+            const auto& stencilData = LREInterp_Vm.mls().stencilData();
+            const globalIndex& globalCells = stencilData.globalCells();
+            const Map<FixedList<label, 2>>& remoteLoc =
+                stencilData.remoteCellLocation();
+            const CompactListList<label>& stencils = stencilData.cellsStencil();
+
+            const List<Field<scalar>> VmRemote =
+                stencilData.remoteFieldPerProc(VmI);
+
+            // Coefficients of the local fit, already built and cached by the
+            // library. The Hessian and third-derivative tables are empty below
+            // the order that defines them, hence the guards.
+            const CompactListList<vector>& gradCoeffs =
+                LREInterp_Vm.QRGradCoeffs();
+            const CompactListList<symmTensor>& hessCoeffs =
+                LREInterp_Vm.cellHessianCoeffs();
+            const CompactListList<highOrderInterp::symmTensor3Order>&
+                thirdCoeffs = LREInterp_Vm.cellThirdDerivCoeffs();
+
+            const bool haveHess = (order >= 2);
+            const bool haveThird = (order >= 3);
+
+            const auto tExpandStart = std::chrono::steady_clock::now();
+
+            // One pass: gather the stencil once, form every derivative, expand
+            // while they are still in registers. Each iteration writes only its
+            // own cell's slice of the output, so there is nothing to reduce.
+            #pragma omp parallel for schedule(static) \
+                    if(useOpenMP && nCells >= openMPThreshold)
+            for (label cellI = 0; cellI < nCells; ++cellI)
+            {
+                const UList<label>& stencil = stencils[cellI];
+                const UList<vector>& gc = gradCoeffs[cellI];
+
+                vector gV = vector::zero;
+                symmTensor HV = symmTensor::zero;
+                highOrderInterp::symmTensor3Order TV =
+                    highOrderInterp::symmTensor3Order::zero;
+
+                forAll(stencil, cI)
+                {
+                    const scalar v =
+                        stencilValue
+                        (
+                            stencil[cI], globalCells, remoteLoc, VmI, VmRemote
+                        );
+
+                    gV += gc[cI]*v;
+
+                    if (haveHess)
+                    {
+                        HV += hessCoeffs[cellI][cI]*v;
+                    }
+
+                    if (haveThird)
+                    {
+                        TV += thirdCoeffs[cellI][cI]*v;
+                    }
+                }
+
+                // Trailing entry: the cell's own contribution.
+                const label last = stencil.size();
+                const scalar Vc = VmI[cellI];
+
+                gV += gc[last]*Vc;
+
+                if (haveHess)
+                {
+                    HV += hessCoeffs[cellI][last]*Vc;
+                }
+
+                if (haveThird)
+                {
+                    TV += thirdCoeffs[cellI][last]*Vc;
+                }
+
+                const symmTensor* pHV = haveHess ? &HV : nullptr;
+                const highOrderInterp::symmTensor3Order* pTV =
+                    haveThird ? &TV : nullptr;
+
+                const vector& xc = C[cellI];
+                const label base = ipOffsets[cellI];
+                const UList<point>& qp = cellIionQuadP[cellI];
+
+                forAll(qp, qI)
+                {
+                    VmIntegrationPoints[base + qI] =
+                        reconstructFromTaylor
+                        (
+                            Vc, gV, pHV, pTV, qp[qI] - xc, twoD
+                        );
+                }
+            }
+
+            if (profileTimings)
+            {
+                const auto tEnd = std::chrono::steady_clock::now();
+                // Primera mitad: solo el intercambio de halo. Segunda: el
+                // bucle fusionado, que es el hilado.
+                fineTimings.vmReconDerivWallTime +=
+                    std::chrono::duration<scalar>
+                    (tExpandStart - tDerivStart).count();
+                fineTimings.vmReconExpandWallTime +=
+                    std::chrono::duration<scalar>(tEnd - tExpandStart).count();
+                ++fineTimings.vmReconCalls;
+            }
+        }
+        else
+        {
+            // Low order: fvc::grad is a library call and stays as it is, but
+            // the expansion is threaded like the branch above - it had the same
+            // running counter.
+            tmp<volVectorField> tGradVm = fvc::grad(Vm);
+            const vectorField& gradVm = tGradVm->internalField();
+
+            #pragma omp parallel for schedule(static) \
+                    if(useOpenMP && nCells >= openMPThreshold)
+            for (label cellI = 0; cellI < nCells; ++cellI)
+            {
+                const scalar Vc = VmI[cellI];
+                const vector& gradVc = gradVm[cellI];
+                const vector& xc = C[cellI];
+                const label base = ipOffsets[cellI];
+                const UList<point>& qp = cellIionQuadP[cellI];
+
+                forAll(qp, qI)
+                {
+                    VmIntegrationPoints[base + qI] =
+                        Vc + (gradVc & (qp[qI] - xc));
+                }
             }
         }
     }
@@ -4603,10 +5240,71 @@ namespace
     // which is what the state ODEs see while the PDE is advanced from t^n to
     // t^{n+1}. Without it the states would be integrated against a frozen Vm
     // and the coupling would drop to first order.
+    // The Vm the state ODEs are driven by, at ONE point, as a set of nodes in
+    // normalised time s = tau/stepDt over [0, 1].
+    //
+    // Why this is not a pair of endpoints any more. The states are integrated
+    // over the step with Vm interpolated between the levels the outer scheme
+    // knows, and the ACCURACY OF THAT INTERPOLANT CAPS THE WHOLE SOLVER: a
+    // linear blend is O(dt^2), so no time integrator above second order can
+    // show its order, however good it is. That was measured, not argued -
+    // ESDIRK4 on a coarse-dt sweep fits 1.88 with the linear blend and 2.99
+    // with the states driven exactly, a 48x difference in error.
+    //
+    // nNodes == 2 with s = {0, 1} reproduces the old linear blend EXACTLY, and
+    // that is the case backwardEuler, crankNicolson and BDF1 take - they store
+    // no level older than V^n - so their results are unchanged bit for bit.
+    // BDF2-4 pass the k+1 levels of their history and the ESDIRK startup its
+    // stage values; both are already stored, so the higher-order interpolant
+    // costs no extra evaluation. stateODEDriver linear forces the two-node
+    // ramp on them as well, which is how the cost of the ramp is measured.
+    struct VmDriverNodes
+    {
+        label nNodes = 2;
+        //- Normalised abscissae, s[0] = 0 and s[nNodes-1] = 1
+        FixedList<scalar, 6> s;
+        //- Vm at those abscissae
+        FixedList<scalar, 6> v;
+    };
+
+    // Lagrange interpolation of the driver at normalised time s.
+    inline scalar interpolateVmDriver
+    (
+        const VmDriverNodes& nd,
+        const scalar s
+    )
+    {
+        // Written out for two nodes rather than left to the general loop: this
+        // is the path every non-ESDIRK scheme takes, and spelling it out is
+        // what guarantees bit-identical results, not just equal ones.
+        if (nd.nNodes <= 2)
+        {
+            return (1.0 - s)*nd.v[0] + s*nd.v[1];
+        }
+
+        scalar result = 0.0;
+
+        for (label j = 0; j < nd.nNodes; ++j)
+        {
+            scalar Lj = 1.0;
+
+            for (label m = 0; m < nd.nNodes; ++m)
+            {
+                if (m != j)
+                {
+                    Lj *= (s - nd.s[m])/(nd.s[j] - nd.s[m]);
+                }
+            }
+
+            result += Lj*nd.v[j];
+        }
+
+        return result;
+    }
+
     void reactionRatesLinearVm
     (
-        const scalar VmOld,
-        const scalar VmNew,
+        const VmDriverNodes& vmNodes,
         const scalar tau,
         const scalar dt,
         const scalar u1,
@@ -4622,7 +5320,7 @@ namespace
           ? min(max(tau/dt, scalar(0.0)), scalar(1.0))
           : scalar(1.0);
 
-        const scalar VmTau = (1.0 - alpha)*VmOld + alpha*VmNew;
+        const scalar VmTau = interpolateVmDriver(vmNodes, alpha);
 
         reactionRates(VmTau, u1, u2, u3, du1dt, du2dt, du3dt);
     }
@@ -4631,8 +5329,7 @@ namespace
     // point. Fixed step: used when the adaptive integrator is not requested.
     void rk4StateStep
     (
-        const scalar VmOld,
-        const scalar VmNew,
+        const VmDriverNodes& vmNodes,
         const scalar tau,
         const scalar h,
         const scalar dt,
@@ -4651,13 +5348,13 @@ namespace
 
         reactionRatesLinearVm
         (
-            VmOld, VmNew, tau, dt,
+            vmNodes, tau, dt,
             u1, u2, u3,
             k11, k12, k13
         );
         reactionRatesLinearVm
         (
-            VmOld, VmNew, tau + 0.5*h, dt,
+            vmNodes, tau + 0.5*h, dt,
             u1 + 0.5*h*k11,
             u2 + 0.5*h*k12,
             u3 + 0.5*h*k13,
@@ -4665,7 +5362,7 @@ namespace
         );
         reactionRatesLinearVm
         (
-            VmOld, VmNew, tau + 0.5*h, dt,
+            vmNodes, tau + 0.5*h, dt,
             u1 + 0.5*h*k21,
             u2 + 0.5*h*k22,
             u3 + 0.5*h*k23,
@@ -4673,7 +5370,7 @@ namespace
         );
         reactionRatesLinearVm
         (
-            VmOld, VmNew, tau + h, dt,
+            vmNodes, tau + h, dt,
             u1 + h*k31,
             u2 + h*k32,
             u3 + h*k33,
@@ -4691,8 +5388,7 @@ namespace
     // tolerance without paying for it everywhere.
     void rkf45StateStep
     (
-        const scalar VmOld,
-        const scalar VmNew,
+        const VmDriverNodes& vmNodes,
         const scalar tau,
         const scalar h,
         const scalar dt,
@@ -4716,13 +5412,13 @@ namespace
 
         reactionRatesLinearVm
         (
-            VmOld, VmNew, tau, dt,
+            vmNodes, tau, dt,
             u1, u2, u3,
             k11, k12, k13
         );
         reactionRatesLinearVm
         (
-            VmOld, VmNew, tau + h/5.0, dt,
+            vmNodes, tau + h/5.0, dt,
             u1 + h*(1.0/5.0)*k11,
             u2 + h*(1.0/5.0)*k12,
             u3 + h*(1.0/5.0)*k13,
@@ -4730,7 +5426,7 @@ namespace
         );
         reactionRatesLinearVm
         (
-            VmOld, VmNew, tau + 3.0*h/10.0, dt,
+            vmNodes, tau + 3.0*h/10.0, dt,
             u1 + h*((3.0/40.0)*k11 + (9.0/40.0)*k21),
             u2 + h*((3.0/40.0)*k12 + (9.0/40.0)*k22),
             u3 + h*((3.0/40.0)*k13 + (9.0/40.0)*k23),
@@ -4738,7 +5434,7 @@ namespace
         );
         reactionRatesLinearVm
         (
-            VmOld, VmNew, tau + 3.0*h/5.0, dt,
+            vmNodes, tau + 3.0*h/5.0, dt,
             u1 + h*((3.0/10.0)*k11 - (9.0/10.0)*k21 + (6.0/5.0)*k31),
             u2 + h*((3.0/10.0)*k12 - (9.0/10.0)*k22 + (6.0/5.0)*k32),
             u3 + h*((3.0/10.0)*k13 - (9.0/10.0)*k23 + (6.0/5.0)*k33),
@@ -4746,7 +5442,7 @@ namespace
         );
         reactionRatesLinearVm
         (
-            VmOld, VmNew, tau + h, dt,
+            vmNodes, tau + h, dt,
             u1 + h*((-11.0/54.0)*k11 + (5.0/2.0)*k21 - (70.0/27.0)*k31 + (35.0/27.0)*k41),
             u2 + h*((-11.0/54.0)*k12 + (5.0/2.0)*k22 - (70.0/27.0)*k32 + (35.0/27.0)*k42),
             u3 + h*((-11.0/54.0)*k13 + (5.0/2.0)*k23 - (70.0/27.0)*k33 + (35.0/27.0)*k43),
@@ -4754,7 +5450,7 @@ namespace
         );
         reactionRatesLinearVm
         (
-            VmOld, VmNew, tau + 7.0*h/8.0, dt,
+            vmNodes, tau + 7.0*h/8.0, dt,
             u1 + h*((1631.0/55296.0)*k11 + (175.0/512.0)*k21 + (575.0/13824.0)*k31 + (44275.0/110592.0)*k41 + (253.0/4096.0)*k51),
             u2 + h*((1631.0/55296.0)*k12 + (175.0/512.0)*k22 + (575.0/13824.0)*k32 + (44275.0/110592.0)*k42 + (253.0/4096.0)*k52),
             u3 + h*((1631.0/55296.0)*k13 + (175.0/512.0)*k23 + (575.0/13824.0)*k33 + (44275.0/110592.0)*k43 + (253.0/4096.0)*k53),
@@ -4789,8 +5485,7 @@ namespace
     // consistent voltage.
     void advanceStateODE
     (
-        const scalar VmOld,
-        const scalar VmNew,
+        const VmDriverNodes& vmNodes,
         const scalar u1Old,
         const scalar u2Old,
         const scalar u3Old,
@@ -4813,12 +5508,12 @@ namespace
             return;
         }
 
-        if (stateODESolver == "Euler" || stateODESolver == "forwardEuler")
+        if (stateODESolver == "Euler")
         {
             scalar du1 = 0.0, du2 = 0.0, du3 = 0.0;
             reactionRatesLinearVm
             (
-                VmOld, VmNew, 0.0, dt,
+                vmNodes, 0.0, dt,
                 u1Old, u2Old, u3Old,
                 du1, du2, du3
             );
@@ -4833,23 +5528,20 @@ namespace
         {
             rk4StateStep
             (
-                VmOld, VmNew, 0.0, dt, dt,
+                vmNodes, 0.0, dt, dt,
                 u1Old, u2Old, u3Old,
                 u1New, u2New, u3New
             );
             return;
         }
 
-        if
-        (
-            stateODESolver != "RKF45"
-         && stateODESolver != "RKT45"
-         && stateODESolver != "rkf45"
-        )
+        // Validated at start-up in createFields.H, so this is a guard, not a
+        // reachable branch.
+        if (stateODESolver != "RKF45")
         {
             FatalErrorInFunction
                 << "Unknown state ODE solver: " << stateODESolver << nl
-                << "Valid options are RKF45, RKT45, RK4, Euler"
+                << "Valid options are RKF45, RK4 and Euler"
                 << exit(FatalError);
         }
 
@@ -4881,7 +5573,7 @@ namespace
 
             rkf45StateStep
             (
-                VmOld, VmNew, tau, h, dt,
+                vmNodes, tau, h, dt,
                 u1Cur, u2Cur, u3Cur,
                 u1Trial, u2Trial, u3Trial,
                 absTol,
@@ -4944,10 +5636,22 @@ namespace
         #pragma omp parallel for schedule(static) if(useOpenMP && nIntegrationPoints >= openMPThreshold)
         for (label integrationPointI = 0; integrationPointI < nIntegrationPoints; ++integrationPointI)
         {
+            // The gaussPointODE path keeps the two-node linear blend, and does
+            // so deliberately: raising it would mean reconstructing every
+            // ESDIRK stage value at every quadrature point and storing all of
+            // them, which is nStages times the integration-point memory. The
+            // cell-centred path carries the high-order driver instead, and it
+            // is the one the recommended triad uses.
+            VmDriverNodes vmNodes;
+            vmNodes.nNodes = 2;
+            vmNodes.s[0] = 0.0;
+            vmNodes.s[1] = 1.0;
+            vmNodes.v[0] = VmOldIntegrationPoints[integrationPointI];
+            vmNodes.v[1] = VmNewIntegrationPoints[integrationPointI];
+
             advanceStateODE
             (
-                VmOldIntegrationPoints[integrationPointI],
-                VmNewIntegrationPoints[integrationPointI],
+                vmNodes,
                 u1OldIntegrationPoints[integrationPointI],
                 u2OldIntegrationPoints[integrationPointI],
                 u3OldIntegrationPoints[integrationPointI],
@@ -4968,10 +5672,32 @@ namespace
     // the above for the cellCentredReconstruct mode, where the ODE is solved
     // once per cell and the states are reconstructed at the quadrature points
     // when Iion needs them.
+    // The nodes of the Vm driver at FIELD level: the same abscissae for every
+    // cell, one field of values per node. Built by the caller, unpacked per
+    // cell into a VmDriverNodes below.
+    //
+    // The default - two nodes at s = 0 and 1, pointing at V^n and the
+    // candidate - is the linear blend every scheme other than ESDIRK uses.
+    struct VmDriverStages
+    {
+        label nNodes = 2;
+        FixedList<scalar, 6> s;
+        FixedList<const scalarField*, 6> field;
+
+        VmDriverStages()
+        {
+            forAll(s, i)
+            {
+                s[i] = 0.0;
+                field[i] = nullptr;
+            }
+            s[1] = 1.0;
+        }
+    };
+
     void updateStateFieldsODE
     (
-        const volScalarField& VmOld,
-        const volScalarField& VmNew,
+        const VmDriverStages& vmDriver,
         const volScalarField& u1Old,
         const volScalarField& u2Old,
         const volScalarField& u3Old,
@@ -4992,21 +5718,40 @@ namespace
         scalarField& u2NI = u2New.primitiveFieldRef();
         scalarField& u3NI = u3New.primitiveFieldRef();
 
-        const scalarField& VO = VmOld.primitiveField();
-        const scalarField& VN = VmNew.primitiveField();
         const scalarField& u1O = u1Old.primitiveField();
         const scalarField& u2O = u2Old.primitiveField();
         const scalarField& u3O = u3Old.primitiveField();
 
         const label nCells = u1NI.size();
+        const label nNodes = vmDriver.nNodes;
+
+        for (label j = 0; j < nNodes; ++j)
+        {
+            if (!vmDriver.field[j])
+            {
+                FatalErrorInFunction
+                    << "Vm driver node " << j << " of " << nNodes
+                    << " was not set. A missing node is a silently wrong ODE"
+                    << " driver, not a crash, so it is checked here."
+                    << exit(FatalError);
+            }
+        }
 
         #pragma omp parallel for schedule(static) if(useOpenMP && nCells >= openMPThreshold)
         for (label cellI = 0; cellI < nCells; ++cellI)
         {
+            VmDriverNodes vmNodes;
+            vmNodes.nNodes = nNodes;
+
+            for (label j = 0; j < nNodes; ++j)
+            {
+                vmNodes.s[j] = vmDriver.s[j];
+                vmNodes.v[j] = (*vmDriver.field[j])[cellI];
+            }
+
             advanceStateODE
             (
-                VO[cellI],
-                VN[cellI],
+                vmNodes,
                 u1O[cellI],
                 u2O[cellI],
                 u3O[cellI],
@@ -5234,6 +5979,9 @@ namespace
         const volScalarField& Iion,
         const fvMesh& mesh,
         const word& implicitScheme,
+        const word& bdfStartup,
+        const word& stateODEDriver,
+        const word& manufacturedSolution,
         const word& massMatrixType,
         const bool useHighOrderVm,
         const bool useHighOrderIion,
@@ -5305,20 +6053,16 @@ namespace
         const scalar timeLoopWallTime,
         const scalar postProcessWallTime,
         const scalar totalWallTime,
+        const FineGrainedTimings& fineTimings,
         const word& nonlinearMethod
     )
     {
         const label N = estimatedN(mesh);
         const scalar dx = characteristicDx(mesh);
         const word dimName = name(mesh.nGeometricD()) + "D";
-        const bool isPicard =
-            nonlinearMethod == "Picard" || nonlinearMethod == "picard";
-        const bool isJFNK =
-            nonlinearMethod == "JFNK" || nonlinearMethod == "jfnk";
-        const bool isDiagonalIion =
-            nonlinearMethod == "diagonalIion"
-         || nonlinearMethod == "diagonal"
-         || nonlinearMethod == "localDiagonal";
+        const bool isPicard = nonlinearMethod == "Picard";
+        const bool isJFNK = nonlinearMethod == "JFNK";
+        const bool isDiagonalIion = nonlinearMethod == "diagonalIion";
 
         const NonlinearConvergenceRecord* finalNonlinear =
             nonlinearHistory.empty() ? nullptr : &nonlinearHistory.back();
@@ -5369,6 +6113,23 @@ namespace
         // runTime.path() points at processorN/ on a decomposed run, which is
         // why the master needs rootPath()/globalCaseName() instead: otherwise
         // the post-processing driver finds no file in the case directory.
+        // Caras del borde FISICO. Se calcula aca porque el reduce es colectivo
+        // y, como explica la nota de arriba, todos los ranks entran a esta
+        // funcion. Los parches empty (zmin/zmax en 2D) aportan 0 solos, porque
+        // emptyFvPatch::size() devuelve 0; !coupled() descarta los processor,
+        // que son interiores a la malla global. Usar nFaces()-nInternalFaces()
+        // contaria ambos y daria un numero distinto en 2D y en cada particion.
+        label nBoundaryFacesGlobal = 0;
+        forAll(mesh.boundary(), patchI)
+        {
+            const fvPatch& bPatch = mesh.boundary()[patchI];
+            if (!bPatch.coupled())
+            {
+                nBoundaryFacesGlobal += bPatch.size();
+            }
+        }
+        reduce(nBoundaryFacesGlobal, sumOp<label>());
+
         const fileName summaryName
         (
             dimName + "_" + name(N) + "_cells_transient.dat"
@@ -5417,11 +6178,26 @@ namespace
             << "-------------------" << nl
             << "Final time            = " << runTime.value() << nl
             << "Number of cells (N)   = " << N << nl
+            // N es el conteo POR DIRECCION. El total no se deriva de N salvo en
+            // malla hexaedrica; en triangular/poligonal depende del mallador.
+            // returnReduce porque mesh.nCells() es el conteo LOCAL de cada rank.
+            << "Number of cells (total)= "
+            << returnReduce(mesh.nCells(), sumOp<label>()) << nl
+            << "Number of boundary faces = " << nBoundaryFacesGlobal << nl
             << "Dimension             = " << dimName << nl
             << "Grid spacing (dx)     = " << dx << nl
             << "Time step (dt)        = " << dt << nl
             << "Number of steps       = " << nSteps << nl
             << "Implicit scheme       = " << implicitScheme << nl
+            // Added for cardiacFoam: which startup supplied the BDF history.
+            // Recorded even when it is inert (theta schemes and BDF1 ignore
+            // it) so that a run is self-describing: the observed temporal
+            // order of a BDF run is meaningless without knowing this.
+            << "BDF startup           = " << bdfStartup << nl
+            // Same reasoning: under linear, every BDF is capped at order 2.
+            << "State ODE driver      = " << stateODEDriver << nl
+            // Which solution every error in this file is measured against.
+            << "Manufactured solution = " << manufacturedSolution << nl
             << "Mass matrix           = " << massMatrixType << nl
             << "useHighOrder_Vm       = " << (useHighOrderVm ? "true" : "false") << nl
             << "Stabilisation alpha   = " << stabilisationAlpha << nl
@@ -5603,6 +6379,45 @@ namespace
             << "timeLoop              = " << timeLoopWallTime << nl
             << "postProcess           = " << postProcessWallTime << nl
             << "total                 = " << totalWallTime << nl
+            // Phases inside timeLoop, so these are a SUBSET of it and must not
+            // be added to the four above. nonlinearEval against
+            // sparseLinearSolve is the measured split between the work OpenMP
+            // parallelises and the work MPI does.
+            << "nonlinearEval         = "
+            << fineTimings.nonlinearEvalWallTime << nl
+            << "nonlinearEvalCalls    = "
+            << fineTimings.nonlinearEvalCalls << nl
+            << "sparseLinearSolve     = "
+            << fineTimings.sparseLinearSolveWallTime << nl
+            << "sparseLinearSolveCalls = "
+            << fineTimings.sparseLinearSolveCalls << nl
+            << "jfnkGmres             = " << fineTimings.gmresWallTime << nl
+            << "jfnkGmresCalls        = " << fineTimings.gmresCalls << nl
+            << "jfnkPcSetup           = "
+            << fineTimings.preconditionerSetupWallTime << nl
+            << "jfnkPcSetups          = "
+            << fineTimings.preconditionerSetups << nl
+            << "jfnkPcApply           = "
+            << fineTimings.preconditionerApplyWallTime << nl
+            << "jfnkPcApplications    = "
+            << fineTimings.preconditionerApplications << nl
+            // Las dos mitades de la reconstruccion de estados. Subconjunto de
+            // nonlinearEval, y solo distintas de cero en el camino
+            // cellCentredReconstruct (states_CCpN).
+            << "stateReconDeriv       = "
+            << fineTimings.stateReconDerivWallTime << nl
+            << "stateReconExpand      = "
+            << fineTimings.stateReconExpandWallTime << nl
+            << "stateReconCalls       = "
+            << fineTimings.stateReconCalls << nl
+            // Idem para la reconstruccion de Vm, que corre siempre que
+            // useHighOrder_Iion este activo y no solo en cellCentredReconstruct.
+            << "vmReconDeriv          = "
+            << fineTimings.vmReconDerivWallTime << nl
+            << "vmReconExpand         = "
+            << fineTimings.vmReconExpandWallTime << nl
+            << "vmReconCalls          = "
+            << fineTimings.vmReconCalls << nl
             << "-------------------" << nl;
 
         Info<< "Wrote summary to " << outFile << nl
@@ -5652,14 +6467,108 @@ int main(int argc, char* argv[])
 
     const label dim = mesh.nGeometricD();
     const scalar dt = runTime.deltaTValue();
+
+    // Added for cardiacFoam: fix the manufactured profile before anything
+    // evaluates an exact value - computeBeta on the next line is the first
+    // reader. Validated rather than defaulted, because a typo would silently
+    // run the other manufactured solution and every error in the run would be
+    // measured against the wrong reference.
+    if (manufacturedSolution == "uniform")
+    {
+        mmsProfile = mmsUniform;
+    }
+    else if (manufacturedSolution != "sines")
+    {
+        FatalErrorInFunction
+            << "Unknown manufacturedSolution: " << manufacturedSolution << nl
+            << "Valid options are sines and uniform."
+            << exit(FatalError);
+    }
+
     const scalar beta = computeBeta(conductivity, dim);
     const scalar chiVal = chi.value();
     const scalar CmVal = Cm.value();
     const scalar chiCmVal = chiVal*CmVal;
     const scalar lapScale = 1.0/max(chiCmVal, SMALL);
-    const scalar theta = thetaFromScheme(implicitScheme);
+    const TimeSchemeCoeffs timeScheme = timeSchemeCoeffs(implicitScheme);
+    const scalar theta = timeScheme.theta;
+    const label bdfOrder = timeScheme.bdfOrder;
     const word massMatrixMode = normalizedMassMatrixType(massMatrixType);
-    const std::string memoryOptimizationMode = lowerWord(memoryOptimization);
+
+    // ESDIRK exists in this solver for ONE purpose: supplying the k-1 starting
+    // values a BDF-k step needs. It is deliberately not selectable as a scheme
+    // in its own right.
+    //
+    // The reason is a measurement, not taste. ESDIRK is a one-step method, so
+    // it is self-starting and handles variable dt trivially - but it has stage
+    // order 2 and therefore suffers order reduction on stiff problems: ESDIRK4
+    // measured 3.03 here, capped, while BDF4 reaches 3.89 by Cauchy self-
+    // convergence (suite test M02) and 3.94 against the analytic solution
+    // (M22). The ESDIRK4 figure predates the time-loop fix and was never
+    // re-measured, so read it as the order it showed and not as a comparison
+    // digit for digit. BDF has stage order equal to its order and no such cap. And in the regime this solver's
+    // physiological sibling lives in, the ODE integrations dominate the runtime
+    // (74-99 % measured), where a 4-stage ESDIRK costs about 2.5x the ODE work
+    // of a BDF step. So BDF wins on accuracy AND on the cost that matters, and
+    // the only thing ESDIRK is uniquely good at here is the startup.
+    //
+    // ESDIRK3 is what is kept, and it is sufficient: a one-step method of order
+    // p leaves starting values accurate to O(dt^(p+1)), so ESDIRK3 covers BDF
+    // up to k = 4, which is the highest BDF offered. An ESDIRK4 startup was
+    // implemented and measured against it for BDF4 - 3.02 against 3.20, both
+    // measured before the time-loop fix and so comparable only to each other,
+    // i.e. no gain, because its own order reduction leaves it with the same
+    // O(dt^4) local error - so it was removed rather than kept as dead weight.
+    const bool esdirkStartup =
+        (bdfStartup == "ESDIRK3");
+
+    if
+    (
+        bdfOrder > 0
+     && bdfStartup != "exact"
+     && bdfStartup != "constant"
+     && !esdirkStartup
+    )
+    {
+        FatalErrorInFunction
+            << "Unknown bdfStartup: " << bdfStartup << nl
+            << "Valid options are exact, constant and ESDIRK3."
+            << exit(FatalError);
+    }
+
+    // Validated rather than falling back: a typo would silently select the
+    // ramp or the interpolant, and the only symptom is a different order.
+    if (stateODEDriver != "history" && stateODEDriver != "linear")
+    {
+        FatalErrorInFunction
+            << "Unknown stateODEDriver: " << stateODEDriver << nl
+            << "Valid options are history and linear."
+            << exit(FatalError);
+    }
+
+    const bool historyStateODEDriver = (stateODEDriver == "history");
+
+    const bool needEsdirkOperator = (bdfOrder > 1 && esdirkStartup);
+    const EsdirkTableau esdirkTab = esdirk3Tableau();
+
+    // Invariant rather than a reachable branch today: ESDIRK3 covers every BDF
+    // this solver offers. It is kept because adding BDF5 would break it
+    // silently - a startup of insufficient order does not fail, it caps the
+    // observed order, which is exactly the trap the exact/constant seeding
+    // modes fell into and which cost a full diagnosis to find.
+    if (bdfOrder > 1 && esdirkStartup && esdirkTab.order + 1 < bdfOrder)
+    {
+        FatalErrorInFunction
+            << "bdfStartup = " << bdfStartup << " supplies starting values of"
+            << " order " << (esdirkTab.order + 1) << ", which is below the"
+            << " O(dt^" << bdfOrder << ") that " << implicitScheme
+            << " requires." << nl
+            << "Use a higher-order startup, or the observed order will be"
+            << " capped without any error being reported."
+            << exit(FatalError);
+    }
+    // Modified for cardiacFoam: compared exactly, no longer lower-cased first.
+    const word& memoryOptimizationMode = memoryOptimization;
 
     if
     (
@@ -5671,7 +6580,7 @@ int main(int argc, char* argv[])
         FatalErrorInFunction
             << "Unknown memoryOptimization '" << memoryOptimization << "'. "
             << "Valid options are auto, on and off."
-            << abort(FatalError);
+            << exit(FatalError);
     }
 
     const bool memoryOptimizationEffective =
@@ -5727,6 +6636,9 @@ int main(int argc, char* argv[])
         << "beta = " << beta << nl
         << "dt = " << dt << nl
         << "implicitScheme = " << implicitScheme << nl
+        << "bdfStartup = " << bdfStartup << nl
+        << "stateODEDriver = " << stateODEDriver << nl
+        << "manufacturedSolution = " << manufacturedSolution << nl
         << "massMatrix = " << massMatrixMode << nl
         << "linearSolverBackend = " << linearSolverBackend << nl
         << "PETSc linear KSP = " << petscLinearKspType
@@ -5764,42 +6676,30 @@ int main(int argc, char* argv[])
             << endl;
     }
 
-    const bool usePicard =
-        nonlinearMethod == "Picard"
-     || nonlinearMethod == "picard";
-
-    const bool useDiagonalIion =
-        nonlinearMethod == "diagonalIion"
-     || nonlinearMethod == "diagonal"
-     || nonlinearMethod == "localDiagonal";
-
-    const bool useJFNK =
-        nonlinearMethod == "JFNK"
-     || nonlinearMethod == "jfnk";
+    // Modified for cardiacFoam: one spelling per method. picard, jfnk, diagonal
+    // and localDiagonal were accepted as aliases and are now refused.
+    const bool usePicard = nonlinearMethod == "Picard";
+    const bool useDiagonalIion = nonlinearMethod == "diagonalIion";
+    const bool useJFNK = nonlinearMethod == "JFNK";
 
     if (!usePicard && !useDiagonalIion && !useJFNK)
     {
         FatalErrorInFunction
             << "Unknown nonlinearMethod '" << nonlinearMethod << "'. "
-            << "Valid options are Picard, JFNK and diagonalIion."
-            << abort(FatalError);
+            << "Valid options are Picard, JFNK and diagonalIion (exact"
+            << " spelling, case-sensitive)."
+            << exit(FatalError);
     }
 
-    const bool useJfnkPreconditioner =
-        jfnkPreconditioner != "none"
-     && jfnkPreconditioner != "None"
-     && jfnkPreconditioner != "off"
-     && jfnkPreconditioner != "false";
-
+    // Modified for cardiacFoam: one spelling per preconditioner. None, off and
+    // false stood for none; diagonal and localDiagonal for diagonalIion; and
+    // diffusion and linear for AImplicit, the name kept because it is the name
+    // of the matrix the preconditioner is built from.
+    const bool useJfnkPreconditioner = jfnkPreconditioner != "none";
     const bool useJfnkDiagonalIionPreconditioner =
-        jfnkPreconditioner == "diagonalIion"
-     || jfnkPreconditioner == "diagonal"
-     || jfnkPreconditioner == "localDiagonal";
-
+        jfnkPreconditioner == "diagonalIion";
     const bool useJfnkDiffusionPreconditioner =
-        jfnkPreconditioner == "diffusion"
-     || jfnkPreconditioner == "linear"
-     || jfnkPreconditioner == "AImplicit";
+        jfnkPreconditioner == "AImplicit";
 
     if
     (
@@ -5810,8 +6710,9 @@ int main(int argc, char* argv[])
     {
         FatalErrorInFunction
             << "Unknown jfnkPreconditioner '" << jfnkPreconditioner << "'. "
-            << "Valid options are none, diffusion and diagonalIion."
-            << abort(FatalError);
+            << "Valid options are none, diagonalIion and AImplicit (exact"
+            << " spelling, case-sensitive)."
+            << exit(FatalError);
     }
 
     fillExactFields(VmExact, u1Exact, u2Exact, runTime.value(), dim);
@@ -5845,6 +6746,7 @@ int main(int argc, char* argv[])
     // so every PETSc insertion has to shift the row index by this amount. Zero
     // in serial, which is why the serial path is unaffected.
     gRowStart = LREInterp_Vm.globalCells().localStart();
+    gRowStartSet = true;
 
     Info<< "Distributed linear algebra: rows ["
         << gRowStart << ", " << gRowStart + mesh.nCells() << ") of "
@@ -5854,6 +6756,79 @@ int main(int argc, char* argv[])
     SpMat K;
     SpMat AImplicit;
     SpMat BImplicit;
+
+    // Added for cardiacFoam: reject Vm boundary conditions the assembly cannot
+    // represent, at startup, instead of producing a silently wrong answer.
+    // Mirrors the check in the electro solver.
+    //
+    // The patch dispatchers key off the Vm patch field's TYPE NAME and only
+    // branch on the types below. Anything else used to fall out of the bottom
+    // of the `if`, and - measured, not inferred - it did so in two DIFFERENT
+    // ways in this solver:
+    //
+    //   useHighOrder_Vm = true   `fixedGradient` changed the answer, because
+    //                            the high-order loop applies the Dirichlet-style
+    //                            flux operator with no right-hand side, i.e. a
+    //                            disguised homogeneous Dirichlet;
+    //   useHighOrder_Vm = false  `fixedGradient` and `calculated` were ignored
+    //                            entirely, because the low-order dispatcher has
+    //                            no `else` at all, i.e. a disguised zero Neumann.
+    //
+    // The same case therefore produced two different wrong answers depending on
+    // a switch that is supposed to change only the order of accuracy. Both ran
+    // to completion, exit 0, no warning.
+    //
+    // Checked on every rank: `processor` patches only exist in parallel, and a
+    // rank-local list would disagree between ranks.
+    {
+        const wordHashSet supportedVmPatchTypes
+        ({
+            word("empty"),
+            zeroGradientFvPatchScalarField::typeName,
+            word("processor"),
+            fixedValueFvPatchScalarField::typeName,
+            word("fixedVoltage")
+        });
+
+        wordHashSet offending;
+        forAll(mesh.boundary(), patchI)
+        {
+            const fvPatch& patch = mesh.boundary()[patchI];
+            const word bcType =
+                patch.lookupPatchField<volScalarField, scalar>("Vm").type();
+
+            if (!supportedVmPatchTypes.found(bcType))
+            {
+                offending.insert(bcType);
+            }
+        }
+
+        if (!offending.empty())
+        {
+            FatalErrorInFunction
+                << "Unsupported boundary condition(s) on Vm: "
+                << offending.sortedToc() << nl
+                << "The assembly only implements " << supportedVmPatchTypes.sortedToc()
+                << nl
+                << "Any other type is silently ignored by the operator, which"
+                << " produces a plausible but wrong answer rather than an error."
+                << exit(FatalError);
+        }
+    }
+
+    // Added for cardiacFoam: report the chunk sizes and how many chunks they
+    // actually produce on THIS rank. Without the second number a chunking test
+    // cannot tell whether it exercised the multi-chunk path at all - the counts
+    // are local, so a mesh that needs two chunks in serial can need one per rank
+    // in parallel.
+    Info<< "Assembly chunking     : faceChunk = " << assemblyFaceChunk
+        << ", cellChunk = " << assemblyCellChunk << endl;
+    Pout<< "Assembly chunking     : nInternalFaces = " << mesh.nInternalFaces()
+        << " -> " << (mesh.nInternalFaces() + assemblyFaceChunk - 1)
+                     /assemblyFaceChunk
+        << " face chunk(s); nCells = " << mesh.nCells()
+        << " -> " << (mesh.nCells() + assemblyCellChunk - 1)/assemblyCellChunk
+        << " cell chunk(s)" << endl;
 
     if (profileTimings)
     {
@@ -5872,6 +6847,7 @@ int main(int argc, char* argv[])
             LREInterp_Vm,
             1.0,
             compactMassAssembly,
+            assemblyCellChunk,
             M
         );
     }
@@ -5905,6 +6881,7 @@ int main(int argc, char* argv[])
             LREInterp_Vm,
             stabilisationAlpha,
             stiffnessTripletsPerFaceReserve,
+            assemblyFaceChunk,
             K
         );
     }
@@ -6040,7 +7017,7 @@ int main(int argc, char* argv[])
         {
             for (SpMat::InnerIterator it(K, r); it; ++it)
             {
-                os  << (gRowStart + r) << ' ' << it.col() << ' '
+                os  << (globalRowStart() + r) << ' ' << it.col() << ' '
                     << it.value() << nl;
             }
         }
@@ -6055,9 +7032,26 @@ int main(int argc, char* argv[])
     }
 #endif
 
+    // Modified for cardiacFoam: the only thing BDF changes in the operator is
+    // the scalar in front of M. a_0 is 1 for the theta family and for BDF1, so
+    // backwardEuler and BDF1 build the same matrix down to the bit.
     AImplicit = M;
-    AImplicit *= (1.0/dt);
+    AImplicit *= (timeScheme.a[0]/dt);
     AImplicit -= (theta*lapScale)*K;
+
+    // Added for cardiacFoam: the ESDIRK stage operator. Because the method is
+    // SINGLY diagonally implicit, every implicit stage has the same gamma on
+    // its diagonal, so one matrix and one factorisation serve all of them -
+    // this is the whole reason to insist on "singly". Built here, before M is
+    // moved into BImplicit below.
+    SpMat AEsdirk;
+
+    if (needEsdirkOperator)
+    {
+        AEsdirk = M;
+        AEsdirk *= (1.0/(esdirkTab.gamma*dt));
+        AEsdirk -= lapScale*K;
+    }
 
     // Move M into BImplicit instead of copying: M is not referenced again
     // after this block, so we can hand its storage over and free the
@@ -6095,6 +7089,54 @@ int main(int argc, char* argv[])
     }
 #endif
 
+    // Modified for cardiacFoam: the KSP and PC the two cached PETSc solvers below
+    // actually use, resolved once from linearSolver, petscLinearKspType and
+    // petscLinearPcType. They must NOT take the raw dictionary values - see
+    // resolvePetscKspPc for the silent wrong answer that produced. Logged,
+    // because the banner prints the names as requested, before resolution, and
+    // those are not what PETSc runs.
+    word petscLinearKspTypeResolved;
+    word petscLinearPcTypeResolved;
+    resolvePetscKspPc
+    (
+        implicitLinearSolver,
+        petscLinearKspType,
+        petscLinearPcType,
+        petscLinearKspTypeResolved,
+        petscLinearPcTypeResolved
+    );
+
+    Info<< "PETSc linear solve, resolved: KSP = " << petscLinearKspTypeResolved
+        << ", PC = " << petscLinearPcTypeResolved << endl;
+
+    // Added for cardiacFoam: one cached factorisation for every ESDIRK stage of
+    // every step. Constant for the whole run, like the operator it factors.
+    PetscKspMatrixSolver esdirkStageSolver;
+
+    if (needEsdirkOperator)
+    {
+        if (!usesPetscBackend(linearSolverBackend))
+        {
+            FatalErrorInFunction
+                << "implicitScheme = " << implicitScheme
+                << " is implemented on the PETSc backend only." << nl
+                << "Set 'linearSolverBackend PETSc;'."
+                << exit(FatalError);
+        }
+
+        esdirkStageSolver.reset
+        (
+            AEsdirk,
+            petscLinearKspTypeResolved,
+            petscLinearPcTypeResolved,
+            implicitTolerance,
+            implicitMaxIterations,
+            petscLinearRestart,
+            petscLinearOptionsPrefix,
+            petscUseOptions
+        );
+    }
+
     PetscKspMatrixSolver cachedPicardPetscSolver;
     const bool useCachedPicardPetscSolver =
         usePicard && usesPetscBackend(linearSolverBackend);
@@ -6104,8 +7146,8 @@ int main(int argc, char* argv[])
         cachedPicardPetscSolver.reset
         (
             AImplicit,
-            petscLinearKspType,
-            petscLinearPcType,
+            petscLinearKspTypeResolved,
+            petscLinearPcTypeResolved,
             implicitTolerance,
             implicitMaxIterations,
             petscLinearRestart,
@@ -6139,7 +7181,7 @@ int main(int argc, char* argv[])
         const fileName residualDir
         (
             runTime.rootPath()/runTime.globalCaseName()
-          / "postProcessing"/"highOrderManufacturedFDAImplicitPETSc"
+          / "postProcessing"/"highOrderManufacturedFDAImplicitPETScDistributed"
         );
         mkDir(residualDir);
         nonlinearResidualFilePtr.reset
@@ -6204,18 +7246,80 @@ int main(int argc, char* argv[])
     bool hasPrevStep = false;
     std::vector<NonlinearConvergenceRecord> nonlinearHistory;
 
-    scalar nonlinearEvalWallTime = 0.0;
-    scalar gmresWallTime = 0.0;
-    scalar sparseLinearSolveWallTime = 0.0;
-    scalar preconditionerSetupWallTime = 0.0;
-    scalar preconditionerApplyWallTime = 0.0;
-    label nonlinearEvalCalls = 0;
-    label gmresCalls = 0;
-    label sparseLinearSolveCalls = 0;
-    label preconditionerSetups = 0;
-    label preconditionerApplications = 0;
+    // One home for the in-loop timers, so that the summary cannot report a
+    // different number from the one the loop accumulated.
+    FineGrainedTimings fineTimings;
 
-    while (runTime.value() < runTime.endTime().value() - SMALL)
+    // Added for cardiacFoam: BDF history, i.e. the k-1 levels OLDER than V^n
+    // that a BDF-k step needs. VmBdfOlder[j] holds V^{n-1-j}, so index 0 is the
+    // most recent of them. V^n itself is NOT duplicated here: it is VmOld,
+    // rebuilt at the top of every step. The list is empty for the theta family
+    // and for BDF1, neither of which looks back further than one level.
+    List<scalarField> VmBdfOlder(max(bdfOrder - 1, label(0)));
+
+    // Sized and zeroed up front so that a level which has not been filled yet
+    // is a wrong ANSWER rather than a silently skipped loop over an empty
+    // field. Nothing reads them before they are filled: with the ESDIRK
+    // startup the first bdfOrder-1 steps are taken by ESDIRK and the rotation
+    // at the end of each fills one level.
+    forAll(VmBdfOlder, j)
+    {
+        VmBdfOlder[j].setSize(mesh.nCells(), 0.0);
+    }
+
+    if (bdfOrder > 1 && !esdirkStartup)
+    {
+        const vectorField& Cbdf = mesh.C();
+        const scalar t0 = runTime.value();
+
+        forAll(VmBdfOlder, j)
+        {
+            VmBdfOlder[j].setSize(mesh.nCells());
+
+            if (bdfStartup == "exact")
+            {
+                // The manufactured solution one further step back per level.
+                // sqrt(1+t) is defined for t > -1, so a handful of steps before
+                // t0 = 0 is not a problem. This is what isolates the order of
+                // the SCHEME from the order of the startup, which is the whole
+                // reason a verification solver gets to do this.
+                const scalar tj = t0 - scalar(j + 1)*dt;
+
+                forAll(VmBdfOlder[j], cellI)
+                {
+                    VmBdfOlder[j][cellI] = exactVm(Cbdf[cellI], tj, dim);
+                }
+            }
+            else
+            {
+                // "constant": repeat the initial field. Needs no exact
+                // solution - which is what a physical solver would face - and
+                // is wrong by O(dt) per missing level. Offered so that cost is
+                // measurable instead of assumed.
+                VmBdfOlder[j] = Vm.primitiveField();
+            }
+        }
+
+        Info<< "BDF history seeded (" << bdfStartup << "): "
+            << VmBdfOlder.size() << " level(s) before t = " << t0 << endl;
+    }
+    else if (bdfOrder > 1)
+    {
+        Info<< "BDF history will be built by ESDIRK3 over the first "
+            << (bdfOrder - 1) << " step(s)" << endl;
+    }
+
+    // Modified for cardiacFoam: stop within half a step of endTime, not within
+    // SMALL. The accumulated time is a floating-point sum of dt, and it can land
+    // just BELOW endTime by more than SMALL (1e-15): 160 steps of 3.2e-3 sum to
+    // 0.51199999999999868, which is 1.3e-15 short of 0.512. The old test then
+    // took one extra step and the run finished at 0.5152 with no warning - so a
+    // field or an error "at endTime" belonged to a different instant, and a
+    // temporal-order study comparing runs at different dt compared fields at
+    // different times. Half a step is exact because dt is constant here, and it
+    // leaves every run that was already correct with the same step count:
+    // checked across 159 151 existing summaries, none of which had an extra step.
+    while (runTime.value() < runTime.endTime().value() - 0.5*dt)
     {
         const scalar t = runTime.value();
 
@@ -6286,7 +7390,11 @@ int main(int argc, char* argv[])
                 useHighOrder_Vm,
                 LREInterp_Vm,
                 LREInterp_Iion,
-                VmOldIntegrationPoints
+                VmOldIntegrationPoints,
+                stateODEUseOpenMP,
+                stateODEOpenMPThreshold,
+                profileTimings,
+                fineTimings
             );
 
             computeVmSourceFromIntegrationPoints
@@ -6327,7 +7435,68 @@ int main(int argc, char* argv[])
             );
         }
 
-        const EigVec Vn = fieldToEigVec(VmOld);
+        // Modified for cardiacFoam: the history vector handed to B. For the
+        // theta family it is V^n; for BDF-k it is -sum_{j>=1} a_j V^{n+1-j},
+        // formed HERE as one field so that a BDF step still costs a single
+        // mass-matrix product rather than k of them.
+        //
+        // For BDF1, a_1 = -1 and there are no older levels, so the scaling is
+        // by exactly 1.0 and the result is bit-identical to the theta path.
+        EigVec Vn = fieldToEigVec(VmOld);
+
+        if (bdfOrder > 0)
+        {
+            Vn *= -timeScheme.a[1];
+
+            forAll(VmBdfOlder, j)
+            {
+                const scalar aj = timeScheme.a[j + 2];
+                const scalarField& Vj = VmBdfOlder[j];
+
+                forAll(Vj, cellI)
+                {
+                    Vn[cellI] -= aj*Vj[cellI];
+                }
+            }
+        }
+
+        // Temporary diagnostic, env-gated: is each history level actually the
+        // solution at the time level the BDF formula assumes? Prints the max
+        // deviation of level j from the exact solution at t - (j+1) dt, which
+        // is zero to spatial-error level if the indexing is right and O(dt) if
+        // it is off by a step.
+        if (bdfOrder > 1 && getenv("CF_DUMP_BDF_HISTORY") && nSteps < 4)
+        {
+            const vectorField& Cdbg = mesh.C();
+
+            scalar dOld = 0.0;
+            forAll(VmOld.primitiveField(), cellI)
+            {
+                dOld = max
+                (
+                    dOld,
+                    mag(VmOld.primitiveField()[cellI] - exactVm(Cdbg[cellI], t, dim))
+                );
+            }
+            Pout<< "BDFHIST step " << nSteps << " t = " << t
+                << " VmOld vs exact(t): " << dOld << endl;
+
+            forAll(VmBdfOlder, j)
+            {
+                const scalar tj = t - scalar(j + 1)*dt;
+                scalar dj = 0.0;
+                forAll(VmBdfOlder[j], cellI)
+                {
+                    dj = max
+                    (
+                        dj,
+                        mag(VmBdfOlder[j][cellI] - exactVm(Cdbg[cellI], tj, dim))
+                    );
+                }
+                Pout<< "BDFHIST step " << nSteps << " level " << j
+                    << " expects t = " << tj << " deviation " << dj << endl;
+            }
+        }
         const EigVec sourceN = sourceToEigVec(sourceVm);
 
         EigVec bcN =
@@ -6375,6 +7544,39 @@ int main(int argc, char* argv[])
 
         bcN *= lapScale;
         bcNp1 *= lapScale;
+
+        // Added for cardiacFoam: the Dirichlet lift at an ARBITRARY time, which
+        // ESDIRK needs because its stages land at t + c_i dt and not only at
+        // the two ends of the step. Same two assemblies as bcN/bcNp1 above,
+        // with the same lapScale folded in, so the three are interchangeable.
+        // Returns a zero vector on a case with no Dirichlet patch, which is
+        // every case in the MMS suite.
+        auto bcAtTime = [&](const scalar tEval)
+        {
+            EigVec bc =
+                useHighOrder_Vm
+              ? assembleHighOrderBoundaryVector
+                (
+                    mesh,
+                    conductivity,
+                    LREInterp_Vm,
+                    stabilisationAlpha,
+                    tEval,
+                    dim
+                )
+              : assembleStandardOrthogonalBoundaryVector
+                (
+                    mesh,
+                    conductivity,
+                    LREInterp_Vm,
+                    stabilisationAlpha,
+                    tEval,
+                    dim
+                );
+
+            bc *= lapScale;
+            return bc;
+        };
 
         volScalarField VmGuess
         (
@@ -6478,6 +7680,32 @@ int main(int argc, char* argv[])
             zeroGradientFvPatchScalarField::typeName
         );
 
+        // Added for cardiacFoam: the interval the state ODEs are integrated
+        // over, and the time the candidate fields belong to, measured from t.
+        //
+        // For every one-step scheme this is the whole step and never changes.
+        // ESDIRK is the exception: stage i lands at t + c_i dt, so its states
+        // must be integrated over c_i dt and its boundary values evaluated
+        // there. The ESDIRK block below is the ONLY place that assigns this,
+        // and it restores dt before leaving the step - a stale value would
+        // silently integrate the states over the wrong interval, which is
+        // exactly the kind of error a convergence study reads as a bad order
+        // rather than as a bug.
+        scalar stageDt = dt;
+
+        // The Vm nodes the state ODEs are driven by. Node 0 is always V^n;
+        // the LAST node is always the candidate and is filled in by the
+        // evaluator below, because it changes at every nonlinear iteration.
+        // The two-node linear blend set here is what backwardEuler,
+        // crankNicolson and BDF1 use, bit-identical to what this replaces.
+        // BDF2-4 and the ESDIRK startup raise nNodes further down, unless
+        // stateODEDriver is linear.
+        VmDriverStages vmDriver;
+        vmDriver.nNodes = 2;
+        vmDriver.s[0] = 0.0;
+        vmDriver.s[1] = 1.0;
+        vmDriver.field[0] = &VmOld.primitiveField();
+
         auto evaluateNonlinearFields =
         [&]
         (
@@ -6503,7 +7731,11 @@ int main(int argc, char* argv[])
                     useHighOrder_Vm,
                     LREInterp_Vm,
                     LREInterp_Iion,
-                    VmCandidateIntegrationPoints
+                    VmCandidateIntegrationPoints,
+                    stateODEUseOpenMP,
+                    stateODEOpenMPThreshold,
+                    profileTimings,
+                    fineTimings
                 );
 
                 if (jfnkClampODEInput)
@@ -6520,17 +7752,22 @@ int main(int argc, char* argv[])
                 {
                     // ODE once per cell (cell-centred), then reconstruct the
                     // states at the Iion Gauss points with LREInterp_states.
+                    // The candidate is the LAST driver node and changes every
+                    // nonlinear iteration, so it is refreshed here rather than
+                    // captured once.
+                    vmDriver.field[vmDriver.nNodes - 1] =
+                        &VmCandidate.primitiveField();
+
                     updateStateFieldsODE
                     (
-                        VmOld,
-                        VmCandidate,
+                        vmDriver,
                         u1Old,
                         u2Old,
                         u3Old,
                         u1Candidate,
                         u2Candidate,
                         u3Candidate,
-                        dt,
+                        stageDt,
                         stateODESolver,
                         stateODEInitialStep,
                         stateODEAbsTol,
@@ -6540,9 +7777,30 @@ int main(int argc, char* argv[])
                         stateODEOpenMPThreshold
                     );
 
+                    // Temporary diagnostic, env-gated: overwrite the integrated
+                    // states with the exact manufactured ones. This decouples
+                    // the PDE from the state ODE completely, so the temporal
+                    // order measured with it ON is the order of the PDE step
+                    // alone. If BDF3 recovers third order here and not
+                    // otherwise, the cap lives in the state path.
+                    if (getenv("CF_EXACT_STATES"))
+                    {
+                        const vectorField& Cxs = mesh.C();
+                        scalarField& u1i = u1Candidate.primitiveFieldRef();
+                        scalarField& u2i = u2Candidate.primitiveFieldRef();
+                        scalarField& u3i = u3Candidate.primitiveFieldRef();
+
+                        forAll(u1i, cellI)
+                        {
+                            u1i[cellI] = exactU1(Cxs[cellI], t + stageDt, dim);
+                            u2i[cellI] = exactU2(Cxs[cellI], t + stageDt, dim);
+                            u3i[cellI] = exactU3(Cxs[cellI], t + stageDt, dim);
+                        }
+                    }
+
                     updateStateBoundaryValues
                     (
-                        u1Candidate, u2Candidate, u3Candidate, t + dt, dim
+                        u1Candidate, u2Candidate, u3Candidate, t + stageDt, dim
                     );
                     u1Candidate.correctBoundaryConditions();
                     u2Candidate.correctBoundaryConditions();
@@ -6557,7 +7815,11 @@ int main(int argc, char* argv[])
                         LREInterp_Iion,
                         u1CandidateIntegrationPoints,
                         u2CandidateIntegrationPoints,
-                        u3CandidateIntegrationPoints
+                        u3CandidateIntegrationPoints,
+                        stateODEUseOpenMP,
+                        stateODEOpenMPThreshold,
+                        profileTimings,
+                        fineTimings
                     );
                 }
                 else
@@ -6671,17 +7933,22 @@ int main(int argc, char* argv[])
                     VmClamped.primitiveFieldRef() = VmClampedInternal;
                     VmClamped.correctBoundaryConditions();
 
+                    // The candidate is the LAST driver node and changes every
+                    // nonlinear iteration, so it is refreshed here rather than
+                    // captured once.
+                    vmDriver.field[vmDriver.nNodes - 1] =
+                        &VmClamped.primitiveField();
+
                     updateStateFieldsODE
                     (
-                        VmOld,
-                        VmClamped,
+                        vmDriver,
                         u1Old,
                         u2Old,
                         u3Old,
                         u1Candidate,
                         u2Candidate,
                         u3Candidate,
-                        dt,
+                        stageDt,
                         stateODESolver,
                         stateODEInitialStep,
                         stateODEAbsTol,
@@ -6721,17 +7988,22 @@ int main(int argc, char* argv[])
                 }
                 else
                 {
+                    // The candidate is the LAST driver node and changes every
+                    // nonlinear iteration, so it is refreshed here rather than
+                    // captured once.
+                    vmDriver.field[vmDriver.nNodes - 1] =
+                        &VmCandidate.primitiveField();
+
                     updateStateFieldsODE
                     (
-                        VmOld,
-                        VmCandidate,
+                        vmDriver,
                         u1Old,
                         u2Old,
                         u3Old,
                         u1Candidate,
                         u2Candidate,
                         u3Candidate,
-                        dt,
+                        stageDt,
                         stateODESolver,
                         stateODEInitialStep,
                         stateODEAbsTol,
@@ -6771,7 +8043,7 @@ int main(int argc, char* argv[])
                 }
             }
 
-            updateStateBoundaryValues(u1Candidate, u2Candidate, u3Candidate, t + dt, dim);
+            updateStateBoundaryValues(u1Candidate, u2Candidate, u3Candidate, t + stageDt, dim);
             u1Candidate.correctBoundaryConditions();
             u2Candidate.correctBoundaryConditions();
             u3Candidate.correctBoundaryConditions();
@@ -6779,9 +8051,9 @@ int main(int argc, char* argv[])
             if (profileTimings)
             {
                 const auto evalEnd = std::chrono::steady_clock::now();
-                nonlinearEvalWallTime +=
+                fineTimings.nonlinearEvalWallTime +=
                     std::chrono::duration<scalar>(evalEnd - evalStart).count();
-                ++nonlinearEvalCalls;
+                ++fineTimings.nonlinearEvalCalls;
             }
         };
 
@@ -6926,6 +8198,8 @@ int main(int argc, char* argv[])
             );
         }
 
+        bool esdirkHandledStep = false;
+
         bool nonlinearConverged = false;
         label nonlinearIters = 0;
         scalar finalCoupledResidual = GREAT;
@@ -6999,7 +8273,294 @@ int main(int argc, char* argv[])
             finalLineSearchIterations = lineSearchIters;
         };
 
-        if (useJFNK)
+        // Added for cardiacFoam: the ESDIRK startup step. This runs ONLY for
+        // the first bdfOrder-1 steps of a BDF run, to build the history; it is
+        // not reachable as a scheme in its own right (see the note on
+        // needEsdirkOperator above for why not).
+        //
+        // Stage 1 is explicit, Y_1 = V^n. For i >= 2 the stage solves
+        //
+        //   A_g Y_i = (1/g) [ B V^n + sum_{j<i} a_ij F_j ] + bc(t_i) + s(Y_i)
+        //
+        // with A_g = M/(g dt) - lapScale K, B = M/dt, t_i = t + c_i dt, and
+        //
+        //   F_j = lapScale K Y_j + bc(t_j) + s(Y_j).
+        //
+        // Note bc enters with coefficient 1 while the B and F terms carry 1/g:
+        // that falls out of dividing the stage equation by g dt. Getting it
+        // wrong would be invisible on this MMS suite, where every case is
+        // zeroGradient and bc is identically zero - hence this note.
+        //
+        // The shape is the same one-step equation the Picard branch below
+        // solves, which is why one matrix, one cached factorisation and one
+        // fixed-point iteration serve every stage.
+        //
+        // Stiffly accurate (c_s = 1, b = last row): V^{n+1} = Y_s, the last
+        // stage IS the answer and there is no separate combination step.
+        //
+        // Only Picard is wired up. JFNK and diagonalIion would each need their
+        // per-stage Jacobian machinery threaded through, which is separate
+        // work; an unknown scheme name is a FatalError upstream, so nothing
+        // reaches here by accident.
+        // ESDIRK runs only while it is supplying the first bdfOrder-1 starting
+        // values. After that the history is full and BDF takes over for the
+        // rest of the run - which, for anything but the opening steps, is the
+        // whole run.
+        const bool esdirkThisStep =
+            (bdfOrder > 1 && esdirkStartup && nSteps < bdfOrder - 1);
+
+        // Modified for cardiacFoam: a BDF step drives its state ODEs with the
+        // polynomial through its OWN history levels, for the same reason ESDIRK
+        // uses its stage values, and at the same price - the levels are already
+        // stored, so the only cost is the interpolation itself.
+        //
+        // Nodes at s = -(k-1) ... -1, 0, 1 in units of dt measured from t^n,
+        // with the candidate V^{n+1} last. The ODEs are integrated over
+        // s in [0, 1], which lies inside the node hull, so this interpolates
+        // rather than extrapolates.
+        //
+        // Why it matters, measured (suite test M21): with the two-node blend
+        // BDF4 fits order 2.04, with this interpolant 3.89. The blend is
+        // O(dt^2) pointwise, O(dt^3) once integrated over the step, so it caps
+        // the global order at 2 whatever the scheme. BDF can reach fourth order where
+        // ESDIRK4 cannot, because a multistep method has stage order equal to
+        // its order and suffers no order reduction.
+        //
+        // Skipped while ESDIRK is supplying the starting values, since the
+        // history is not full yet and that block sets its own driver. Skipped
+        // too under stateODEDriver linear, which keeps the two-node default.
+        if (bdfOrder > 1 && !esdirkThisStep && historyStateODEDriver)
+        {
+            vmDriver.nNodes = bdfOrder + 1;
+
+            // Oldest first, so the candidate lands on the last slot, which is
+            // the one the evaluator refreshes.
+            for (label j = 0; j < bdfOrder - 1; ++j)
+            {
+                // VmBdfOlder[m] holds V^{n-1-m}, so walk it backwards.
+                const label m = bdfOrder - 2 - j;
+                vmDriver.s[j] = -scalar(m + 1);
+                vmDriver.field[j] = &VmBdfOlder[m];
+            }
+
+            vmDriver.s[bdfOrder - 1] = 0.0;
+            vmDriver.field[bdfOrder - 1] = &VmOld.primitiveField();
+
+            vmDriver.s[bdfOrder] = 1.0;
+            vmDriver.field[bdfOrder] = nullptr;
+        }
+
+        if (esdirkThisStep)
+        {
+            const label nS = esdirkTab.nStages;
+            const scalar gam = esdirkTab.gamma;
+
+            List<EigVec> stageF(nS);
+            const EigVec BVn = applyB(fieldToEigVec(VmOld));
+
+            // The stage VALUES, kept so that the state ODEs can be driven by a
+            // polynomial through them instead of by a straight line between the
+            // two ends of the stage interval. Y_1 = V^n, so index 0 is a copy
+            // of VmOld and the rest are filled as the stages are solved.
+            //
+            // This is what lifts the second-order cap the linear blend imposed:
+            // the values are already computed, so the higher-order interpolant
+            // costs storage and nothing else.
+            List<scalarField> stageVm(nS);
+            forAll(stageVm, j)
+            {
+                // Sized up front: the last node is always overwritten with the
+                // candidate before use, but a zero-length field behind a live
+                // pointer reads out of bounds instead of failing, so it is not
+                // left to that guarantee.
+                stageVm[j].setSize(mesh.nCells(), 0.0);
+            }
+            stageVm[0] = VmOld.primitiveField();
+
+            // Stage 1, explicit: Y_1 = V^n with the states at t^n, which is
+            // what stageDt = 0 delivers (advanceStateODE returns u unchanged
+            // over a zero interval).
+            stageDt = 0.0;
+            VmGuess.primitiveFieldRef() = VmOld.primitiveField();
+            VmGuess.correctBoundaryConditions();
+
+            evaluateNonlinearFields
+            (
+                VmGuess,
+                u1Guess,
+                u2Guess,
+                u3Guess,
+                VmGuessIntegrationPoints,
+                u1GuessIntegrationPoints,
+                u2GuessIntegrationPoints,
+                u3GuessIntegrationPoints,
+                sourceVm,
+                IionGuess
+            );
+
+            stageF[0] =
+                lapScale*applyK(fieldToEigVec(VmGuess))
+              + sourceToEigVec(sourceVm)
+              + bcAtTime(t);
+
+            nonlinearConverged = true;
+
+            for (label i = 1; i < nS; ++i)
+            {
+                stageDt = esdirkTab.c[i]*dt;
+
+                // Drive the state ODEs with the polynomial through the stage
+                // values already known, in time normalised by THIS stage's
+                // interval: s_j = c_j / c_i, so s_0 = 0 and s_i = 1 as the
+                // interpolant requires. The last node is the stage being
+                // solved, refreshed by the evaluator at every iteration.
+                //
+                // Note the abscissae need not be increasing - Lagrange does not
+                // care, and a six-stage ESDIRK would have c = [0, 1/2, 0.332,
+                // 0.62, 0.85, 1], which is not monotone. What matters is that
+                // [0, 1] lies inside their hull, which it does because c_1 = 0
+                // and c_i are both nodes.
+                if (historyStateODEDriver)
+                {
+                    vmDriver.nNodes = i + 1;
+                    for (label j = 0; j <= i; ++j)
+                    {
+                        vmDriver.s[j] = esdirkTab.c[j]/esdirkTab.c[i];
+                        vmDriver.field[j] = &stageVm[j];
+                    }
+                }
+                else
+                {
+                    // The ramp from stage 0 (= V^n) to the stage being solved.
+                    vmDriver.nNodes = 2;
+                    vmDriver.s[0] = 0.0;
+                    vmDriver.s[1] = 1.0;
+                    vmDriver.field[0] = &stageVm[0];
+                    vmDriver.field[1] = &stageVm[i];
+                }
+
+                EigVec rhsBase = BVn;
+                for (label j = 0; j < i; ++j)
+                {
+                    rhsBase += esdirkTab.a[i][j]*stageF[j];
+                }
+                rhsBase /= gam;
+
+                const EigVec bcStage = bcAtTime(t + stageDt);
+                rhsBase += bcStage;
+
+                bool stageConverged = false;
+
+                for
+                (
+                    label corr = 0;
+                    corr < max(implicitNonlinearIterations, label(1));
+                    ++corr
+                )
+                {
+                    const scalarField VmPrevIter(VmGuess.primitiveField());
+
+                    evaluateNonlinearFields
+                    (
+                        VmGuess,
+                        u1Guess,
+                        u2Guess,
+                        u3Guess,
+                        VmGuessIntegrationPoints,
+                        u1GuessIntegrationPoints,
+                        u2GuessIntegrationPoints,
+                        u3GuessIntegrationPoints,
+                        sourceVm,
+                        IionGuess
+                    );
+
+                    const EigVec rhs = rhsBase + sourceToEigVec(sourceVm);
+
+                    label stageLinIters = 0;
+                    scalar stageLinError = GREAT;
+
+                    const EigVec Y =
+                        esdirkStageSolver.solve
+                        (
+                            rhs, stageLinIters, stageLinError
+                        );
+
+                    eigVecToField(Y, VmGuess);
+                    applyExactVmBoundaryValues(VmGuess, t + stageDt, dim);
+
+                    finalLinearIterations = stageLinIters;
+                    finalLinearError = stageLinError;
+
+                    const scalar VmResidualStage =
+                        relativeL2Difference
+                        (
+                            VmGuess.primitiveField(), VmPrevIter
+                        );
+
+                    finalVmResidual = VmResidualStage;
+                    ++nonlinearIters;
+
+                    if
+                    (
+                        corr + 1 >= implicitMinNonlinearIterations
+                     && VmResidualStage <= nonlinearVmTolerance
+                    )
+                    {
+                        stageConverged = true;
+                        break;
+                    }
+                }
+
+                if (!stageConverged)
+                {
+                    nonlinearConverged = false;
+                }
+
+                // Re-evaluate at the ACCEPTED stage value: the loop above left
+                // sourceVm one iterate behind, and F_i feeds every later stage.
+                evaluateNonlinearFields
+                (
+                    VmGuess,
+                    u1Guess,
+                    u2Guess,
+                    u3Guess,
+                    VmGuessIntegrationPoints,
+                    u1GuessIntegrationPoints,
+                    u2GuessIntegrationPoints,
+                    u3GuessIntegrationPoints,
+                    sourceVm,
+                    IionGuess
+                );
+
+                stageF[i] =
+                    lapScale*applyK(fieldToEigVec(VmGuess))
+                  + sourceToEigVec(sourceVm)
+                  + bcStage;
+
+                // Keep the accepted stage value: later stages interpolate their
+                // ODE driver through it.
+                stageVm[i] = VmGuess.primitiveField();
+            }
+
+            // Stiffly accurate: the last stage sits at t + dt and carries both
+            // V^{n+1} and the states, so VmGuess/u*Guess already hold what the
+            // shared bookkeeping below expects.
+            stageDt = dt;
+
+            // Restore the two-node default. stageVm is local to this block, so
+            // leaving the driver pointing into it would dangle the moment the
+            // block ends - and a dangling read is a wrong answer, not a crash.
+            vmDriver.nNodes = 2;
+            vmDriver.s[0] = 0.0;
+            vmDriver.s[1] = 1.0;
+            vmDriver.field[0] = &VmOld.primitiveField();
+            vmDriver.field[1] = nullptr;
+
+            finalCoupledResidual = finalVmResidual;
+            esdirkHandledStep = true;
+        }
+
+        if (useJFNK && !esdirkHandledStep)
         {
             EigVec x = fieldToEigVec(VmGuess);
 
@@ -7145,6 +8706,27 @@ int main(int argc, char* argv[])
 
             const bool usePetscJfnkBackend =
                 usesPetscBackend(jfnkLinearSolverBackend);
+
+            // Modified for cardiacFoam: the Eigen JFNK path is serial only, for
+            // a DIFFERENT reason than the assembled path - there is no matrix
+            // to be rectangular. solveLeftPreconditionedGMRES computes its
+            // inner products with Eigen (V[i].dot(w), w.norm(), bPrec.norm())
+            // and never reduces them, so every rank would build a private
+            // Krylov space and a private convergence test, while the matvec it
+            // calls is a COLLECTIVE PETSc MatMult. Ranks leaving the loop at
+            // different iterations deadlock on that MatMult; ranks that happen
+            // to agree return a wrong answer with no warning.
+            if (!usePetscJfnkBackend && Pstream::parRun())
+            {
+                FatalErrorInFunction
+                    << "jfnkLinearSolverBackend = " << jfnkLinearSolverBackend
+                    << " selects the Eigen JFNK path, which is serial only: its"
+                    << " GMRES does not reduce its inner products across ranks."
+                    << nl
+                    << "Set 'jfnkLinearSolverBackend PETSc;' to run on "
+                    << Pstream::nProcs() << " ranks."
+                    << exit(FatalError);
+            }
 
             // Track when the persistent JFNK PC was last refreshed within
             // the current timestep so that jfnkPreconditionerUpdateFrequency
@@ -7357,12 +8939,12 @@ int main(int argc, char* argv[])
                         {
                             const auto pcSetupEnd =
                                 std::chrono::steady_clock::now();
-                            preconditionerSetupWallTime +=
+                            fineTimings.preconditionerSetupWallTime +=
                                 std::chrono::duration<scalar>
                                 (
                                     pcSetupEnd - pcSetupStart
                                 ).count();
-                            ++preconditionerSetups;
+                            ++fineTimings.preconditionerSetups;
                         }
                     }
 
@@ -7393,12 +8975,12 @@ int main(int argc, char* argv[])
                         {
                             const auto pcApplyEnd =
                                 std::chrono::steady_clock::now();
-                            preconditionerApplyWallTime +=
+                            fineTimings.preconditionerApplyWallTime +=
                                 std::chrono::duration<scalar>
                                 (
                                     pcApplyEnd - pcApplyStart
                                 ).count();
-                            ++preconditionerApplications;
+                            ++fineTimings.preconditionerApplications;
                         }
 
                         return z;
@@ -7503,12 +9085,12 @@ int main(int argc, char* argv[])
                 if (profileTimings)
                 {
                     const auto gmresEnd = std::chrono::steady_clock::now();
-                    gmresWallTime +=
+                    fineTimings.gmresWallTime +=
                         std::chrono::duration<scalar>
                         (
                             gmresEnd - gmresStart
                         ).count();
-                    ++gmresCalls;
+                    ++fineTimings.gmresCalls;
                 }
 
                 label lineSearchIters = 0;
@@ -7622,7 +9204,7 @@ int main(int argc, char* argv[])
                 }
             }
         }
-        else if (usePicard || useDiagonalIion)
+        else if ((usePicard || useDiagonalIion) && !esdirkHandledStep)
         {
             // Persistent ACurrent buffer reused across the corr iterations
             // (and across timesteps). Only allocated when actually needed —
@@ -7748,12 +9330,12 @@ int main(int argc, char* argv[])
                 {
                     const auto sparseSolveEnd =
                         std::chrono::steady_clock::now();
-                    sparseLinearSolveWallTime +=
+                    fineTimings.sparseLinearSolveWallTime +=
                         std::chrono::duration<scalar>
                         (
                             sparseSolveEnd - sparseSolveStart
                         ).count();
-                    ++sparseLinearSolveCalls;
+                    ++fineTimings.sparseLinearSolveCalls;
                 }
 
                 const EigVec Vprev = fieldToEigVec(VmGuess);
@@ -7866,15 +9448,12 @@ int main(int argc, char* argv[])
 
         bool nonlinearRolledBack = false;
 
-        if (!nonlinearConverged && usePicard)
-        {
-            WarningInFunction
-                << "Picard nonlinear solver did not converge at t = " << t
-                << " after " << nonlinearIters << " iterations."
-                << " Accepting the last Picard iterate, matching the"
-                << " highOrderManufacturedFDAImplicit behaviour." << endl;
-        }
-        else if (!nonlinearConverged && !nonlinearAcceptUnconverged)
+        // Modified for cardiacFoam: Picard used to have its own branch here
+        // that accepted the last iterate unconditionally, so the same solver
+        // had two error semantics depending on the method. All three now obey
+        // nonlinearAcceptUnconverged: false rolls the step back, true keeps the
+        // iterate and says so.
+        if (!nonlinearConverged && !nonlinearAcceptUnconverged)
         {
             WarningInFunction
                 << "Nonlinear solver did not converge at t = " << t
@@ -7961,7 +9540,11 @@ int main(int argc, char* argv[])
                 useHighOrder_Vm,
                 LREInterp_Vm,
                 LREInterp_Iion,
-                VmGuessIntegrationPoints
+                VmGuessIntegrationPoints,
+                stateODEUseOpenMP,
+                stateODEOpenMPThreshold,
+                profileTimings,
+                fineTimings
             );
 
             if (reconstructStatesFromCellCentres)
@@ -7977,7 +9560,11 @@ int main(int argc, char* argv[])
                     LREInterp_Iion,
                     u1IntegrationPoints,
                     u2IntegrationPoints,
-                    u3IntegrationPoints
+                    u3IntegrationPoints,
+                    stateODEUseOpenMP,
+                    stateODEOpenMPThreshold,
+                    profileTimings,
+                    fineTimings
                 );
             }
 
@@ -8019,11 +9606,32 @@ int main(int argc, char* argv[])
             );
         }
 
+        // Modified for cardiacFoam: rotate the BDF history. V^n becomes
+        // V^{n-1} and the oldest level falls off the end. Done here, after the
+        // step has been accepted, so that what enters the history is the value
+        // the step actually kept.
+        //
+        // Caveat worth knowing rather than guarding: on a step that was ROLLED
+        // BACK (nonlinearAcceptUnconverged false) the solution did not advance
+        // but time did, so the history then holds two levels one step apart in
+        // t and identical in value. That is what a rollback means, and a BDF
+        // run containing one is not trustworthy for an order measurement -
+        // which is why the sweeps check that no step rolled back.
+        if (bdfOrder > 1)
+        {
+            for (label j = VmBdfOlder.size() - 1; j >= 1; --j)
+            {
+                VmBdfOlder[j] = VmBdfOlder[j - 1];
+            }
+
+            VmBdfOlder[0] = VmOld.primitiveField();
+        }
+
         ++nSteps;
         ++runTime;
 
         const bool needsRhsVm =
-            nSteps % 50 == 0 || nSteps <= 5 || runTime.outputTime();
+            nSteps % stepLogInterval == 0 || nSteps <= 5 || runTime.outputTime();
 
         if (needsRhsVm)
         {
@@ -8031,7 +9639,7 @@ int main(int argc, char* argv[])
             rhsVm = lapVm/(chi*Cm) - Iion;
         }
 
-        if (nSteps % 50 == 0 || nSteps <= 5)
+        if (nSteps % stepLogInterval == 0 || nSteps <= 5)
         {
             Info<< "Time step " << nSteps
                 << " : t = " << runTime.value()
@@ -8062,7 +9670,11 @@ int main(int argc, char* argv[])
             useHighOrder_Vm,
             LREInterp_Vm,
             LREInterp_Iion,
-            VmGuessIntegrationPoints
+            VmGuessIntegrationPoints,
+            stateODEUseOpenMP,
+            stateODEOpenMPThreshold,
+            profileTimings,
+            fineTimings
         );
 
         computeIionFromIntegrationPoints
@@ -8174,20 +9786,38 @@ int main(int argc, char* argv[])
     if (profileTimings)
     {
         Info<< "Fine-grained timing [s]:" << nl
-            << "  nonlinear evaluations: calls = " << nonlinearEvalCalls
-            << ", wall = " << nonlinearEvalWallTime << nl
-            << "  JFNK KSP/GMRES: calls = " << gmresCalls
-            << ", wall = " << gmresWallTime << nl
-            << "  JFNK preconditioner setup: calls = " << preconditionerSetups
-            << ", wall = " << preconditionerSetupWallTime << nl
+            << "  nonlinear evaluations: calls = "
+            << fineTimings.nonlinearEvalCalls
+            << ", wall = " << fineTimings.nonlinearEvalWallTime << nl
+            << "  JFNK KSP/GMRES: calls = " << fineTimings.gmresCalls
+            << ", wall = " << fineTimings.gmresWallTime << nl
+            << "  JFNK preconditioner setup: calls = "
+            << fineTimings.preconditionerSetups
+            << ", wall = " << fineTimings.preconditionerSetupWallTime << nl
             << "  JFNK preconditioner apply: calls = "
-            << preconditionerApplications
-            << ", wall = " << preconditionerApplyWallTime << nl
-            << "  sparse PDE solves: calls = " << sparseLinearSolveCalls
-            << ", wall = " << sparseLinearSolveWallTime << endl;
+            << fineTimings.preconditionerApplications
+            << ", wall = " << fineTimings.preconditionerApplyWallTime << nl
+            << "  sparse PDE solves: calls = "
+            << fineTimings.sparseLinearSolveCalls
+            << ", wall = " << fineTimings.sparseLinearSolveWallTime << endl;
     }
 
-    runTime.write();
+    if (writeFinalFields)
+    {
+        // writeNow() fuerza la escritura: write() sola no hace nada si el
+        // instante final no es un write time, que es el caso habitual.
+        // Los campos exacto/error solo se refrescan dentro de la rama
+        // outputTime, asi que sin esto quedarian con valores viejos.
+        fillExactFields(VmExact, u1Exact, u2Exact, runTime.value(), dim);
+        VmError = Vm - VmExact;
+        u1Error = u1 - u1Exact;
+        u2Error = u2 - u2Exact;
+        runTime.writeNow();
+    }
+    else
+    {
+        runTime.write();
+    }
 
     writeSummary
     (
@@ -8204,6 +9834,9 @@ int main(int argc, char* argv[])
         Iion,
         mesh,
         implicitScheme,
+        bdfStartup,
+        stateODEDriver,
+        manufacturedSolution,
         massMatrixMode,
         useHighOrder_Vm,
         useHighOrder_Iion,
@@ -8275,6 +9908,7 @@ int main(int argc, char* argv[])
         timeLoopWallTime,
         postProcessWallTime,
         totalWallTime,
+        fineTimings,
         nonlinearMethod
     );
 

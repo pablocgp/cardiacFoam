@@ -1,6 +1,0 @@
-highOrderManufacturedFDAImplicitPETSc.C
-
-/* Modified for cardiacFoam: distinct binary name so that this parallel port
-   does not overwrite the serial highOrderManufacturedFDAImplicitPETSc, which
-   is kept as the reference for the convergence baseline. */
-EXE = $(FOAM_USER_APPBIN)/highOrderManufacturedFDAImplicitPETScParallel

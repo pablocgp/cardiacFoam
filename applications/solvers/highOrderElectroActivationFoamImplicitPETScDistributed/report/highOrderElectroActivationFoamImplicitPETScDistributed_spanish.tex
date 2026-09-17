@@ -2404,7 +2404,7 @@ Observable & Valor \\
 \midrule
 Stencils de cara que difieren & 536 de 10676 \\
 Su tamaño & idéntico (80): los miembros se \emph{sustituyen}, no se pierden \\
-Posición de los miembros intercambiados & 98\,\% en el último 10\,\% del stencil
+Posición de los miembros intercambiados & 98\% en el último 10\% del stencil
    ordenado por distancia \\
 Filas de $\Kstif$ que difieren & 552 de 4971, hasta 4.17 contra
    $\max|K|=256$ \\
@@ -2483,6 +2483,142 @@ en serie, y con ellos toda tabla de convergencia producida hasta ahora. Esa es
 una decisión a tomar deliberadamente, no un efecto colateral a absorber.
 
 % ================================================================== %
+
+\subsection{Casos de verificación: qué se corrió y dónde está}
+\label{sec:elec-parverif-casos}
+
+Todos los casos están bajo
+\code{tutorials\_electro/electroTestParallelVerification/}. El driver es
+\code{tutorials\_electro/electroDistValidation/}; los directorios de acá son
+copias suyas con un parámetro cambiado cada una.
+
+\begin{center}
+\begin{tabular}{@{}llp{6.2cm}@{}}
+\toprule
+Directorio & Prueba & Qué establece \\
+\midrule
+\code{electroA3\_np1}, \code{\_np2}, \code{\_np4}
+  & A3, aceptación física
+  & tiempo de activación en P8 y velocidad de conducción \\
+\code{electroA4\_np2}, \code{\_np4}
+  & A4, invariancia a la descomposición
+  & \code{simple} en vez de \code{scotch}: otra geometría de corte \\
+\code{electroTri\_np1}, \code{\_np2}, \code{\_np4}
+  & malla no estructurada
+  & la ruta de gmsh, 1500 celdas \\
+\code{matrix\_el\_2D\_np1}, \code{\_np2}, \code{matrix\_el\_3D\_*}
+  & matriz de métodos
+  & Picard / JFNK / diagonalIion, hexa + triangular, 2-D y 3-D \\
+\code{jac\_2D\_np1}, \code{jac\_2D\_np2}
+  & aislar el preacondicionador
+  & \code{jacobi}, el único independiente del número de ranks \\
+\code{perf\_\{ilu,jac,gamg,hypre\}\_np\{1,2\}}
+  & rendimiento del solver lineal
+  & $\Delta x = 0.5$\,mm, 640 celdas \\
+\code{perf025\_\{ilu,jac,gamg,hypre\}\_np\{1,2\}}
+  & ídem, refinado
+  & $\Delta x = 0.25$\,mm, 2560 celdas \\
+\code{pre\_\{0p0,0p1\}\_np\{1,2\}}
+  & estabilización, antes
+  & con el binario \code{electroPreStab} \\
+\code{post\_\{0p0,0p1\}\_np\{1,2\}}
+  & estabilización, después
+  & con el binario porteado \\
+\code{stab\_\{0p0,0p1\}\_np\{1,2\}}
+  & primer intento de línea base
+  & \emph{descartado}: hubo recompilaciones durante el barrido \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{A3, aceptación física} (\code{electroA3\_*}). Hexa,
+$\Delta x = 0.5$\,mm, $\Delta t = 10^{-4}$, tríada $(p3,\mathrm{CCp3},p3)$,
+corrida completa hasta que el frente alcanza P8. Corridas secuenciales con la
+máquina ociosa, de modo que los tiempos de pared son válidos.
+
+\begin{center}
+\begin{tabular}{@{}rlrrrrr@{}}
+\toprule
+Ranks & Estado & $T_{P8}$ [ms] & desv. & CV [m/s] & Wall [s] & Speed-up \\
+\midrule
+1 & OK & 52.0795930112 & ---            & 0.38388 & 310.3 & $1.00\times$ \\
+2 & OK & 52.0795930123 & \num{2.11e-11} & 0.38388 & 177.0 & $1.75\times$ \\
+4 & OK & 52.0795930133 & \num{4.03e-11} & 0.38388 & 102.9 & $3.01\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\code{OK} es la entrada más importante de cada fila: es el detector binario de
+bloqueo de conducción, y dice que el frente cruza todos los cortes de partición.
+La tolerancia del $0.5\%$ propuesta para $|\Delta T_{P8}|/T_{P8}$ estaba
+\emph{equivocada por ocho órdenes de magnitud} --- el spread observado es
+\num{4e-11}. Picard converge al mismo punto fijo de forma determinista, así que
+un residuo de corte alto no introduce deriva.
+
+\paragraph{A4, invariancia a la descomposición} (\code{electroA4\_*}). La misma
+corrida cortada con \code{simple} ($n = (2\,1\,1)$ y $(2\,2\,1)$) en vez de
+\code{scotch}: \code{OK} en ambas, $T_{P8}$ dentro de \num{9.22e-11} de la
+serie, CV idéntica a cinco decimales. Que dos geometrías de corte no
+relacionadas coincidan es evidencia mucho más fuerte que varios conteos de ranks
+bajo un solo método.
+
+\paragraph{Malla no estructurada} (\code{electroTri\_*}). 1500 celdas por la
+ruta de gmsh: \code{OK} con 1, 2 y 4 ranks, $T_{P8}$ dentro de \num{6.55e-11},
+speed-up $1.65\times$ y $2.84\times$.
+
+\paragraph{Rendimiento del solver lineal} (\code{perf\_*}, \code{perf025\_*}).
+Las iteraciones de Krylov por iteración no lineal varían más de un factor tres
+entre preacondicionadores mientras los tiempos de pared coinciden dentro de un
+8\%, en los dos tamaños de malla. \emph{El solve lineal no es el cuello de
+botella} --- lo son las ODEs iónicas --- así que cambiar de preacondicionador no
+compra nada acá. Refinar de $0.5$ a $0.25$\,mm multiplica el costo por $4.3$,
+o sea esencialmente lineal en el número de celdas, y los conteos de iteraciones
+se mantienen planos (ilu 3.0, hypre 4.0, jacobi 8.0), así que no aparece ningún
+cruce. \code{gamg} falló en la malla fina y no se diagnosticó.
+
+\paragraph{Aislar el preacondicionador} (\code{jac\_2D\_*}). \code{ilu} no tiene
+implementación MPIAIJ y en paralelo se envuelve en block-Jacobi, que depende de
+la partición por construcción; \code{jacobi} es puramente diagonal y por lo
+tanto el mismo operador con cualquier número de ranks. Al cambiarlo colapsaron
+las diferencias de trayectoria entre $np=1$ y $np=2$: cinco de seis
+configuraciones pasaron a ser \emph{idénticas}, y los conteos de filas
+coincidieron en las seis (\code{triangular} con Picard pasó de $184$ contra
+$275$ filas a $184$ contra $184$).
+
+\paragraph{Estabilización en caras de procesador} (\code{pre\_*} contra
+\code{post\_*}). Desviación del trazo de residuos entre $np=1$ y $np=2$ con
+$\alpha=0.1$:
+
+\begin{center}
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+Malla & Método & Antes & Después & Control $\alpha=0$ & Mejora \\
+\midrule
+hexa       & Picard       & \num{3.23e-09} & \num{9.06e-12} & \num{8.53e-12} & $356\times$ \\
+hexa       & JFNK         & \num{2.58e-05} & \num{2.59e-05} & \num{2.48e-05} & $1\times$ \\
+hexa       & diagonalIion & \num{1.27e-08} & \num{4.51e-10} & \num{2.28e-10} & $28\times$ \\
+triangular & Picard       & \num{2.45e-07} & \num{4.68e-11} & \num{9.55e-12} & $5240\times$ \\
+triangular & JFNK         & \num{4.44e-06} & \num{4.43e-06} & \num{4.64e-06} & $1\times$ \\
+triangular & diagonalIion & \num{1.59e-07} & \num{6.17e-09} & \num{5.59e-10} & $26\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La salida serial es bit-idéntica (SHA-256) en las doce configuraciones, con los
+dos valores de $\alpha$. Los caminos ensamblados colapsan sobre el control de
+$\alpha=0$, que es el piso alcanzable. JFNK no se mueve, y es esperable: su
+desviación la domina su propio preacondicionador --- el ILUT de Eigen sobre el
+bloque diagonal, dependiente de la partición por construcción --- y no la
+estabilización del ensamblado. El mismo \num{2.48e-05} aparece con \code{ilu} y
+con \code{jacobi}, que es lo que lo identificó.
+
+Para esta comparación se construyeron dos binarios \emph{distintos},
+\code{electroPreStab} y el solver porteado, porque un primer intento
+(\code{stab\_*}) tuvo recompilaciones cayendo mientras el barrido corría. Eso
+importa: si el ``antes'' ya hubiera tenido la corrección, el ``después`` habría
+salido idéntico, y un resultado nulo es indistinguible de uno que funciona.
+
+
 \section{Optimizaciones de rendimiento}
 \label{sec:optim}
 % ================================================================== %

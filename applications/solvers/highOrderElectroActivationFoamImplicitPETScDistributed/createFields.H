@@ -1025,6 +1025,59 @@ const Switch memoryOptimizationAdaptiveTripletReserve
   : Switch(true)
 );
 
+// Added for cardiacFoam: how often the per-step "Step N ... min(Vm) max(Vm)"
+// line is printed. Was a hard-coded `nSteps % 100`.
+//
+// It is exposed because that line is the only time-resolved output the solver
+// produces, and at dt = 1e-4 s a cadence of 100 samples every 10 ms. The TNNP
+// upstroke is ~1 ms wide, so a 0-D single-cell test reading dV/dt from it
+// measures ~12 V/s against a true ~300 V/s - a sampling artefact that looks
+// like a broken ionic model. Setting this to 1 gives a sample per time step.
+//
+// Default 100: unchanged behaviour for every existing case.
+const label stepLogInterval
+(
+    max
+    (
+        spatialIntegrationProperties.found("implicitHOCoeffs")
+      ? spatialIntegrationProperties.subDict("implicitHOCoeffs").lookupOrDefault<label>
+        (
+            "stepLogInterval",
+            100
+        )
+      : label(100),
+        label(1)
+    )
+);
+
+// Added for cardiacFoam: the chunk size of the chunked high-order stiffness
+// assembly, which used to be a hard-coded 50000 local.
+//
+// It is a capacity control - K is assembled as sum_i K_chunk_i and
+// addTripletIfNeeded filters individual contributions, not accumulated ones, so
+// the chunking is transparent to the result. It is exposed because that claim
+// was untestable while the value was baked into the binary: verifying it needs
+// the SAME mesh assembled with more than one chunk and with exactly one, and
+// with 50000 fixed any given mesh gives only one of the two. With the key, the
+// regression test is a 640-cell case at chunk = 100 against the default.
+//
+// Note the chunk size does change the floating-point summation ORDER of K, so
+// compare with a tolerance, not bitwise.
+const label assemblyFaceChunk
+(
+    max
+    (
+        spatialIntegrationProperties.found("implicitHOCoeffs")
+      ? spatialIntegrationProperties.subDict("implicitHOCoeffs").lookupOrDefault<label>
+        (
+            "assemblyFaceChunk",
+            50000
+        )
+      : label(50000),
+        label(1)
+    )
+);
+
 // Triplets reserved per face for a flux-only (unstabilised) assembly.
 // Capacity only: it never changes the assembled result.
 const label memoryOptimizationFluxTripletsPerFace

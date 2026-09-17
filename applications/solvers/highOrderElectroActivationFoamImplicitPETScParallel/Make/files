@@ -1,9 +1,0 @@
-highOrderElectroActivationFoamImplicitPETScParallel.C
-
-/* Modified for cardiacFoam: distinct binary name.
-
-   This directory started as a byte-identical copy of
-   highOrderElectroActivationFoamImplicitPETSc, EXE name included, so a single
-   wmake here would have silently replaced the serial reference binary - the
-   one thing the whole verification chain is compared against. */
-EXE = $(FOAM_USER_APPBIN)/highOrderElectroActivationFoamImplicitPETScParallel

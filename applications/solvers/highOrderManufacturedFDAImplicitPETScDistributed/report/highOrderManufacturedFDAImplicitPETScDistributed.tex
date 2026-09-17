@@ -609,6 +609,270 @@ the most robust choice for stiff or poorly converged nonlinear problems.
 nonlinear/source terms, but is less dissipative. Its observed order can drop if
 the nonlinear iterations, state ODE tolerance, or spatial error dominate.
 
+A property of Crank--Nicolson that matters on a stiff problem and is easy to
+overlook: it is A-stable but \emph{not} L-stable. Its amplification factor tends
+to $-1$, not to $0$, as $\lambda\Delta t\to-\infty$, so the stiffest modes are
+not damped --- they oscillate with undiminished amplitude. \code{BDF2} below is
+also second order and \emph{is} L-stable, which makes it the better of the two
+second-order options wherever a sharp front is present.
+
+\subsection{Backward differentiation formulae}
+\label{sec:bdf}
+
+The $\theta$ family cannot be pushed past second order. Dahlquist's second
+barrier states that no A-stable linear multistep method has order greater than
+two, and the trapezoidal rule ($\theta=1/2$) is the A-stable member of order two
+with the smallest error constant. Higher temporal order therefore requires
+either giving up A-stability or leaving the multistep family altogether. The
+solver takes the first route for the scheme itself, and the second only to start
+it (\S\ref{sec:bdf-startup}).
+
+Applying the $k$-step backward differentiation formula
+to~\eqref{eq:semidiscrete} gives
+\begin{equation}
+  \frac{1}{\Delta t}\sum_{j=0}^{k} a_j\,\Mmass\,\mathsf{V}^{n+1-j}
+  =
+  \Lop\mathsf{V}^{n+1}+\mathsf{S}^{n+1}+\mathsf{b}^{n+1},
+  \label{eq:bdf}
+\end{equation}
+which rearranges into exactly the same pair of operators the $\theta$ method
+uses:
+\begin{align}
+  \Aimp \mathsf{V}^{n+1}
+  &=
+  \Bimp\,\mathsf{H}^{n}+\mathsf{S}^{n+1}+\mathsf{b}^{n+1},
+  \label{eq:bdf-system}\\
+  \Aimp = \frac{a_0}{\Delta t}\Mmass-\Lop,
+  \qquad
+  \Bimp &= \frac{1}{\Delta t}\Mmass,
+  \qquad
+  \mathsf{H}^{n} = -\sum_{j=1}^{k} a_j\,\mathsf{V}^{n+1-j}.
+\end{align}
+Two consequences are what make BDF nearly free to add here. First, $\Aimp$
+differs from the backward-Euler operator \emph{only} in the scalar multiplying
+$\Mmass$: the assembly, the sparsity pattern and the cached factorisation are
+untouched. Second, the history enters through a \emph{single} mass-matrix
+product, because the linear combination $\mathsf{H}^n$ is formed as a field
+before $\Bimp$ is applied --- a BDF-$k$ step costs one matrix--vector product,
+not $k$. BDF is also fully implicit, so the source is needed at $t^{n+1}$ only,
+one source evaluation per step fewer than Crank--Nicolson.
+
+The coefficients, the theoretical order and the stability of each member are:
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\code{implicitScheme} & $(a_0,a_1,\dots,a_k)$ & Order & Stability \\
+\midrule
+\code{BDF1} & $(1,\,-1)$ & $O(\Delta t)$ & A-stable, L-stable \\
+\code{BDF2} & $(\tfrac32,\,-2,\,\tfrac12)$ & $O(\Delta t^2)$ & A-stable, L-stable \\
+\code{BDF3} & $(\tfrac{11}{6},\,-3,\,\tfrac32,\,-\tfrac13)$ & $O(\Delta t^3)$ & $A(86.03^\circ)$ \\
+\code{BDF4} & $(\tfrac{25}{12},\,-4,\,3,\,-\tfrac43,\,\tfrac14)$ & $O(\Delta t^4)$ & $A(73.35^\circ)$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\code{BDF1} and \code{backwardEuler} are the same scheme, and the solver is
+built so that this is exact rather than approximate: $a_0=1$ and
+$\mathsf{H}^n=\mathsf{V}^n$ reduce~\eqref{eq:bdf-system} to the $\theta=1$ case
+term by term, and the two produce byte-identical operators and byte-identical
+answers. That identity is used as the regression test guarding every change to
+this part of the solver.
+
+\code{BDF5} and \code{BDF6} are deliberately not offered. Past BDF2 no member is
+A-stable, and the $A(\alpha)$ wedge closes quickly: $86.03^\circ$ at BDF3 and
+$73.35^\circ$ at BDF4, which a diffusion-dominated spectrum stays well inside,
+but $51.84^\circ$ at BDF5 and $17.84^\circ$ at BDF6, which the reaction Jacobian
+of a depolarisation front cannot be assumed to respect. BDF7 and beyond are
+zero-unstable and do not exist as convergent methods.
+
+\subsection{Starting values and the ESDIRK startup}
+\label{sec:bdf-startup}
+
+A $k$-step method needs $k$ levels before it can take a step, and at $t^0$ only
+one exists. How the missing $k-1$ are supplied is not an implementation detail:
+it decides the order that will be measured, and it does so silently.
+
+The requirement is that the starting values be accurate to $O(\Delta t^k)$
+\emph{with respect to the semi-discrete system}~\eqref{eq:semidiscrete}, not
+with respect to the PDE. That distinction is the whole difficulty. Seeding the
+history with the manufactured solution evaluated at $t^0-j\Delta t$ looks exact
+and is not: the exact solution of the PDE does not satisfy the semi-discrete
+equations, it satisfies them up to the spatial truncation error $\tau_h$, and
+the mismatch accumulated over the span of the history is $O(\tau_h\,\Delta t)$.
+That is \emph{first} order in $\Delta t$, so it pins the global order at one,
+with a coefficient proportional to the spatial error.
+
+The prediction that follows is falsifiable, and was tested --- suite test
+\code{M20}, on \code{BDF3}, 2-D hexahedral, $p3$ triad. What is measured there is
+the effect of the startup in isolation,
+\begin{equation}
+  e(\Delta t) = \bigl\|\,\mathsf{V}_{\text{startup}}(\Delta t)
+  - \mathsf{V}_{\text{ESDIRK3}}(\Delta t)\,\bigr\|,
+  \label{eq:startup-effect}
+\end{equation}
+at the same $\Delta t$ and the same mesh, so that BDF3's own truncation error is
+common to both runs and cancels. Judging this on raw self-convergence
+differences instead does \emph{not} work: they mix the startup term, which falls
+with the mesh, with BDF3's own $O(\Delta t^3)$ term, which does not, and the
+mesh-refinement ratio comes out diluted.
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Startup & order of $e$, $N=40$ & order of $e$, $N=80$ & $e(N{=}40)/e(N{=}80)$ \\
+\midrule
+\code{constant} & $1.00$ & $1.00$ & $1.00$ \\
+\code{exact}    & $1.01$ & $1.13$ & $\mathbf{15.5}=2^{3.95}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Both modes are $O(\Delta t)$, as predicted, and they differ exactly where the
+theory says they should: \code{constant}'s coefficient is $\dot{\Vm}$, which does
+not depend on $h$, so refining the mesh changes nothing; \code{exact}'s is
+$\tau_h$, so its error falls by $15.5$ per refinement and the cap lifts as
+$\tau_h\lesssim\Delta t^{k-1}$ is approached. At $N=40$ the two coefficients
+differ by a factor of $1.28\times10^{4}$.
+
+The remedy is a self-starting method of sufficient order, and the solver uses an
+\textbf{ESDIRK3} --- Explicit first stage, Singly Diagonally Implicit
+Runge--Kutta, four stages, classical order three, L-stable and stiffly accurate.
+Each letter earns its place:
+\begin{itemize}
+  \item \emph{Explicit first stage} raises the \emph{stage} order to two. A
+        plain DIRK has stage order one and suffers order reduction on stiff
+        problems, the observed order falling towards the stage order --- which
+        is exactly the regime a depolarisation front lives in.
+  \item \emph{Singly diagonally implicit} means every implicit stage shares the
+        same $\gamma$, so one operator
+        $\Mmass/(\gamma\Delta t)-\Lop$ and one cached factorisation serve all of
+        them, assembled exactly like $\Aimp$.
+  \item \emph{Stiffly accurate} means $b$ equals the last row and $c_s=1$, so
+        $\mathsf{V}^{n+1}=\mathsf{Y}_s$: the last stage is the answer, no
+        separate combination step is needed, and $R(\infty)=0$.
+\end{itemize}
+Runge--Kutta methods are not bound by Dahlquist's barrier, which applies to
+linear multistep methods only; L-stability at order three is available here and
+provably not in the BDF family.
+
+With $\gamma$ the root of $\gamma^3-3\gamma^2+\tfrac32\gamma-\tfrac16=0$ in
+$(\tfrac14,\tfrac12)$ and $c=(0,\,2\gamma,\,\tfrac35,\,1)$, stage $i\ge2$ solves
+\begin{equation}
+  \left(\frac{\Mmass}{\gamma\Delta t}-\Lop\right)\mathsf{Y}_i
+  =
+  \frac{1}{\gamma}\left[\Bimp\mathsf{V}^{n}
+  +\sum_{j<i}a_{ij}\mathsf{F}_j\right]
+  +\mathsf{b}(t_i)+\mathsf{S}(\mathsf{Y}_i),
+  \qquad
+  t_i=t^n+c_i\Delta t,
+  \label{eq:esdirk-stage}
+\end{equation}
+with $\mathsf{F}_j=\Lop\mathsf{Y}_j+\mathsf{b}(t_j)+\mathsf{S}(\mathsf{Y}_j)$.
+Note that $\mathsf{b}$ enters with coefficient one while the other terms carry
+$1/\gamma$; this follows from dividing the stage equation by $\gamma\Delta t$
+and would be invisible on any case with homogeneous Neumann data, where
+$\mathsf{b}\equiv0$.
+
+The remaining coefficients were obtained by solving the order conditions for
+this structure rather than transcribed from a table, and verified: all four
+third-order conditions hold to $\sim10^{-41}$, while the fourth-order condition
+$\sum b_ic_i^3=1/4$ misses by $1.4\times10^{-3}$, confirming the method is
+exactly third order and not accidentally higher.
+
+Since a one-step method of order $p$ leaves starting values accurate to
+$O(\Delta t^{p+1})$, ESDIRK3 covers every BDF the solver offers, and it is the
+\textbf{default}. With it, every scheme reaches its nominal order on the same
+$N=40$ mesh where seeding from the exact solution capped everything at one
+(\S\ref{sec:measured-temporal-orders}):
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Scheme & Nominal & Self-convergence (\code{M02}) & vs analytic (\code{M22}) \\
+\midrule
+\code{BDF2} & 2 & $1.979$ & $\mathbf{1.992}$ \\
+\code{BDF3} & 3 & $2.932$ & $\mathbf{2.971}$ \\
+\code{BDF4} & 4 & $3.890$ & $\mathbf{3.941}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+With \code{exact} or \code{constant} instead, the observed order of BDF3 and BDF4
+collapses to one, and nothing in the run reports it.
+
+\paragraph{What each startup mode actually does.} The distinction matters for
+reading a log. \code{exact} and \code{constant} take \emph{no steps at all}:
+they fabricate the history before the time loop begins --- \code{exact} by
+evaluating the manufactured solution at the negative times $t^0-j\Delta t$,
+\code{constant} by repeating $\mathsf{V}^0$ --- so step $0$ is already a BDF
+step. \code{ESDIRK3} is the only mode that computes anything, and it does so by
+taking the first $k-1$ steps of the run with a different scheme.
+
+\code{ESDIRK3} is also the \textbf{default}, and the only mode meant to be used.
+It is the only one that preserves the order of BDF3 and BDF4, and the only one
+that needs no exact solution --- which a physical solver never has. \code{exact}
+and \code{constant} are kept solely so that the cost of a bad startup remains
+measurable (suite test M20), not as options.
+
+\paragraph{How much of the run the startup occupies.} The guard is
+$n_{\text{steps}}<k-1$, and each ESDIRK step contains four stages of which the
+first is explicit, so three carry an implicit solve:
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\code{implicitScheme} & Startup steps & Fixed-point solves \\
+\midrule
+\code{backwardEuler}, \code{crankNicolson}, \code{BDF1} & $0$ & $0$ \\
+\code{BDF2} & $1$ & $3$ \\
+\code{BDF3} & $2$ & $6$ \\
+\code{BDF4} & $3$ & $9$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+The second column is not the first: a BDF4 run starts with three steps but nine
+fixed-point solves, each iterating to \code{nonlinearVmTolerance} exactly as a
+normal step does.
+
+Two consequences follow, and both have already caused a wrong reading.
+
+First, \textbf{the startup leaves no trace in
+\code{nonlinearResiduals.dat}}. The ESDIRK block does not call the residual
+writer, so on a five-step BDF4 run the file contains rows for steps $4$ and $5$
+only. Over the thousands of steps of a production run this is immaterial, but
+any comparison built on that file --- a parallel-invariance check, a
+nonlinear-method equivalence test --- is comparing the BDF steps and not the
+startup.
+
+Second, \textbf{the startup cost is fixed, not proportional}. Nine solves is the
+ceiling whether the run has fifty steps or fifty thousand. On a
+\emph{convergence sweep at coarse $\Delta t$}, however, that fixed cost is a
+large fraction of a short run, and the measured order then mixes two schemes.
+This is not hypothetical: at $\Delta t=0.025$ with $t_{\text{end}}=0.05$, a BDF3
+run has two steps and \emph{both} are startup, so the run is pure ESDIRK and its
+fitted order says nothing about BDF. The coarse pairs of such a sweep must be
+discarded, or the run lengthened until the startup is a small fraction of it.
+
+\paragraph{Nonlinear methods.} BDF places no restriction on
+\code{nonlinearMethod}: it changes only the scalar $a_0$ multiplying $\Mmass$ in
+$\Aimp$ and the history vector $\mathsf{H}^n$, both of which Picard, JFNK and
+\code{diagonalIion} consume alike. Verified across all three for BDF2, BDF3 and
+BDF4, with agreement at the level of the nonlinear tolerance. The one exception
+is the startup itself: the ESDIRK stages run their own fixed-point iteration and
+ignore \code{nonlinearMethod}, so the first $k-1$ steps are Picard whatever was
+requested. With \code{bdfStartup exact} or \code{constant} there is no ESDIRK and
+every step uses the requested method.
+
+\paragraph{Why ESDIRK is not offered as a scheme.} It is implemented and
+verified, and it is nevertheless reachable only as a startup. Two measurements
+decide this. First, order reduction is real: ESDIRK4 was implemented, its
+tableau verified in exact rational arithmetic against all eight order
+conditions and the stage-order condition $C(2)$, and it measures $3.03$ ---
+capped at stage order plus one --- where BDF4 reaches $4.23$. A multistep method
+has stage order equal to its order and suffers no such reduction. Second, the
+cost metric that matters is not linear solves but ODE integrations: each ESDIRK
+stage re-integrates the states over $[t^n,t^n+c_i\Delta t]$, so a four-stage
+step costs $\sum_i c_i\approx2.5$ times the ODE work of a BDF step, and the ODE
+integrations are $74$--$99\%$ of the runtime in this solver's physiological
+sibling. BDF therefore wins on accuracy \emph{and} on the dominant cost, and
+ESDIRK's uniquely valuable property --- being self-starting --- is exactly what
+the startup needs.
+
 \subsection{ODE states inside one PDE time step}
 
 For a voltage candidate $\Vm^{n+1,k}$, the state ODEs are advanced from the
@@ -633,20 +897,72 @@ much of $\Delta t$ has already been covered, accumulating as
 $\tau\leftarrow\tau+h$ until it reaches $\Delta t$.
 
 Its specific role is to supply the voltage that the ODE sees at each
-Runge--Kutta stage. The nonlinear PDE solver only knows two voltages, the old
-$\Vm^n$ and the candidate $\Vm^{n+1,k}$; between them it interpolates linearly
-in $\tau$ through $\alpha=\tau/\Delta t\in[0,1]$. Thus $\alpha=0$ returns
-$\Vm^n$, $\alpha=1$ returns the candidate, and the intermediate RK stages
-(evaluated at $\tau+c_sh$ with
-$c_s\in\{0,\tfrac15,\tfrac3{10},\tfrac35,1,\tfrac78\}$) receive voltages
-consistent with that linear ramp. This interpolation is what makes the PDE--ODE
-system genuinely coupled inside the step: every change of the voltage candidate
-changes the whole state trajectory, which is why each residual evaluation must
+Runge--Kutta stage. This interpolation is what makes the PDE--ODE system
+genuinely coupled inside the step: every change of the voltage candidate changes
+the whole state trajectory, which is why each residual evaluation must
 re-integrate the ODEs from $\mathbf{u}^n$.
 
-The linear ramp in $\tau$ is second-order accurate in $\Delta t$, so it is
-compatible with Crank--Nicolson but caps the attainable temporal order at 2 even
-when the state integrator is fifth order.
+\paragraph{The accuracy of the driver caps the whole solver.} The linear ramp
+in~\eqref{eq:ode-vm-interpolation} is wrong by $O(\Delta t^2)$ pointwise, which
+is $O(\Delta t^3)$ once integrated across the step and therefore $O(\Delta t^2)$
+globally: it is compatible with Crank--Nicolson but bounds the attainable
+temporal order at two, however good the PDE integrator or the state integrator
+is. That is not a theoretical caveat, it is measured --- suite test \code{M21}
+runs BDF4 with each driver and nothing else changed, and the ramp fits
+$\mathbf{2.04}$ against $\mathbf{3.89}$ for the interpolant, with the error at
+the finest pair larger by a factor of $44.7$.
+
+\paragraph{The general form.} The driver is therefore no longer a pair of
+endpoints. The solver evaluates
+\begin{equation}
+  \Vm(\tau) = \sum_{j=0}^{m} L_j(\alpha)\,\mathsf{V}_{j},
+  \qquad
+  L_j(\alpha)=\prod_{l\ne j}\frac{\alpha-s_l}{s_j-s_l},
+  \qquad
+  \alpha=\frac{\tau}{\Delta t_{\text{step}}},
+  \label{eq:ode-vm-lagrange}
+\end{equation}
+the Lagrange polynomial through whatever voltages the outer scheme already
+knows, at their normalised times $s_j$. Nothing extra is computed: the nodes are
+values the scheme has produced anyway.
+\begin{itemize}
+  \item \textbf{$\theta$ methods and BDF1} supply two nodes, $s=(0,1)$ with
+        $\Vm^n$ and the candidate. That is~\eqref{eq:ode-vm-interpolation}
+        exactly. The two-node case is coded separately rather than left to the
+        general loop, so these schemes remain byte-identical to what they
+        produced before the generalisation.
+  \item \textbf{BDF-$k$} supplies $k+1$ nodes at $s=-(k-1),\dots,-1,0,1$ from
+        its own stored history levels and the candidate. The ODEs are integrated
+        over $\alpha\in[0,1]$, inside the node hull, so this interpolates rather
+        than extrapolates.
+  \item \textbf{The ESDIRK startup} supplies $i+1$ nodes at $s_j=c_j/c_i$ from
+        its already-computed stage values, normalised by the current stage's
+        interval.
+\end{itemize}
+
+The effect on the measured order is the difference between a solver that stops
+at two and one that does not (\code{M21}, BDF4, 2-D hexa $N=40$, $p3$ triad,
+\code{bdfStartup ESDIRK3}):
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\code{stateODEDriver} & Driver & Measured order & Error, finest pair \\
+\midrule
+\code{linear}  & two-node ramp     & $2.04$ & $4.47\times10^{-9}$ \\
+\code{history} & full interpolant  & $\mathbf{3.89}$ & $9.99\times10^{-11}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+The ramp lands on $2.04$, which is the order the argument above predicts, and
+the interpolant recovers the scheme's own order. \code{history} is the default;
+\code{linear} exists so that this cost stays measurable, because a capped order
+is all the run reports --- there is no error and no warning.
+
+One path deliberately keeps the two-node ramp: \code{gaussPointODE}, where the
+ODE is solved at every quadrature point. Raising it would require reconstructing
+and storing every stage or history level \emph{at every quadrature point},
+$n_{\text{stages}}$ times the integration-point memory. The cell-centred path,
+which the recommended triad uses, carries the full interpolant.
 
 The available state solvers are:
 \begin{center}
@@ -654,9 +970,9 @@ The available state solvers are:
 \toprule
 \code{stateODESolver} & Method & Nominal order \\
 \midrule
-\code{Euler} or \code{forwardEuler} & explicit Euler & 1 \\
+\code{Euler} & explicit Euler & 1 \\
 \code{RK4} & classical Runge--Kutta & 4 \\
-\code{RKF45} or \code{RKT45} & adaptive embedded Cash--Karp pair & 4/5 \\
+\code{RKF45} & adaptive embedded Cash--Karp pair & 4/5 \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -709,6 +1025,84 @@ time step}
 \Ensure $\mathbf{u}^{n+1,k} \gets \mathbf{u}$
 \end{algorithmic}
 \end{algorithm}
+
+% ================================================================== %
+\subsection{Measured temporal orders}
+\label{sec:measured-temporal-orders}
+
+The orders above are what the schemes are supposed to deliver. What follows is
+what they deliver, measured two different ways, because neither way is
+sufficient on its own.
+
+\paragraph{Why not simply compare against the exact solution.} At a fixed mesh
+the error against the manufactured solution is temporal \emph{plus} spatial, and
+the spatial part does not fall with $\Delta t$. On the sine solution with the
+$p3$ triad on a 2-D hexahedral $N=40$ mesh it is $2.4\times10^{-5}$ for every
+scheme, while BDF4's temporal error at the finest $\Delta t$ of its sweep is
+$\sim10^{-10}$: five orders of magnitude below the floor. Any fitted order is
+then the floor's, not the scheme's --- an earlier version of the temporal test
+fitted $0.563$ for Crank--Nicolson this way and reported a failure that was not
+the solver's. Pushing the spatial error below the temporal one would require
+$N\sim1000$ in 2-D, about an hour per run.
+
+\paragraph{Self-convergence, with diffusion active.} The first measurement
+avoids any reference: at a fixed mesh, sweep $\Delta t$ by halves and take
+$d(\Delta t)=\|\mathsf{V}(\Delta t)-\mathsf{V}(\Delta t/2)\|$. If the temporal
+error is $C\Delta t^p$ then $d = C\Delta t^p(1-2^{-p})$, so its slope is $p$, and
+the spatial error cancels because both runs share the mesh. This is suite test
+\code{M02}, on the sine solution, with the diffusion operator fully active.
+
+\paragraph{Against the analytic solution, with the spatial error removed.} The
+second measurement is the statement one actually wants, and it requires a
+manufactured solution the discretisation reproduces \emph{exactly}:
+\code{manufacturedSolution uniform}, where $\Vm=\sqrt{1+t}$ with every spatial
+factor equal to one. Every reconstruction, quadrature and flux here is exact on
+a constant field, so the spatial error is zero to roundoff and the whole error is
+temporal. Suite test \code{M22} verifies that rather than assuming it: at a fixed
+$\Delta t$ the error on $N=20$ and $N=40$ agrees to $1.7\times10^{-15}$, and the
+residual spatial variation of the final field ($\sim10^{-11}$, relative) falls by
+$83$--$246\times$ when the solver tolerances are tightened $100\times$, which is
+what identifies it as iterative noise rather than discretisation error.
+
+Its limitation is structural and worth stating: the Laplacian of a constant is
+zero, so under the uniform solution the diffusion operator contributes nothing
+and what is verified is the time integration of the coupled reaction system ---
+$\Vm$, the three states, the ESDIRK3 startup, the BDF history and the ODE
+driver. Diffusion is covered by \code{M02}. A solution that is both exactly
+representable and diffusive would have to be a discrete eigenfunction of the LRE
+operator, which has no closed form, and the \code{zeroGradient} boundaries rule
+out the linear profile that would otherwise serve.
+
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\code{implicitScheme} & Nominal & Self-convergence (\code{M02}) & vs analytic (\code{M22}) \\
+\midrule
+\code{backwardEuler} & 1 & $1.000$ & $1.000$ \\
+\code{BDF1}          & 1 & $1.000$ & $1.000$ \\
+\code{crankNicolson} & 2 & $1.994$ & $2.000$ \\
+\code{BDF2}          & 2 & $1.979$ & $1.992$ \\
+\code{BDF3}          & 3 & $2.932$ & $2.971$ \\
+\code{BDF4}          & 4 & $3.890$ & $3.941$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Both columns use \code{bdfStartup ESDIRK3}, the $p3$ triad, $\alpha=0$, Picard,
+$t_{\text{end}}=0.512$, and the coarsest $\Delta t$ of every sweep leaves at
+least ten steps so that the run is not mostly startup. \code{BDF1} reproduces
+\code{backwardEuler} bit for bit, which is checked rather than asserted.
+
+\paragraph{The floor of the judged quantity, measured.} Both quantities stop
+reflecting the scheme once they reach the noise the solver's own tolerances
+inject. That level is measured rather than guessed: the finest $\Delta t$ is run
+again with tolerances $100\times$ tighter, and the floor is how much the judged
+quantity itself moved. A value counts only if it exceeds $K=100$ times that
+floor, $K$ being fixed in advance by the bound it implies --- such a separation
+perturbs a pairwise order by at most $(2/K)/\ln 2 = 0.029$, a seventh of the
+$\pm0.2$ margin the tests allow. Measured floors are $2\times10^{-14}$ to
+$3\times10^{-13}$. An earlier fixed floor of $10^{-9}$, estimated and not
+measured, discarded a BDF4 difference that sat $292\times$ above the real one.
 
 % ================================================================== %
 \section{Nonlinear coupled solve}
@@ -1205,15 +1599,26 @@ the in-file implementations \code{solveGMRES} (no preconditioner) or
 The two backends are numerically equivalent for the same matrix and tolerances:
 they differ only in the linear solver implementation, not in the PDE residual.
 
-PETSc type names are normalised before the KSP/PC objects are created. KSP
-aliases such as \code{PETSc}, \code{GMRES}, \code{KSPGMRES}, and \code{JFNK}
-select PETSc \code{gmres}; \code{BiCGSTAB}/\code{BCGS} select \code{bcgs}; and
-\code{SparseLU}/\code{LU} select \code{preonly}. PC aliases
-\code{off}, \code{false}, \code{none}, and \code{noPC} select PETSc
-\code{none}; \code{ILUT} selects \code{ilu}; \code{SparseLU}/\code{LU} select
-\code{lu}; and the common misspelling \code{jakobi} is accepted as
-\code{jacobi}. If \code{petscUseOptions=true}, PETSc's options database can
-still override solver details through the configured options prefix.
+Every option has exactly \emph{one} accepted spelling, compared
+case-sensitively, and anything else stops the run at start-up with the list of
+valid values. This replaced a normalisation layer that lower-cased user input,
+mapped a collection of aliases (\code{KSPGMRES}, \code{JFNK}, \code{BCGS},
+\code{LU}, \code{noPC}, \code{ILUT}, \code{jakobi}, \ldots) onto PETSc names,
+and passed anything else through unchecked. Two spellings for one thing is how a
+silent wrong answer went unnoticed: with \code{linearSolver SparseLU} one PETSc
+path forced a direct solve while the cached Picard solver ran a single ILU
+application in its place, because the two compared the same word differently.
+
+The two vocabularies are now kept apart. \code{linearSolver} is backend-neutral,
+one of \code{GMRES}, \code{BiCGSTAB} and \code{SparseLU}. The PETSc keys take
+PETSc's own names from closed lists --- KSP: \code{gmres}, \code{bcgs},
+\code{cg}, \code{preonly}; PC: \code{none}, \code{jacobi}, \code{ilu},
+\code{lu}, \code{gamg}, \code{hypre} --- and \code{petscLinearKspType} defaults
+to the \emph{translation} of \code{linearSolver}: \code{GMRES}$\to$\code{gmres},
+\code{BiCGSTAB}$\to$\code{bcgs}, and \code{SparseLU}$\to$\code{preonly}, with
+the PC forced to \code{lu}. If \code{petscUseOptions=true}, PETSc's options
+database can still override solver details through the configured options
+prefix, which is also how a preconditioner outside the list can be tried.
 
 \subsection{JFNK preconditioner: \texorpdfstring{\code{diagonalIion}}{diagonalIion} ILU(T)}
 
@@ -1413,8 +1818,11 @@ Control & Meaning \\
 \endhead
 \code{useHighOrder\_Vm} & Selects standard FV or LRE high-order diffusion/mass reconstruction for $\Vm$. \\
 \code{useHighOrder\_Iion} & Selects cell-centred source evaluation or high-order ionic quadrature in $d>1$. State placement is then controlled by \code{stateIntegrationMode}. \\
-\code{useHighOrder\_states} & Legacy alias used only if \code{useHighOrder\_Iion} is absent. \\
-\code{implicitScheme} & \code{backwardEuler} or \code{crankNicolson}; sets $\theta$. \\
+\code{stateIntegrationMode} together with \code{highOrderCoeffs/LRECoeffs\_states} & How the states are treated. This is a \emph{separate} control from \code{useHighOrder\_Iion}, which selects only the quadrature of the ionic source. The former name of that key, \code{useHighOrder\_states}, is no longer accepted: a dictionary that still carries it is refused with an error rather than silently ignored. \\
+\code{implicitScheme} & \code{backwardEuler} or \code{crankNicolson}, which set $\theta$, or \code{BDF1}--\code{BDF4}. \code{BDF1} is \code{backwardEuler} bit for bit. \\
+\code{bdfStartup} & How the $k-1$ starting values of a BDF-$k$ run are supplied: \code{ESDIRK3} (default, and the only one that preserves the order), \code{exact} or \code{constant}. Inert for the $\theta$ family and \code{BDF1}. \\
+\code{stateODEDriver} & Which polynomial in time drives the state ODEs across a step: \code{history} (default, through the levels the scheme already stores) or \code{linear} (the two-node ramp, which caps the order at two). \\
+\code{manufacturedSolution} & \code{sines} (default), the smooth non-polynomial solution whose spatial order is the scheme's, or \code{uniform}, exactly representable so that the error against the exact solution is purely temporal (\S\ref{sec:measured-temporal-orders}). \\
 \code{massMatrix} & \code{lumped} identity cell-average mass operator or LRE \code{consistent} high-order averaging mass. \\
 \code{highOrderCoeffs/stabilisationAlpha} & Optional positive face-stabilisation strength for the high-order diffusion operator; defaults to zero. \\
 \code{highOrderCoeffs/LRECoeffs\_Vm} & LRE settings \code{N}, \code{Nn}, \code{k}, and \code{maxStencilSize} for $\Vm$ diffusion and the consistent mass matrix. \\
@@ -1446,14 +1854,14 @@ Control & Meaning \\
 \code{jfnkInitGuessVmMin/Max} & Clamp for extrapolated guess and optionally for ODE input. \\
 \code{jfnkClampODEInput} & If true, clamps voltage passed to state ODE evaluations. \\
 \code{jfnkLineSearch}, \code{jfnkLineSearchMaxIter}, \code{jfnkLineSearchAlphaMin}, \code{jfnkArmijoC} & Armijo backtracking controls. \\
-\code{jfnkPreconditioner} & Left preconditioner for the JFNK Krylov solve: \code{none}, \code{diffusion} (alias \code{linear}, \code{AImplicit}) or \code{diagonalIion} (alias \code{diagonal}, \code{localDiagonal}). \\
+\code{jfnkPreconditioner} & Left preconditioner for the JFNK Krylov solve: \code{none}, \code{diagonalIion} or \code{AImplicit}. \\
 \code{jfnkPreconditionerKspType}, \code{jfnkPreconditionerPcType} & KSP and PC types for the preconditioner solve, typically \code{preonly}+\code{ilu} to apply the cached ILU(T) factor directly. \\
 \code{jfnkPreconditionerDropTolerance}, \code{jfnkPreconditionerFillFactor} & PETSc ILU(T) drop tolerance and fill factor for the JFNK preconditioner factorisation. \\
 \code{jfnkPreconditionerTolerance}, \code{jfnkPreconditionerMaxIterations} & Inner KSP tolerance and iteration cap for the preconditioner solve (used by iterative inner solvers; the default \code{preonly} ignores them). \\
 \code{jfnkPreconditionerUpdateFrequency}, \code{jfnkPreconditionerOptionsPrefix} & How often the preconditioner matrix and factor are refreshed (every $n$ Newton iterations) and the PETSc options-database prefix. \\
 \code{diagonalIionEpsilon} & Finite-difference perturbation for diagonal source derivative. \\
-\code{stateODESolver} & \code{RKF45}, \code{RKT45}, \code{RK4}, or \code{Euler}. \\
-\code{stateODEInitialStep}, \code{stateODEAbsTol}, \code{stateODERelTol}, \code{stateODEMaxSteps} & Adaptive ODE step and tolerance controls. The same values can fall back to \code{initialODEStep}, \code{absTol}, \code{relTol}, and \code{maxSteps} in \code{timeIntegrationProperties}; \code{stateODETolerance} and \code{stateODEMaxSubSteps} are retained as legacy fallbacks. \\
+\code{stateODESolver} & \code{RKF45}, \code{RK4} or \code{Euler}. \\
+\code{stateODEInitialStep}, \code{stateODEAbsTol}, \code{stateODERelTol}, \code{stateODEMaxSteps} & Adaptive ODE step and tolerance controls, read only under these names. \code{timeIntegrationProperties} is not read by this solver, and the former names \code{stateODETolerance} and \code{stateODEMaxSubSteps} are refused with an error. \\
 \code{stateODEUseOpenMP}, \code{stateODENumThreads}, \code{stateODEOpenMPThreshold} & Enables OpenMP parallelisation of the per-cell/per-quadrature-point state ODE integration, sets the thread count and the cell threshold above which the parallel region is entered. \\
 \code{memoryOptimization} & \code{off}, \code{on}, or \code{auto}. In \code{auto}, memory optimisations are effective only for 3D high-order $\Vm$ runs with at least \code{memoryOptimizationCellThreshold} cells. \\
 \code{memoryOptimizationCellThreshold} & Cell-count threshold used by \code{memoryOptimization=auto}; default 8000. \\
@@ -1877,6 +2285,73 @@ convergence table in Section~\ref{sec:mms-results}. That is a decision to take
 deliberately, not a side effect to absorb.
 
 
+
+\subsection{Verification cases: what was run and where it lives}
+\label{sec:parverif-cases}
+
+Every case below sits under
+\code{tutorials\_electro/mmsTestParallelVerification/}. The driver itself is
+\code{tutorials\_electro/mmsDistValidation/}; the directories here are copies of
+it with one setting changed each, so that a sweep never overwrites another.
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Directory & Configuration & What it establishes \\
+\midrule
+\code{matrix\_mms\_2D\_np1}, \code{...\_np2}   & $N=30$, $\alpha=0.1$ & the matrix at $\alpha>0$ \\
+\code{matrix\_mms\_3D\_np1}, \code{...\_np2}   & $N=10$, $\alpha=0.1$ & idem, 3-D \\
+\code{alpha0\_mms\_2D\_np1}, \code{...\_np2}   & $N=30$, $\alpha=0$   & the control \\
+\code{alpha0\_mms\_3D\_np1}, \code{...\_np2}   & $N=10$, $\alpha=0$   & idem, 3-D \\
+\code{halo\_3D\_np1}, \code{halo\_3D\_np2}     & \code{haloDepthScale} $7.5\to16$ & falsifies the halo hypothesis \\
+\code{mmsJFNK\_np1}, \code{\_np2}, \code{\_np4} & early JFNK attempt & superseded by the matrix \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Each \code{matrix\_*} and \code{alpha0\_*} directory holds three results trees,
+\code{res\_Picard}, \code{res\_JFNK} and \code{res\_diagonalIion}, because the
+driver takes a single nonlinear method per invocation. Both meshes (\code{hexa}
+and \code{triangular\_Unstr}) are swept inside each run. The triad is
+$(p3, \mathrm{CCp3}, p3)$ throughout, with $\Delta t = 10^{-3}$.
+
+\paragraph{Result.} All 24 runs at $\alpha=0.1$ and all 24 at $\alpha=0$
+completed successfully, which is what establishes that JFNK and diagonalIion
+work under MPI in 2-D and 3-D on both mesh types --- until this sweep every
+parallel run had used Picard.
+
+The deviation of $\|Vm\|_{L2}$ between $np=1$ and $np=2$, before the coupled-face
+stabilisation was implemented:
+
+\begin{center}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+Dim & Mesh & $\alpha=0.1$ & $\alpha=0$ & Ratio \\
+\midrule
+2-D & hexa       & \num{3.34e-05} & \num{2.40e-09} & $13\,900\times$ \\
+2-D & triangular & \num{1.99e-04} & \num{2.03e-07} & $980\times$ \\
+3-D & hexa       & \num{6.80e-03} & \num{1.81e-10} & $3.8\times10^{7}$ \\
+3-D & triangular & \num{7.40e-04} & \num{9.70e-04} & $1\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The three nonlinear methods gave almost identical deviations for a given mesh
+--- \num{6.80e-03} for all three on 3-D hexa --- which is what identified this
+as a spatial-discretisation defect rather than a solver one: a bug in the
+nonlinear iteration would differ from method to method.
+
+\paragraph{The case that does not collapse.} 3-D unstructured stays at
+\num{9.70e-04} with the stabilisation switched off, so the missing term does not
+explain it. Two hypotheses were tested and both failed: the meshes are
+byte-identical between the two runs (same \code{.msh} and \code{polyMesh}
+checksums, 4971 cells), and raising \code{haloDepthScale} from 7.5 to 16
+(\code{halo\_3D\_np1}, \code{halo\_3D\_np2}) reproduces \num{9.70e-04} exactly.
+The cause is the stencil selection in solids4foam's
+\code{movingLeastSquaresStencil}, not this solver; see the discussion in
+\code{CHANGES-cardiacFoam.md}.
+
+
 \section{Results}
 \label{sec:mms-results}
 
@@ -2027,6 +2502,86 @@ manifests itself in the stiff regime $\theta\Delta t\max_i|d_i|\gtrsim1$, which
 this manufactured problem never reaches; with a physiological ionic model, where
 $\partial\Iion/\partial\Vm$ is several orders larger during the depolarisation
 front, the balance reverses.
+
+\paragraph{The cheapest configuration for a given order is not the diagonal one.}
+Plotting every run of the sweep as a point in (cost, error) makes the question
+``which triad should one actually use'' answerable rather than a matter of
+symmetry. Figure~\ref{fig:pareto-triads} does that for the whole triad space, on
+both mesh families and both stabilisation settings. The natural choice
+$(p3,\mathrm{CC}p3,p3)$ --- the same level everywhere --- never appears on the
+Pareto front: $(p3,\mathrm{CC}p2,p2)$ reaches the same order $3.72$ in $234$\,s
+against $375$\,s, i.e. $60\,\%$ cheaper for an identical result, because the
+ionic quadrature and the state reconstruction stop paying once $\Vm$ is the
+binding link. The \code{gaussPointODE} family is dominated on both axes at once.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig_pareto_triads.pdf}
+  \caption{Accuracy--cost Pareto front over the $(\Vm, \text{states},
+  \Iion)$ triad space, from the $\code{np}=4$ sweep with Picard and
+  $\Delta t=10^{-3}$, $N=10$--$130$. Each faint dot is one run; the black step
+  curve is the non-dominated front; the three coloured curves are
+  mesh-refinement paths for the cheapest high-order triad
+  $(p3,\mathrm{CC}p2,p2)$, the diagonal $(p3,\mathrm{CC}p3,p3)$, and
+  second-order FV. The diagonal triad lies above the front in all four panels.
+  Generated by \code{figures/fig\_pareto\_triads.py} from
+  \code{figures/pareto\_2d\_picard\_dt1e-3.csv}.}
+  \label{fig:pareto-triads}
+\end{figure}
+
+\paragraph{The 3-D sweep, and what it replicates.} The 3-D study is a sweep of
+its own: seven triads on hexahedral and unstructured tetrahedral meshes,
+$N=10$--$30$, BDF4 with the ESDIRK3 startup and $\Delta t=10^{-3}$. Its orders,
+and the 2-D ones, are Figure~\ref{fig:order-vm}. Two results carry over from 2-D
+unchanged. The loss of consistency of the standard operator on simplices is
+\emph{worse} in 3-D --- \code{NO} fits $0.65$ on tetrahedra against $0.77$ on
+triangles and $1.96$--$1.98$ on hexahedra --- and the cheap triad still matches
+the diagonal, $3.383$ for $(p3,\mathrm{CC}p2,p2)$ against $3.381$ for
+$(p3,\mathrm{CC}p3,p3)$.
+
+One number must be read with care: $p3$ fits $3.38$ in 3-D against $3.72$--$4.32$
+in 2-D, and that is \emph{not} temporal contamination. Halving $\Delta t$ on the
+finest 3-D mesh moves the error in the seventh digit
+($3.9486606\times10^{-5}\to3.9486604\times10^{-5}$ on hexa), so the temporal
+error is $\sim10^{-11}$ against a spatial error of $\sim3\times10^{-5}$. The
+pairwise orders say the two families are in different regimes: on hexahedra they
+oscillate without rising ($3.67, 3.22, 3.20, 3.35$) while on tetrahedra they
+climb monotonically ($2.91, 3.15, 3.40, 3.51$), i.e. the asymptotic range is not
+reached by $N=30$ --- and $N>30$ is out of reach here, since $N=50$ on hexahedra
+is killed by the OOM killer during stiffness assembly with four ranks.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig_order_vm.pdf}
+  \caption{Spatial order of $\Vm$ for the four reconstruction levels on the
+  diagonal, in 2-D ($N=10$--$130$) and 3-D ($N=10$--$30$), on structured and
+  unstructured meshes. The number in each panel is the order fitted over that
+  panel's whole range. The four levels are an ordered scale, so they are drawn
+  as one hue light to dark rather than as four categorical colours. Generated by
+  \code{figures/fig\_orders.py} from the raw \code{errors\_vs\_N} files.}
+  \label{fig:order-vm}
+\end{figure}
+
+\paragraph{States at cell centres against states at Gauss points.} The claim
+that the cell-centred mode is both cheaper and strictly more accurate is
+Figure~\ref{fig:cc-vs-gp}, and it now holds in 3-D as well. Integrating the
+states at the quadrature points pins their cell-centred error at order two
+exactly --- $2.00$ and $1.99$ in 2-D, $1.99$ and $1.92$ in 3-D --- because
+averaging them back to the centres destroys the order, while the cell-centred
+mode follows the scheme ($3.48$, $3.87$, $3.25$, $2.97$). $\Vm$ itself converges
+identically either way ($3.384$ against $3.381$ on 3-D hexa), so nothing is lost
+by the cheaper path, which solves one ODE per cell instead of $N_q$.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig_cc_vs_gp.pdf}
+  \caption{Error of the ionic state $u_1$ at cell centres,
+  \code{cellCentredReconstruct} against \code{gaussPointODE}, with the
+  $(p3,\cdot,p3)$ triad. The Gauss-point mode is pinned at order two in every
+  panel; the cell-centred mode follows the scheme. Generated by
+  \code{figures/fig\_orders.py}.}
+  \label{fig:cc-vs-gp}
+\end{figure}
 
 \paragraph{Only odd reconstruction degrees buy a new order.}
 Fixing the hexahedral mesh, $\alpha=0$, and $\Delta t=10^{-3}$, the observed
