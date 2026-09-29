@@ -16,9 +16,9 @@ Class
     Foam::highOrderInterp
 
 Description
-    Added for cardiacFoam: a thin compatibility adapter that exposes the small
-    part of the old, serial LRE API that the cardiac solvers actually use, on
-    top of solids4foam's parallel movingLeastSquares.
+    A compatibility layer that exposes the part of the old, serial LRE API that
+    the cardiac solvers use, implemented on top of solids4foam's parallel
+    movingLeastSquares.
 
     The old library (Castrillo et al., Comput Struct 268:106829, 2022) lived in
     solids4foam as numerics/LRE and had no processor-boundary support: its
@@ -28,20 +28,38 @@ Description
     and every evaluation entry point performs its own halo exchange, so a caller
     needs no changes to run in parallel.
 
-    This adapter exists so the ~7000-line cardiac solvers can be moved across in
-    one place rather than at every call site, and so the dictionary translation
-    lives in a single documented location. It is deliberately temporary: once
-    the cardiac solvers are ported and verified, the call sites can be pointed
-    straight at movingLeastSquares and this header deleted.
+    Most of what follows is one-line forwarding, and if that were all of it the
+    call sites could name movingLeastSquares directly. Four differences of
+    contract are what this header is actually for. Removing it means moving them
+    into every consumer, not deleting them.
 
-    IMPORTANT - quadrature weights changed meaning.
-    LRE normalised its quadrature weights (face weights summed to 1 over a face,
-    cell weights to 1 over a cell), so callers multiplied by |Sf| or by the cell
-    volume themselves. fvMeshQuadrature returns PHYSICAL weights: face weights
-    sum to |Sf| and cell weights sum to the cell volume. To stop that difference
-    from silently rescaling a result, the weight accessors here are deliberately
-    NOT called faceQuadWeight()/cellQuadWeight(): a caller ported from LRE gets
-    a compile error and has to visit the site.
+    1. Dictionary keys. The solvers and every case dictionary in the test tree
+       are written in LRE's spelling (N, Nn, weightFunction, k).
+       translateDict() maps them, so dictionaries of runs already completed keep
+       working unchanged.
+
+    2. Derivative coefficients below the required order. LRE allocated the
+       second and third derivative arrays unconditionally and left them unused
+       at low order, so a caller could bind the reference and guard only the
+       *use* with order() >= 2. movingLeastSquares never builds them below the
+       required order and aborts inside calcCellCoeffs() if they are requested.
+       cellHessianCoeffs() and cellThirdDerivCoeffs() return an empty list
+       instead, which is what keeps the unconditional binds in the solvers
+       correct.
+
+    3. Quadrature weights changed meaning. LRE normalised them (face weights
+       summed to 1 over a face, cell weights to 1 over a cell), so callers
+       multiplied by |Sf| or by the cell volume themselves. fvMeshQuadrature
+       returns PHYSICAL weights: face weights sum to |Sf| and cell weights sum
+       to the cell volume. To stop that difference from silently rescaling a
+       result, the weight accessors here are deliberately NOT called
+       faceQuadWeight()/cellQuadWeight(): a caller ported from LRE gets a
+       compile error and has to visit the site.
+
+    4. A broken overload. The autoPtr-returning form of
+       movingLeastSquares::fGrad calls a member that does not exist and does not
+       compile if instantiated, so gradScalarFaceQuad() sizes the result itself
+       and uses the two-argument form.
 
     Not provided, because the cardiac solvers never used them: QRInterpCoeffs,
     assembleStiffnessMatrixCoeffs, assembleLumpedMassMatrix,
@@ -284,8 +302,9 @@ public:
 
 
 // * * * * * * * * * * * * * * * * * Implementation  * * * * * * * * * * * * //
-// Header-only on purpose: this is a thin, temporary adapter, so keeping it out
-// of the build system means a consumer only needs an -I flag.
+// Header-only on purpose: everything here is either forwarding or a few dozen
+// lines of translation, so keeping it out of the build system means a consumer
+// only needs an -I flag.
 
 inline dictionary highOrderInterp::translateDict(const dictionary& lreDict)
 {

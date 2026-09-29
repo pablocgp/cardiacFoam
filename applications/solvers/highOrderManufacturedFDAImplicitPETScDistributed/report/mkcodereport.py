@@ -204,6 +204,74 @@ la malla entre ranks y toca todas las fases, mientras \textbf{OpenMP} reparte un
 lazo de celdas dentro de un rank y sólo toca la integración de las EDO.
 """, []),
 
+ ("De qué se compone: tres archivos y una capa", r"""
+Conviene decirlo antes de mirar un listado, porque los nombres que aparecen en
+todos ellos no dicen de dónde salen. El solver se construye a partir de
+\textbf{tres} archivos del repositorio y de nada más:
+
+\begin{itemize}
+  \item \texttt{highOrderManufacturedFDAImplicitPETScDistributed.C}, el recorrido
+        de este documento;
+  \item \texttt{createFields.H}, que lee los diccionarios y construye los campos
+        y los operadores;
+  \item \texttt{src/highOrderAdapter/highOrderInterp.H}, la capa de alto orden.
+\end{itemize}
+
+Afuera queda OpenFOAM, PETSc, Eigen y \textbf{solids4foam}, de donde sale la
+reconstrucción de alto orden propiamente dicha. Después de sacar del
+\texttt{Make/options} las inclusiones y bibliotecas que ya no se usaban, el
+binario enlaza tres objetos compartidos:
+\texttt{libsolids4FoamModels}, \texttt{libpetsc} y \texttt{libOpenFOAM}.
+
+\textbf{Por qué el código dice ``LRE'' en todas partes.} La reconstrucción la
+hacía originalmente LRE (Castrillo \emph{et al.}, \emph{Comput Struct}
+268:106829, 2022), una biblioteca \textbf{serial}: su construcción de stencils
+retorna antes del intercambio MPI --- que está comentado --- y los patches de
+procesador lanzan \texttt{NotImplemented}. Es decir que el port a MPI no podía
+hacerse sobre ella. La reemplaza \texttt{movingLeastSquares}, también de
+solids4foam, que sí es paralela de verdad: los stencils llevan
+\textbf{identificadores globales} de celda y cada punto de evaluación hace su
+propio intercambio de halo, de modo que el llamador no cambia para correr en
+paralelo. Los nombres \texttt{LREInterp\_Vm}, \texttt{LREInterp\_Iion},
+\texttt{LREInterp\_states} y las claves \texttt{LRECoeffs*} del diccionario son
+\textbf{históricos}: LRE ya no interviene.
+
+\textbf{Qué hace la capa}, porque casi todo lo que contiene es reenvío de una
+línea y podría no existir. Cuatro diferencias de contrato la justifican:
+
+\begin{enumerate}
+  \item \textbf{Las claves del diccionario.} El solver y todos los casos del
+        árbol de corridas están escritos en la ortografía de LRE
+        (\texttt{N}, \texttt{Nn}, \texttt{weightFunction}, \texttt{k}), y la capa
+        las traduce a las de \texttt{movingLeastSquares}. Vale la pena saber que
+        \texttt{N} es el \emph{grado} del polinomio y \texttt{Nn} son las celdas
+        \emph{agregadas} sobre el mínimo, que es el número de términos del
+        desarrollo de Taylor: $(p{+}1)(p{+}2)/2$ en 2D y
+        $(p{+}1)(p{+}2)(p{+}3)/6$ en 3D. Con \texttt{N 2} y \texttt{Nn 10} en 2D
+        el stencil tiene $6+10=16$ celdas.
+  \item \textbf{Los coeficientes de derivadas por debajo del orden que los
+        necesita.} LRE reservaba los arreglos de derivada segunda y tercera
+        siempre, así que el solver liga la referencia y recién guarda el
+        \emph{uso} con \texttt{order() >= 2}. \texttt{movingLeastSquares} no los
+        construye por debajo del orden requerido y \textbf{aborta} si se los
+        piden; la capa devuelve una lista vacía y eso es lo que mantiene
+        correctos los tres bindings incondicionales del solver.
+  \item \textbf{Los pesos de cuadratura cambiaron de significado.} LRE los
+        normalizaba --- una cara sumaba 1 --- y el llamador multiplicaba por
+        $|S_f|$; los de solids4foam son \textbf{físicos} y suman $|S_f|$. Para
+        que la diferencia no reescalara un resultado en silencio, los accesores
+        se llaman \texttt{faceQuadWeightPhysical()} y
+        \texttt{cellQuadWeightPhysical()}: un sitio portado sin revisar
+        \textbf{no compila}.
+  \item \textbf{Una sobrecarga rota.} La forma de \texttt{fGrad} que devuelve
+        \texttt{autoPtr} llama a un miembro que no existe, así que la capa
+        dimensiona el resultado y usa la de dos argumentos.
+\end{enumerate}
+
+Nada de eso desaparece si se borra la capa: se muda a cada consumidor. Y hay dos
+consumidores, porque el solver del electro usa la misma.
+""", []),
+
  ("Andamiaje de PETSc: errores y matriz distribuida", r"""
 El solver ensambla en Eigen y resuelve en PETSc, así que lo primero del archivo
 es el puente entre los dos.
@@ -243,7 +311,7 @@ a una matriz antes de ese punto usaría offset cero \emph{en todos} los ranks, o
 sea que los ranks $>0$ escribirían sus filas encima de las del rank 0: operador
 corrompido y respuesta plausible pero equivocada, nunca un error. Hoy nada lo
 hace; el accesor lo vuelve imposible en vez de meramente improbable.
-""", [(("// Added for cardiacFoam: global row offset", "return gRowStart;", 1),
+""", [(("// Global row offset", "return gRowStart;", 1),
        "El offset, y el accesor que se niega a servirlo sin asignar.")]),
 
  ("Nombres de opciones: una sola ortografía, y los de PETSc", r"""
@@ -320,7 +388,7 @@ Existe por una razón puntual: toda reconstrucción, cuadratura y flujo de este
 solver es exacto sobre un campo constante, así que el error espacial es cero a
 nivel de redondeo y el error contra la solución exacta es \textbf{puramente
 temporal}. Es la única forma de ajustar un orden temporal contra la solución
-analítica en vez de contra otra solución numérica, y es lo que mide \textbf{M22}.
+analítica en vez de contra otra solución numérica, y es la vía B de \textbf{M02}.
 A malla fija con \texttt{sines} eso es imposible: el error espacial
 ($2{,}4\times10^{-5}$ en hexa $N=40$) entierra al temporal, que para BDF4 es
 $\sim10^{-10}$.
@@ -344,12 +412,23 @@ patrón de esparsidad dependa del valor y, por lo tanto, de la partición al niv
 del redondeo.
 
 \texttt{addCellGradientDotCoeffs} agrega la fila de gradiente de una celda
-proyectada sobre un vector. Usa \texttt{globalCellStencils()}, y ahí está el
-problema abierto más grande del proyecto: sobre las celdas pegadas a un corte de
-procesador ese stencil \textbf{pierde un miembro} (17 en serie contra 16 en
-paralelo). Como el ajuste MLS se rehace sobre el conjunto reducido, no cambia
-sólo el término que falta --- \textbf{refita toda la fila}. Eso es lo que hace
-fallar a \textbf{M11} y, río abajo, a \textbf{M15}.
+proyectada sobre un vector. Usa \texttt{globalCellStencils()}, y ahí vivió durante
+meses el que se creía el problema abierto más grande del proyecto: sobre las
+celdas pegadas a un corte de procesador el stencil \textbf{perdía un miembro} (17
+en serie contra 16 en paralelo). Como el ajuste MLS se rehace sobre el conjunto
+reducido, no cambiaba sólo el término que faltaba --- \textbf{refitaba toda la
+fila}. Eso era lo que hacía fallar a \textbf{M11} y, río abajo, a \textbf{M15}, y
+se había dado por un item de solids4foam que se mide y no se arregla.
+
+\textbf{No lo era.} La causa estaba del lado del caso: la clave \texttt{Nn} del
+diccionario son las celdas que se AGREGAN sobre el mínimo que exige el grado, y
+los barridos la venían escribiendo como si fuera el TOTAL. La biblioteca sumaba
+el mínimo otra vez, así que los estencils medían $2\,\mathrm{min}+10$ en vez de
+$\mathrm{min}+10$ --- 16/22/30 celdas en 2D en vez de 13/16/20, un 50 \% más
+grandes de lo pretendido --- y el halo no alcanzaba a cubrirlos. Con el tamaño
+correcto el stencil es invariante a la partición: \textbf{M11 mide 0 stencils
+distintos y M15 baja de 4.981e-06 a 6.953e-15}, los dos en PASS. La suite quedó
+24/24.
 
 \texttt{exchangeCoupledFaceRows} es la que permite que el término de
 estabilización cruce un corte: intercambia con el rank vecino las filas que
@@ -369,7 +448,7 @@ dos puntos entre celdas vecinas. Usa el \textbf{promedio}
 $\tfrac12(D_{own}+D_{nei})$ como tensor de cara.
 
 \texttt{assembleHighOrderStiffnessMatrix} es el de alto orden, sobre el stencil
-LRE con cuadratura en las caras. Acá estuvo el defecto más grande que encontró
+MLS con cuadratura en las caras. Acá estuvo el defecto más grande que encontró
 la verificación: usaba \texttt{conductivity[own]} \textbf{en las dos filas} de
 una cara interna, en vez del promedio. Con $D$ uniforme los dos tensores
 coinciden y se cancela idénticamente, así que fue invisible durante toda la vida
@@ -383,7 +462,7 @@ solamente: el resultado no debe depender de él, y \textbf{M12} lo verifica ---
 con tolerancia y no bit a bit, porque cambiar el tamaño de bloque cambia el
 orden de suma en punto flotante.
 """, [("assembleStandardOrthogonalStiffnessMatrix", "Bajo orden: promedio en la cara. Recortado."),
-      ("assembleHighOrderStiffnessMatrix", "Alto orden, sobre el stencil LRE. Recortado.")]),
+      ("assembleHighOrderStiffnessMatrix", "Alto orden, sobre el stencil MLS. Recortado.")]),
 
  ("Resolución del sistema lineal", r"""
 \texttt{solveSparseSystem} despacha entre PETSc y Eigen según
@@ -466,13 +545,13 @@ sólo el orden sale mal, que es por lo que \texttt{bdfStartup} tiene hoy
 
 Con ese arranque los órdenes son los nominales. Medido a $N=40$ por las dos vías
 que usa la suite --- \textbf{M02}, autoconvergencia de Cauchy sobre la solución
-de senos con la difusión activa, y \textbf{M22}, error contra la solución
+de senos con la difusión activa, y su vía B, error contra la solución
 analítica sobre la MMS uniforme:
 
 \begin{center}
 \begin{tabular}{@{}llll@{}}
 \toprule
-\texttt{implicitScheme} & nominal & Cauchy (M02) & vs analítica (M22) \\
+\texttt{implicitScheme} & nominal & Cauchy, vía A & analítica, vía B \\
 \midrule
 \texttt{backwardEuler} y \texttt{BDF1} & 1 & $1{,}000$ & $1{,}000$ \\
 \texttt{crankNicolson} & 2 & $1{,}994$ & $2{,}000$ \\
@@ -500,7 +579,7 @@ temporal y no se volvió a medir --- y cada etapa reintegra las EDO, que es el
 $74$--$99\%$ del tiempo en el solver fisiológico.
 """, [("timeSchemeCoeffs", "Los coeficientes de las dos familias. Recortado."),
       ("esdirk3Tableau", "La tabla del arranque, derivada de las condiciones de orden."),
-      (("// Added for cardiacFoam: the ESDIRK startup step",
+      (("// The ESDIRK startup step",
         "const bool esdirkThisStep =", 1),
        "Dónde el arranque ESDIRK es alcanzable, y sólo ahí.")]),
 
@@ -539,7 +618,7 @@ dando resultados idénticos bit a bit.
  ("Reconstrucción a los puntos de integración", r"""
 Con alto orden, $V_m$ y los estados viven en los centros de celda pero la
 corriente iónica se evalúa en los puntos de Gauss. Estas rutinas hacen la
-reconstrucción LRE de ida y el promedio de vuelta.
+reconstrucción MLS de ida y el promedio de vuelta.
 
 \texttt{reconstructStatesAtIionIntegrationPoints} lleva un limitador de
 Barth--Jespersen, acotando la reconstrucción al rango de los vecinos. No es
@@ -558,15 +637,20 @@ región funciona porque cada punto integra su propia EDO sin hablar con ningún
 otro, y por eso el resultado es \textbf{bit-idéntico} con cualquier cantidad de
 hilos, cosa que \textbf{E20} mide en el otro solver dando exactamente cero.
 
-El umbral por debajo del cual la región no se abre \textbf{está fijo en 256 en
-seis lazos}, ignorando la clave \texttt{stateODEOpenMPThreshold} del
-diccionario. Es un item abierto: la clave se lee y no hace nada.
+El umbral por debajo del cual la región no se abre llega como parámetro desde la
+clave \texttt{stateODEOpenMPThreshold}, en las \textbf{22} llamadas que lo pasan.
+Esto figuró un tiempo como item abierto --- se creía que el valor estaba fijo en
+256 en seis lazos y que la clave no hacía nada --- y al ir a arreglarlo resultó
+que ya estaba conectado y que lo desactualizado era el registro. Lo que sí se
+hizo fue \textbf{quitar los argumentos por defecto} de las seis firmas que
+reciben el umbral, para que una llamada nueva que se olvide de pasarlo no
+compile, en vez de correr en silencio con un 256 escrito en la firma.
 """, [("advanceStateODE", "El avance de los estados. Recortado."),
       ("rkf45StateStep", "El paso adaptativo. Recortado.")]),
 
  ("main(): montaje", r"""
 \texttt{main()} arranca leyendo la malla y los diccionarios, construye los
-operadores LRE, y ensambla $M$ y $K$ \textbf{una sola vez} --- son constantes,
+operadores de alto orden, y ensambla $M$ y $K$ \textbf{una sola vez} --- son constantes,
 porque la no linealidad está en el término iónico y no en la difusión. Por eso
 en el desglose de tiempos el \texttt{setup} aparece separado del \texttt{loop}.
 
@@ -575,7 +659,21 @@ diagnóstico que la verificación usa, los dos detrás de una variable de entorn
 gratis cuando están apagados: \texttt{CF\_DUMP\_K} escribe $K$ como tripletes
 (fila global, columna global, valor) y \texttt{CF\_DUMP\_STENCILS} escribe la
 membresía de los stencils. Son la base de M09, M10, M11 y M15.
+
+Lo primero de \texttt{main()}, antes de cualquier asignación grande, son tres
+llamadas a \texttt{mallopt}, y no son cosmética: la construcción de los
+operadores corre unos \textbf{2.3 millones de factorizaciones QR} sobre una malla
+de tetraedros 3D con $N{=}40$ y p3, y sin ajustar el asignador glibc crece el
+heap en varios GB de fragmentos que no devuelve y la corrida muere por falta de
+memoria en una máquina de 16 GB. \texttt{M\_ARENA\_MAX=2} evita que glibc cree
+una arena por hilo de OpenMP --- el montaje es serial, así que las arenas sólo
+inflan el RSS ---, y los dos umbrales en 64\,KB hacen que las asignaciones
+medianas pasen por \texttt{mmap} y que el relleno del heap vuelva al sistema
+operativo. Es el mismo techo de memoria que \textbf{M17} mide y el que explica
+por qué en 3D no se pasa de $N{=}30$.
 """, [(("int main(int argc, char* argv[])", 24), "El arranque."),
+      (("Tighten the glibc allocator before any large allocation. The LRE", 15),
+       "El asignador, ajustado antes de la primera asignación grande."),
       (("gRowStart = LREInterp_Vm.globalCells().localStart();", 8),
        "Dónde se fija el offset global de fila."),
       ("logMemoryCheckpoint", "Los checkpoints de memoria que M17 usa para ajustar el techo.")]),
@@ -585,8 +683,26 @@ Cada paso resuelve un sistema no lineal, y hay tres métodos: \textbf{Picard} co
 relajación, \textbf{JFNK} --- Newton sin jacobiano explícito, con el producto
 matriz-vector aproximado por diferencias --- y \textbf{diagonalIion}, que
 linealiza la corriente iónica por su derivada diagonal. \textbf{M08} verifica
-que los tres lleguen al mismo lugar, con una tolerancia \emph{derivada} de la
-tolerancia no lineal en vez de elegida a mano.
+que los tres lleguen al mismo lugar, y lo que exige no es una cota absoluta sino
+una \emph{dirección de cambio}: que la dispersión entre los tres caiga en cada
+escalón de una escalera de \texttt{implicitTolerance}. Eso dice exactamente lo
+que se quiere afirmar --- que lo que los separa es el piso del solve lineal y no
+una diferencia estructural --- y no lleva ninguna constante. Su versión anterior
+derivaba una cota de \texttt{nonlinearVmTolerance}, y estaba indexada a una
+perilla que no gobernaba la cantidad que acotaba: apretarla cuatro órdenes no
+movía la discrepancia ni en el décimo dígito.
+
+Ese test tenía además un punto ciego, y detrás había un defecto real en JFNK. Su
+lazo evalúa la convergencia dos veces por iteración, al tope y al final, y la del
+tope necesita los incrementos que acumuló la iteración \emph{anterior}. Los
+recalculaba en el lugar contra una copia tomada unas líneas antes, con una sola
+re-evaluación del \emph{mismo} punto en medio, así que valían cero por
+construcción: cuatro de las cinco tolerancias comparaban cero contra un número
+positivo y el test se reducía al residual acoplado. Consecuencia medida en 3-D:
+en 24 de 50 pasos JFNK devolvía la extrapolación inicial sin dar un paso de
+Newton y con cero llamadas al KSP. Se arregló guardando los incrementos medidos
+al final de cada iteración; \texttt{max coupled\_relL2} cayó de 9.493e-09 a
+5.655e-16 y Picard y \texttt{diagonalIion} quedaron bit a bit idénticos.
 
 Al agotar las iteraciones sin converger hay dos salidas posibles, y \textbf{los
 tres métodos las eligen ahora con la misma clave}: \texttt{false} descarta el
@@ -620,12 +736,16 @@ error sigue presente en el solver electro.
 """, [(("    const bool usePicard =",
         "Valid options are Picard, JFNK and diagonalIion (exact", 3),
        "El despacho de método no lineal, y el rechazo de un nombre inválido."),
-      (("// Modified for cardiacFoam: Picard used to have",
+      (("// Picard used to have",
         "nonlinearRolledBack = true;", 1),
        "Las dos salidas al agotar las iteraciones, ahora comunes a los tres métodos."),
-      (("// Modified for cardiacFoam: stop within half a step of endTime",
+      (("// Stop within half a step of endTime",
         "while (runTime.value() <", 1),
-       "El lazo que ya no da un paso de más, y por qué.")]),
+       "El lazo que ya no da un paso de más, y por qué."),
+      (("// The increments measured at the END of the previous corr",
+        "scalar IionIncrPrevIter = GREAT;", 1),
+       "Por qué los incrementos del chequeo del tope de JFNK viven fuera del "
+       "lazo: recalculados adentro valían cero y mataban cuatro tolerancias.")]),
 ]
 
 

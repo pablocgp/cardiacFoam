@@ -1,27 +1,47 @@
 /*---------------------------------------------------------------------------*\
-Added for cardiacFoam: distributed-linear-algebra variant.
+High-order finite-volume solver for a manufactured reaction-diffusion problem.
 
-    Copy of highOrderManufacturedFDAImplicitPETScParallel, taken once the
-    LRE -> movingLeastSquares port had been verified against the serial
-    reference. That sibling is the known-good baseline: it uses the parallel
-    high-order library, and its assembly already produces matrices with local
-    rows and GLOBAL columns (the MPIAIJ layout), but it still builds a single
-    Eigen sparse matrix and hands the finished CSR to PETSc purely as a linear
-    solver, on PETSC_COMM_SELF. That is serial by construction.
+    Solves the monodomain equation
 
-    Here the linear algebra becomes genuinely distributed: the matrices are
-    created as MPIAIJ on PETSC_COMM_WORLD and the matrix-vector products go
-    through MatMult instead of Eigen. Kept as a separate solver so the two
-    paths can be run against each other rather than compared from memory.
+        chi Cm dVm/dt = div(D grad Vm) - Iion(Vm, u1, u2, u3),
+
+    coupled to three local reaction ODEs for the states u, against a
+    MANUFACTURED solution. Every field has a closed-form exact value at every
+    instant, so the error is known rather than estimated and the observed order
+    of accuracy can be FITTED. That is what this solver exists for: it measures
+    orders.
+
+    High order in space. The diffusion operator, the consistent mass matrix, the
+    quadrature of the ionic source and the reconstruction of the states at the
+    quadrature points each use a moving-least-squares reconstruction whose degree
+    is chosen INDEPENDENTLY. The observed order is the minimum over those three
+    ingredients, which is why they are separate keys: the point of the sweeps is
+    to find which one is binding.
+
+    High order in time. Two families share one pair of operators: the theta
+    methods (backwardEuler, crankNicolson) and BDF1-4. A BDF-k run needs k-1
+    starting values accurate with respect to the SEMI-DISCRETE system, which is
+    what the ESDIRK3 startup supplies; seeding them from the exact solution caps
+    the order at one without any error being reported. The state ODEs are driven
+    across the step by the polynomial through the levels the scheme already
+    stores, because a two-node ramp would cap the whole solver at order two.
+
+    The nonlinear coupling of Vm and Iion is solved by Picard, by a diagonal
+    linearisation of the ionic current, or by JFNK; all three converge to the
+    same solution and differ in cost, which is one of the comparisons the solver
+    is built to make.
+
+    The linear algebra is distributed: matrices are MPIAIJ on PETSC_COMM_WORLD,
+    with each rank owning the rows of its cells and columns numbered globally,
+    since a high-order stencil reaches into other ranks. Matrix-vector products
+    go through PETSc. A serial Eigen backend is selectable for a single rank.
 \*---------------------------------------------------------------------------*/
 
 #include <cmath>
 #include <petscksp.h>
 #include "fvCFD.H"
-// Modified for cardiacFoam: LRE (serial) replaced by highOrderInterp, the
-// adapter over solids4foam's parallel movingLeastSquares.
 #include "highOrderInterp.H"
-// Added for cardiacFoam: needed by the coupled-patch (processor face)
+// Needed by the coupled-patch (processor face)
 // stabilisation exchange in the stiffness assembly.
 #include "globalIndex.H"
 #include "syncTools.H"
@@ -50,7 +70,7 @@ namespace
 {
     using SpMat = Eigen::SparseMatrix<scalar, Eigen::RowMajor>;
 
-    // Added for cardiacFoam: which manufactured solution is in force.
+    // Which manufactured solution is in force.
     //
     //   mmsSines    the default, V = sqrt(1+t) cos(pi x) cos(2 pi y) ...
     //   mmsUniform  V = sqrt(1+t), with every spatial factor equal to one.
@@ -58,14 +78,10 @@ namespace
     // The uniform profile exists so that temporal order can be measured
     // against the ANALYTIC solution instead of against a second numerical one.
     // Every reconstruction, quadrature and flux in this solver is exact on a
-    // constant field, so the spatial error is zero to roundoff and the whole
-    // remaining error is temporal. With the sines profile that is impossible
-    // at a fixed mesh: the spatial error (2.5e-05 on the 2-D N=40 hexa case)
-    // buries every temporal error below it, which is what made the first
-    // version of suite test M02 fit order 0.563 for Crank-Nicolson.
+    // uniform field, so the spatial error is zero to roundoff and the whole
+    // remaining error is temporal. 
     //
-    // What it costs, stated because the test must not oversell itself: the
-    // Laplacian of a constant is zero, so the uniform profile leaves the
+    // Laplacian of a uniform field is zero, so the uniform profile leaves the
     // DIFFUSION operator inert and verifies the time integration of the
     // reaction system alone. Diffusion is covered by the Cauchy self-
     // convergence test on the sines profile. A profile that is both exactly
@@ -77,14 +93,14 @@ namespace
     // Set once in main() from the dictionary, before the first exact value is
     // evaluated, and read-only afterwards - including from the OpenMP loops.
     MmsProfile mmsProfile = mmsSines;
-    // Added for cardiacFoam: global row offset of this rank's block of cells,
+    // Global row offset of this rank's block of cells,
     // i.e. globalIndex::localStart(). Constant for the whole run (one mesh, one
     // decomposition), so it is set once in main() rather than threaded through
     // every linear-solver signature. Zero in serial.
     label gRowStart = 0;
     bool gRowStartSet = false;
 
-    // Modified for cardiacFoam: read through an accessor that refuses to serve
+    // Read through an accessor that refuses to serve
     // the initial 0. The assignment happens in main, after the interpolator is
     // built, and every PETSc row insertion reads it. A future code path that
     // touched a matrix before that point would offset by 0 on EVERY rank, so
@@ -125,7 +141,7 @@ namespace
         }
     }
 
-    // Added for cardiacFoam: build a distributed PETSc matrix from an Eigen
+    // Build a distributed PETSc matrix from an Eigen
     // matrix that holds LOCAL rows and GLOBAL columns.
     //
     // That layout is exactly MPIAIJ's, so the only translation needed is to
@@ -223,7 +239,7 @@ namespace
     }
 
 
-    // Added for cardiacFoam: distributed matrix-vector product.
+    // Distributed matrix-vector product.
     //
     // With local rows and global columns, Eigen can no longer perform A*x: it
     // would need the whole global vector, and each rank only holds its own
@@ -330,7 +346,7 @@ namespace
     };
 
 
-    // Modified for cardiacFoam: every dictionary option has exactly ONE accepted
+    // Every dictionary option has exactly ONE accepted
     // spelling, compared case-sensitively, and anything else stops the run at
     // start-up with the list of valid values.
     //
@@ -375,7 +391,7 @@ namespace
     // True when a linearSolverBackend / jfnkLinearSolverBackend key selects
     // PETSc rather than the Eigen path.
     //
-    // Modified for cardiacFoam: the name is VALIDATED rather than tested
+    // The name is VALIDATED rather than tested
     // against a two-entry whitelist whose else-branch was Eigen. Any value that
     // was not the PETSc name used to select the serial backend in silence, so a
     // typo in a dictionary moved the whole run onto it without a word in the
@@ -388,7 +404,7 @@ namespace
         return backend == "PETSc";
     }
 
-    // Modified for cardiacFoam: the (KSP, PC) pair a linearSolver request really
+    // The (KSP, PC) pair a linearSolver request really
     // means for PETSc, resolved in ONE place and used by every PETSc solve.
     //
     // It used to live inside solveSparseSystem only, so the two other PETSc
@@ -425,7 +441,7 @@ namespace
         }
     }
 
-    // Added for cardiacFoam: the PETSc KSP a backend-neutral linearSolver name
+    // The PETSc KSP a backend-neutral linearSolver name
     // stands for, used as the default of petscLinearKspType. SparseLU becomes
     // preonly because in PETSc a direct solve is not a Krylov method: it is PCLU
     // applied once (resolvePetscKspPc is what sets that PC).
@@ -448,7 +464,7 @@ namespace
         return "preonly";
     }
 
-    // Added for cardiacFoam: incomplete and complete LU are sequential-only
+    // Incomplete and complete LU are sequential-only
     // preconditioners; PETSc has no MPIAIJ implementation of either and
     // KSPSetUp fails with PETSC_ERR_SUP. In parallel they have to be wrapped in
     // a block-Jacobi preconditioner, which applies the requested factorisation
@@ -591,7 +607,7 @@ namespace
         Vec x_;
         label n_;
 
-        // Added for cardiacFoam: this rank's global row offset and the global
+        // This rank's global row offset and the global
         // column count, so updateValues() rebuilds the same distributed matrix
         // that reset() created.
         PetscInt rowStart_ = 0;
@@ -630,7 +646,7 @@ namespace
             n_ = 0;
         }
 
-        // Modified for cardiacFoam: build a distributed MPIAIJ matrix on
+        // Build a distributed MPIAIJ matrix on
         // PETSC_COMM_WORLD instead of a sequential one on PETSC_COMM_SELF.
         //
         // The Eigen matrix handed in has LOCAL rows and GLOBAL columns, which is
@@ -678,7 +694,7 @@ namespace
             checkPetscError(KSPSetOperators(ksp_, A_, A_), "KSPSetOperators");
 
             const std::string kspName = std::string(kspType);
-            // Modified for cardiacFoam: in parallel an ilu/lu request becomes
+            // In parallel an ilu/lu request becomes
             // block-Jacobi with that factorisation on each block; see
             // petscParallelPcTypeName. subPcName is empty otherwise, and the
             // options below still key off the factorisation the user asked for.
@@ -796,7 +812,7 @@ namespace
         // MAT_NEW_NONZERO_ALLOCATION_ERR was set to PETSC_FALSE in reset(),
         // so any (unexpected) new entries will be tolerated, but the fast
         // path requires the pattern to be invariant.
-        // Modified for cardiacFoam: rows are local and columns global, so the
+        // Rows are local and columns global, so the
         // squareness check no longer applies and the row index must carry the
         // same global offset reset() used.
         void updateValues(const SpMat& A)
@@ -994,7 +1010,7 @@ namespace
         PetscShellPCContext pcContext_;
         label n_;
 
-        // Added for cardiacFoam: this rank's global row offset and the global
+        // This rank's global row offset and the global
         // column count, so updateValues() rebuilds the same distributed matrix
         // that reset() created.
         PetscInt rowStart_ = 0;
@@ -1068,7 +1084,7 @@ namespace
             matContext_.n = n;
             pcContext_.n = n;
 
-            // Modified for cardiacFoam: the matrix-free Jacobian becomes a
+            // The matrix-free Jacobian becomes a
             // distributed shell operator. Local sizes are this rank's cell
             // count; the global sizes are left to PETSc, which sums them. The
             // shell's MatMult callback is elementwise over the local block, so
@@ -1607,7 +1623,7 @@ namespace
     // decomposition - hence the reduced bounding box and cell count below.
     scalar characteristicDx(const fvMesh& mesh)
     {
-        // Modified for cardiacFoam: mesh.bounds() is the globally reduced
+        // Mesh.bounds() is the globally reduced
         // bounding box; boundBox(mesh.points()) is this rank's own points only.
         // The cell count below was already reduced, so mixing the two gave a
         // domain measure that shrank with the rank count and an h that did not
@@ -2023,7 +2039,7 @@ namespace
         return std::sqrt(num)/(std::sqrt(den) + SMALL);
     }
 
-    // Added for cardiacFoam: globally reduced vector norms and inner product.
+    // Globally reduced vector norms and inner product.
     //
     // An EigVec holds only this rank's block of cells, so Eigen's norm() and
     // dot() are local quantities. Used unreduced in a convergence test or in a
@@ -2044,7 +2060,7 @@ namespace
         return std::sqrt(gSquaredNorm(v));
     }
 
-    // Modified for cardiacFoam: globally reduced. Its neighbour
+    // Globally reduced. Its neighbour
     // relativeL2Difference() already reduced; this one did not.
     scalar relativeL2Norm(const EigVec& r, const EigVec& reference)
     {
@@ -2073,7 +2089,7 @@ namespace
             << peakMemoryKB/1024.0 << endl;
     }
 
-    // Modified for cardiacFoam: column globalised, see assembleDiagonalMassMatrix.
+    // Column globalised, see assembleDiagonalMassMatrix.
     void addDiagonalToMatrix
     (
         const scalarField& diagonal,
@@ -2303,7 +2319,7 @@ namespace
         }
     }
 
-    // Modified for cardiacFoam: matrices are now nLocalCells x nGlobalCells
+    // Matrices are now nLocalCells x nGlobalCells
     // (local rows, global columns), which is the MPIAIJ layout PETSc expects.
     // In serial nGlobal == nLocal and toGlobal() is the identity, so nothing
     // changes there.
@@ -2362,7 +2378,7 @@ namespace
             LREInterp.cellThirdDerivCoeffs();
 
         const label nCells = mesh.nCells();
-        // Modified for cardiacFoam: local rows, global columns (MPIAIJ layout).
+        // Local rows, global columns (MPIAIJ layout).
         const globalIndex& gc = LREInterp.globalCells();
         const label nGlobalCells = gc.totalSize();
 
@@ -2423,7 +2439,7 @@ namespace
 
             for (label cellI = cellStart; cellI < cellEnd; ++cellI)
             {
-                // Modified for cardiacFoam: CompactListList::operator[] returns a
+                // CompactListList::operator[] returns a
         // UList VIEW by value, not a List. Binding it to a const labelList&
         // compiles but yields an EMPTY list, silently dropping the whole
         // stencil. Bind to the returned view type instead.
@@ -2584,6 +2600,81 @@ namespace
         return max(mag(n & (D & n)), SMALL);
     }
 
+    // The part of the diffusive flux that a two-point flux cannot see.
+    //
+    // The exact flux through a face is |Sf| n . D . grad(V)|_f. Splitting the
+    // gradient along the owner-to-neighbour direction e = d/|d| and the rest,
+    //
+    //     |Sf| n.D.grad V = |Sf| (n.D.e)(grad V . e)  +  |Sf| (grad V . w)
+    //
+    // and approximating (grad V . e) by (V_nei - V_own)/|d| turns the FIRST term
+    // into exactly orthogonalDiffusionCoeff() times the two-point difference.
+    // This function returns the vector w of the SECOND term, which the two-point
+    // flux drops:
+    //
+    //     g = D . n,    w = g - (g . e) e
+    //
+    // i.e. the part of D.n orthogonal to the line joining the cell centres.
+    //
+    // Two cases make it non-zero, and both are real:
+    //   - a NON-ORTHOGONAL mesh, where e is not parallel to n. This is what
+    //     makes the uncorrected two-point flux inconsistent on triangles and
+    //     tetrahedra: measured on the MMS, order 0.81 instead of 2.
+    //   - an ANISOTROPIC D, where D.n is not parallel to n even on an orthogonal
+    //     mesh, so the flux has a tangential component the two-point form misses.
+    //
+    // With isotropic D on an orthogonal mesh, g = lambda n and e = n, so
+    // w = lambda n - lambda n = 0 EXACTLY. That is why the term carries no
+    // dictionary key: on the meshes where it would cost something it is also
+    // required for consistency, and on the meshes where it is not required it
+    // costs nothing. It was verified against a build that omitted it, entry by
+    // entry through CF_DUMP_K: on hexahedra the two matrices were identical, and
+    // on the unstructured mesh the term reached 2.3e-02 of the largest entry.
+    //
+    // This is the same decomposition OpenFOAM makes: its gaussLaplacianScheme
+    // uses nonOrthDeltaCoeffs for the implicit part and adds an explicit
+    // correction built from nonOrthCorrectionVectors, which vanish identically
+    // when the mesh is orthogonal. The difference is that here the correction is
+    // assembled IMPLICITLY, through the reconstruction rows, instead of being
+    // deferred to the right-hand side.
+    vector nonOrthFluxVector(const vector& Sf, const vector& d, const tensor& D)
+    {
+        const vector n = Sf/(mag(Sf) + VSMALL);
+        const vector e = d/(mag(d) + VSMALL);
+        const vector g = D & n;
+        const vector w = g - (g & e)*e;
+
+        // w is the difference of two nearly equal vectors when e is nearly
+        // parallel to D.n, so on an orthogonal mesh it comes out at ROUNDOFF
+        // rather than at exactly zero - the face normals and cell centres are
+        // themselves computed by summation. That residue is not harmless:
+        // multiplied by |Sf|/V and the reconstruction coefficients it lands above
+        // the ABSOLUTE SMALL that addTripletIfNeeded filters on, so it survives
+        // into K, and the error norm - a small quantity next to the field itself
+        // - amplifies it. Measured on the hexahedral MMS at N=20: without this
+        // floor the term added 3043 entries to K, all at 8.0e-16 of the largest
+        // entry, and moved the fitted Vm_L2 by 2.8e-07 relative. Pure noise, and
+        // on a mesh where the term is analytically zero.
+        //
+        // So the test is RELATIVE to |g|, the scale w is a remainder of, with a
+        // threshold placed inside a measured gap: on the unstructured mesh the
+        // term's largest new entry is 2.3e-02 of the largest entry of K, fourteen
+        // orders of magnitude above the hexahedral residue. 1e-12 sits ~300x above
+        // the noise and ~1e11 below the signal, so it can neither keep roundoff
+        // nor drop a real contribution.
+        //
+        // It also skips those 3043 useless triplets per assembly on an orthogonal
+        // mesh.
+        const scalar wRelativeFloor = 1.0e-12;
+
+        if (mag(w) <= wRelativeFloor*max(mag(g), VSMALL))
+        {
+            return vector::zero;
+        }
+
+        return w;
+    }
+
     // Scale of the face-jump stabilisation, alpha |Sf| (n.D.n)/|d.n|. Zero when
     // alpha is zero, which switches the stabilisation off entirely. It depends
     // on the face orientation only through |d.n|, so the two sides of a face -
@@ -2624,12 +2715,12 @@ namespace
             return;
         }
 
-        // Modified for cardiacFoam: matrix columns are global cell indices.
+        // Matrix columns are global cell indices.
         const globalIndex& gc = LREInterp.globalCells();
 
         const CompactListList<label>& stencils = LREInterp.globalCellStencils();
         const CompactListList<vector>& gradCoeffs = LREInterp.QRGradCoeffs();
-        // Modified for cardiacFoam: CompactListList::operator[] returns a
+        // CompactListList::operator[] returns a
         // UList VIEW by value, not a List. Binding it to a const labelList&
         // compiles but yields an EMPTY list, silently dropping the whole
         // stencil. Bind to the returned view type instead.
@@ -2656,7 +2747,7 @@ namespace
         );
     }
 
-    // Added for cardiacFoam: Taylor extrapolation coefficient of ONE entry of a
+    // Taylor extrapolation coefficient of ONE entry of a
     // cell's reconstruction row, i.e. the weight with which the unknown in
     // column entryI enters the value reconstructed at cellI + d.
     //
@@ -2697,7 +2788,7 @@ namespace
         return coeff;
     }
 
-    // Added for cardiacFoam: the same row as addCellTaylorExtrapolationCoeffs
+    // The same row as addCellTaylorExtrapolationCoeffs
     // writes, materialised as (global column, coefficient) pairs instead of
     // being pushed straight into the triplet list.
     //
@@ -2719,7 +2810,7 @@ namespace
         const globalIndex& gc = LREInterp.globalCells();
         const vector d = evalPoint - C[cellI];
 
-        // Modified for cardiacFoam: CompactListList::operator[] returns a
+        // CompactListList::operator[] returns a
         // UList VIEW by value, not a List (see addCellGradientDotCoeffs).
         const UList<label> curStencil = LREInterp.globalCellStencils()[cellI];
         const label selfCoeffI = curStencil.size();
@@ -2738,7 +2829,7 @@ namespace
             1.0 + cellTaylorEntryCoeff(cellI, selfCoeffI, d, LREInterp, twoD);
     }
 
-    // Added for cardiacFoam: add a pre-built remote row (global columns) to one
+    // Add a pre-built remote row (global columns) to one
     // matrix row. Used only for rows that arrived from another rank.
     void addRemoteRowCoeffs
     (
@@ -2760,7 +2851,7 @@ namespace
         }
     }
 
-    // Added for cardiacFoam: (global column, coefficient) form of the row that
+    // (global column, coefficient) form of the row that
     // addCellGradientDotCoeffs writes, i.e. of grad Vm|_cellI . d.
     //
     // Same purpose as buildCellTaylorExtrapolationRow: this is the row that the
@@ -2794,7 +2885,7 @@ namespace
         coeffs[selfCoeffI] = gradCoeffs[cellI][selfCoeffI] & d;
     }
 
-    // Added for cardiacFoam: exchange one VARIABLE-LENGTH matrix row per
+    // Exchange one VARIABLE-LENGTH matrix row per
     // coupled face with the rank on the other side.
     //
     // The stabilisation jump on a processor face needs the far cell's
@@ -2911,13 +3002,13 @@ namespace
             return;
         }
 
-        // Modified for cardiacFoam: matrix columns are global cell indices.
+        // Matrix columns are global cell indices.
         const globalIndex& gc = LREInterp.globalCells();
 
         const vector d = evalPoint - C[cellI];
         const CompactListList<label>& stencils = LREInterp.globalCellStencils();
 
-        // Modified for cardiacFoam: CompactListList::operator[] returns a
+        // CompactListList::operator[] returns a
         // UList VIEW by value, not a List. Binding it to a const labelList&
         // compiles but yields an EMPTY list, silently dropping the whole
         // stencil. Bind to the returned view type instead.
@@ -2962,7 +3053,7 @@ namespace
         const highOrderInterp& LREInterp
     )
     {
-        // Modified for cardiacFoam: these two columns were LOCAL cell indices
+        // These two columns were LOCAL cell indices
         // while every other column written by this assembly (including
         // addCellGradientDotCoeffs just below) is global. Identical in serial,
         // where gRowStart is 0.
@@ -2992,7 +3083,7 @@ namespace
         );
     }
 
-    // Added for cardiacFoam: the internal jump above, written for a face whose
+    // The internal jump above, written for a face whose
     // neighbouring cell lives on another rank.
     //
     // Only the local cell's row is written; the far rank writes its own, which
@@ -3053,7 +3144,7 @@ namespace
         const highOrderInterp& LREInterp
     )
     {
-        // Modified for cardiacFoam: global column (see the internal jump).
+        // Global column (see the internal jump).
         addTripletIfNeeded(triplets, row, LREInterp.globalCells().toGlobal(own), -scale);
         addCellGradientDotCoeffs
         (
@@ -3067,10 +3158,20 @@ namespace
     }
 
 
-    // Low-order diffusion operator (useHighOrder_Vm = false): two-point
-    // orthogonal fluxes over internal, Dirichlet and coupled (processor) faces,
-    // divided by the cell volume so K represents div(D grad .) itself rather
-    // than its integral. Optionally stabilised with the Rhie-Chow face jump.
+    // Low-order diffusion operator (useHighOrder_Vm = false): face fluxes over
+    // internal, Dirichlet and coupled (processor) faces, divided by the cell
+    // volume so K represents div(D grad .) itself rather than its integral.
+    // Optionally stabilised with the Rhie-Chow face jump.
+    //
+    // The flux carries BOTH parts of the decomposition in nonOrthFluxVector():
+    // the two-point term along the line joining the cell centres, and the
+    // tangential remainder. The second one is not optional. A bare two-point
+    // flux is exact to second order on hexahedra and INCONSISTENT on triangles
+    // and tetrahedra, where the manufactured solution measured order 0.81
+    // instead of 2 with an error 230x larger; there is no configuration in which
+    // that is the wanted behaviour, so it is not selectable. On an orthogonal
+    // mesh with isotropic conductivity the tangential term is identically zero
+    // and costs nothing.
     void assembleStandardOrthogonalStiffnessMatrix
     (
         const fvMesh& mesh,
@@ -3085,7 +3186,7 @@ namespace
         const labelUList& owner = mesh.owner();
         const labelUList& neighbour = mesh.neighbour();
 
-        // Modified for cardiacFoam: local rows, GLOBAL columns, as in
+        // Local rows, GLOBAL columns, as in
         // assembleHighOrderStiffnessMatrix. This assembly still used local
         // columns for its orthogonal terms - and, through
         // addCellGradientDotCoeffs, global ones for its stabilisation terms -
@@ -3101,12 +3202,33 @@ namespace
             const label nei = neighbour[faceI];
 
             const tensor Df = 0.5*(conductivity[own] + conductivity[nei]);
-            const scalar a = orthogonalDiffusionCoeff(mesh.Sf()[faceI], C[nei] - C[own], Df);
+            const vector dPN = C[nei] - C[own];
+            const scalar a = orthogonalDiffusionCoeff(mesh.Sf()[faceI], dPN, Df);
 
             addTripletIfNeeded(triplets, own, gc.toGlobal(own), -a/max(V[own], SMALL));
             addTripletIfNeeded(triplets, own, gc.toGlobal(nei),  a/max(V[own], SMALL));
             addTripletIfNeeded(triplets, nei, gc.toGlobal(own),  a/max(V[nei], SMALL));
             addTripletIfNeeded(triplets, nei, gc.toGlobal(nei), -a/max(V[nei], SMALL));
+
+            // The tangential flux a two-point form would drop. grad V|_f is taken
+            // as the average of the two cell gradients, which is what OpenFOAM's
+            // correction does; here each of them is expanded into the matrix
+            // through its reconstruction row, so the term is IMPLICIT.
+            const vector w =
+                nonOrthFluxVector(mesh.Sf()[faceI], dPN, Df);
+            const scalar areaHalf = 0.5*(mag(mesh.Sf()[faceI]) + VSMALL);
+
+            for (const label cellI : {own, nei})
+            {
+                addCellGradientDotCoeffs
+                (
+                    triplets, own, areaHalf/max(V[own], SMALL), cellI, w, LREInterp
+                );
+                addCellGradientDotCoeffs
+                (
+                    triplets, nei, -areaHalf/max(V[nei], SMALL), cellI, w, LREInterp
+                );
+            }
         }
 
         const surfaceVectorField& Cf = mesh.Cf();
@@ -3157,7 +3279,7 @@ namespace
             }
         }
 
-        // Added for cardiacFoam: everything the coupled (processor) faces need.
+        // Everything the coupled (processor) faces need.
         // This assembly had no coupled branch at all, so in parallel it produced
         // partition blocks with no coupling between them - neither the
         // orthogonal flux nor the stabilisation jump. See the equivalent block
@@ -3167,6 +3289,12 @@ namespace
         List<label> nbrGlobalCell;
         List<labelList> nbrGradCols;
         List<scalarField> nbrGradCoeffs;
+        // Far-side reconstruction rows already dotted with the tangential flux
+        // vector w of the non-orthogonal correction. A SECOND exchange is needed
+        // because w is not dPN: the stabilisation jump ships grad|_far . dPN and
+        // this ships grad|_far . w.
+        List<labelList> nbrWCols;
+        List<scalarField> nbrWCoeffs;
 
         if (Pstream::parRun())
         {
@@ -3181,6 +3309,57 @@ namespace
                 myGlobalCell[cellI] = gc.toGlobal(cellI);
             }
             syncTools::swapBoundaryCellList(mesh, myGlobalCell, nbrGlobalCell);
+
+            // w flips sign across a processor face: the far rank sees -Sf
+            // and -d, so its g and e both flip and w = g - (g.e)e flips with
+            // g. Building the row with MINUS the local w therefore hands the
+            // receiver exactly grad|_there . w_here, usable with the same
+            // sign as its own gradient term - the same trick the
+            // stabilisation exchange uses with -delta.
+            label lastWPatch = -1;
+            vectorField wDelta;
+            List<tensor> wNbrConductivity(nbrConductivity);
+
+            exchangeCoupledFaceRows
+            (
+                mesh,
+                [&]
+                (
+                    const label patchI,
+                    const label faceI,
+                    labelList& cols,
+                    scalarField& coeffs
+                )
+                {
+                    const fvPatch& patch = mesh.boundary()[patchI];
+                    const label own = owner[patch.start() + faceI];
+
+                    if (patchI != lastWPatch)
+                    {
+                        wDelta = patch.delta();
+                        lastWPatch = patchI;
+                    }
+
+                    const label bFaceI =
+                        patch.start() - mesh.nInternalFaces() + faceI;
+                    const tensor Df =
+                        0.5*(conductivity[own] + wNbrConductivity[bFaceI]);
+                    const vector w =
+                        nonOrthFluxVector
+                        (
+                            mesh.Sf().boundaryField()[patchI][faceI],
+                            wDelta[faceI],
+                            Df
+                        );
+
+                    buildCellGradientDotRow
+                    (
+                        cols, coeffs, own, -w, LREInterp
+                    );
+                },
+                nbrWCols,
+                nbrWCoeffs
+            );
 
             if (stabilisationAlpha > SMALL)
             {
@@ -3276,6 +3455,22 @@ namespace
                         triplets, own, nbrGlobalCell[bFaceI], a/max(V[own], SMALL)
                     );
 
+                    // Own half from the local reconstruction row, far half
+                    // from the row that arrived already dotted with w.
+                    const vector w = nonOrthFluxVector(Sf, dPN, Df);
+                    const scalar areaHalf = 0.5*(mag(Sf) + VSMALL);
+                    const scalar scale = areaHalf/max(V[own], SMALL);
+
+                    addCellGradientDotCoeffs
+                    (
+                        triplets, own, scale, own, w, LREInterp
+                    );
+                    addRemoteRowCoeffs
+                    (
+                        triplets, own, scale,
+                        nbrWCols[bFaceI], nbrWCoeffs[bFaceI]
+                    );
+
                     if (stabilisationAlpha > SMALL)
                     {
                         const scalar area = mag(Sf) + VSMALL;
@@ -3328,6 +3523,22 @@ namespace
                         triplets, own, gc.toGlobal(own), -a/max(V[own], SMALL)
                     );
 
+                    // No neighbour to average with, so grad V|_f is the owner
+                    // gradient alone - hence the full area and not the half.
+                    const vector Sfb =
+                        mesh.Sf().boundaryField()[patchI][faceI];
+                    const vector dPb =
+                        Cf.boundaryField()[patchI][faceI] - C[own];
+                    const vector w =
+                        nonOrthFluxVector(Sfb, dPb, conductivity[own]);
+
+                    addCellGradientDotCoeffs
+                    (
+                        triplets, own,
+                        (mag(Sfb) + VSMALL)/max(V[own], SMALL),
+                        own, w, LREInterp
+                    );
+
                     if (stabilisationAlpha > SMALL)
                     {
                         const vector Sf =
@@ -3360,7 +3571,7 @@ namespace
             }
         }
 
-        // Modified for cardiacFoam: global column count (MPIAIJ layout).
+        // Global column count (MPIAIJ layout).
         K.resize(mesh.nCells(), gc.totalSize());
         K.setFromTriplets(triplets.begin(), triplets.end());
         K.makeCompressed();
@@ -3414,7 +3625,7 @@ namespace
         const labelUList& neighbour = mesh.neighbour();
 
         const label nCells = mesh.nCells();
-        // Modified for cardiacFoam: local rows, global columns (MPIAIJ layout).
+        // Local rows, global columns (MPIAIJ layout).
         const globalIndex& gc = LREInterp.globalCells();
         const label nGlobalCells = gc.totalSize();
         const label nInternalFaces = neighbour.size();
@@ -3485,12 +3696,12 @@ namespace
                         const label col = curStencil[cI];
                         const vector gCoeff = faceGradCoeffs[faceI][qpI][cI];
 
-                        // Modified for cardiacFoam: the explicit area factor is
+                        // The explicit area factor is
                         // gone. LRE normalised its face quadrature weights to
                         // sum to 1, so the caller supplied |Sf|; fvMeshQuadrature
                         // returns physical weights that already sum to |Sf|.
                         //
-                        // Modified for cardiacFoam: the FACE tensor is the
+                        // The FACE tensor is the
                         // average of the two cells, not the owner's. The same
                         // fluxCoeff goes into both rows below, so using
                         // conductivity[own] made the face's diffusivity depend on
@@ -3606,7 +3817,7 @@ namespace
             flushChunk();
         }
 
-        // Added for cardiacFoam: data needed by the face-jump stabilisation on
+        // Data needed by the face-jump stabilisation on
         // coupled (processor) faces, which the boundary loop below did not
         // handle at all - the stabilisation was gated on fixedValue/
         // fixedVoltage, so a processor patch contributed the flux term and
@@ -3625,7 +3836,7 @@ namespace
         List<labelList> nbrTaylorCols;
         List<scalarField> nbrTaylorCoeffs;
 
-        // Modified for cardiacFoam: the conductivity swap is NOT gated on the
+        // The conductivity swap is NOT gated on the
         // stabilisation any more. The coupled-face flux below needs the far
         // cell's tensor to form the face average, whatever alpha is - see the
         // note at the internal-face flux. The low-order assembly swaps it on
@@ -3729,7 +3940,7 @@ namespace
                 const scalar area = mag(Sf) + VSMALL;
                 const vector n = Sf/area;
 
-                // Modified for cardiacFoam: the face tensor, matching the
+                // The face tensor, matching the
                 // internal-face loop. This loop is reached by BOTH processor
                 // patches and Dirichlet patches, and the two cases are not the
                 // same face:
@@ -3765,7 +3976,7 @@ namespace
                         const vector gCoeff =
                             faceGradCoeffs[globalFaceI][qpI][cI];
 
-                        // Modified for cardiacFoam: physical quadrature weights
+                        // Physical quadrature weights
                         // already carry |Sf| (see the internal-face loop above).
                         const scalar fluxCoeff =
                             w*(n & (Dface & gCoeff));
@@ -4019,7 +4230,7 @@ namespace
                     const vector gGhost =
                         faceGradCoeffs[globalFaceI][qpI][ghostID];
 
-                    // Modified for cardiacFoam: physical quadrature weights
+                    // Physical quadrature weights
                     // already carry |Sf|, so the explicit area factor is gone.
                     const scalar fluxCoeff =
                         w*(n & (conductivity[own] & gGhost));
@@ -4179,7 +4390,7 @@ namespace
             return solver.solve(b, linearIterations, linearError);
         }
 
-        // Modified for cardiacFoam: the Eigen backend is serial only, and the
+        // The Eigen backend is serial only, and the
         // comment above this function said so without enforcing it. K carries
         // LOCAL rows and GLOBAL columns (the MPIAIJ layout, see
         // assembleStiffnessMatrix), so in parallel it is rectangular by design
@@ -4505,7 +4716,7 @@ namespace
     {
         const fvMesh& mesh = Vm.mesh();
 
-        // Modified for cardiacFoam: gradScalarFaceQuad now returns a
+        // gradScalarFaceQuad now returns a
         // CompactListList (contiguous storage); it indexes identically.
         autoPtr<CompactListList<vector>> gradVmQuadPtr =
             LREInterp_Vm.gradScalarFaceQuad(Vm);
@@ -4527,7 +4738,7 @@ namespace
             {
                 const vector Dg = conductivity[owner] & gradVmQuad[faceI][pI];
 
-                // Modified for cardiacFoam: physical quadrature weights
+                // Physical quadrature weights
                 // already carry |Sf|, so faceArea is no longer applied here.
                 fluxVm_HO[faceI] +=
                     (faceNormal & Dg)*faceQuadW[faceI][pI];
@@ -4570,7 +4781,7 @@ namespace
                     const vector Dg =
                         conductivity[owner] & gradVmQuad[globalFaceI][pI];
 
-                    // Modified for cardiacFoam: see the internal-face loop.
+                    // See the internal-face loop.
                     patchFlux[faceI] +=
                         (faceNormal & Dg)*faceQuadW[globalFaceI][pI];
                 }
@@ -4592,8 +4803,8 @@ namespace
         const scalar chiVal,
         const scalar CmVal,
         volScalarField& Iion,
-        const bool useOpenMP = false,
-        const label openMPThreshold = 256
+        const bool useOpenMP,
+        const label openMPThreshold
     )
     {
         const label nCells = Vm.internalField().size();
@@ -4628,8 +4839,8 @@ namespace
         const scalar chiVal,
         const scalar CmVal,
         volScalarField& sourceVm,
-        const bool useOpenMP = false,
-        const label openMPThreshold = 256
+        const bool useOpenMP,
+        const label openMPThreshold
     )
     {
         const label nCells = Vm.internalField().size();
@@ -4677,7 +4888,7 @@ namespace
 
     // Reconstruct the cell-centred states at the ionic quadrature points.
     //
-    // Modified for cardiacFoam: this used to call LREInterp_states.grad(),
+    // This used to call LREInterp_states.grad(),
     // .hessian() and .thirdDeriv() - up to NINE separate passes over the mesh,
     // each with its own halo exchange, its own field allocation and its own
     // serial stencil walk - and then run a second serial loop for the Taylor
@@ -4895,7 +5106,7 @@ namespace
     // multiplying by the volume is only first-order accurate however good the
     // diffusion operator is.
     //
-    // Modified for cardiacFoam: fused and threaded, for the same reasons as
+    // Fused and threaded, for the same reasons as
     // reconstructStatesAtIionIntegrationPoints above and by the same means.
     // This used to call LREInterp_Vm.grad(), .hessian() and .thirdDeriv() -
     // three passes over the mesh, each with its own halo exchange, its own
@@ -5179,8 +5390,8 @@ namespace
         const scalar chiVal,
         const scalar CmVal,
         scalarField& IionIntegrationPoints,
-        const bool useOpenMP = false,
-        const label openMPThreshold = 256
+        const bool useOpenMP,
+        const label openMPThreshold
     )
     {
         const label nIntegrationPoints = IionIntegrationPoints.size();
@@ -5213,8 +5424,8 @@ namespace
         const scalar chiVal,
         const scalar CmVal,
         scalarField& sourceIntegrationPoints,
-        const bool useOpenMP = false,
-        const label openMPThreshold = 256
+        const bool useOpenMP,
+        const label openMPThreshold
     )
     {
         const label nIntegrationPoints = sourceIntegrationPoints.size();
@@ -5627,8 +5838,8 @@ namespace
         const scalar stateODEAbsTol,
         const scalar stateODERelTol,
         const label stateODEMaxSteps,
-        const bool useOpenMP = false,
-        const label openMPThreshold = 256
+        const bool useOpenMP,
+        const label openMPThreshold
     )
     {
         const label nIntegrationPoints = u1NewIntegrationPoints.size();
@@ -5710,8 +5921,8 @@ namespace
         const scalar stateODEAbsTol,
         const scalar stateODERelTol,
         const label stateODEMaxSteps,
-        const bool useOpenMP = false,
-        const label openMPThreshold = 256
+        const bool useOpenMP,
+        const label openMPThreshold
     )
     {
         scalarField& u1NI = u1New.primitiveFieldRef();
@@ -6099,7 +6310,7 @@ namespace
             maxIionResidual = max(maxIionResidual, rec.IionResidual);
         }
 
-        // Modified for cardiacFoam: the canonical summary goes to the global
+        // The canonical summary goes to the global
         // case directory, written by the master; the other ranks write a
         // throwaway copy into their own processorN directory.
         //
@@ -6189,7 +6400,7 @@ namespace
             << "Time step (dt)        = " << dt << nl
             << "Number of steps       = " << nSteps << nl
             << "Implicit scheme       = " << implicitScheme << nl
-            // Added for cardiacFoam: which startup supplied the BDF history.
+            // Which startup supplied the BDF history.
             // Recorded even when it is inert (theta schemes and BDF1 ignore
             // it) so that a run is self-describing: the observed temporal
             // order of a BDF run is meaningless without knowing this.
@@ -6468,7 +6679,7 @@ int main(int argc, char* argv[])
     const label dim = mesh.nGeometricD();
     const scalar dt = runTime.deltaTValue();
 
-    // Added for cardiacFoam: fix the manufactured profile before anything
+    // Fix the manufactured profile before anything
     // evaluates an exact value - computeBeta on the next line is the first
     // reader. Validated rather than defaulted, because a typo would silently
     // run the other manufactured solution and every error in the run would be
@@ -6504,7 +6715,7 @@ int main(int argc, char* argv[])
     // order 2 and therefore suffers order reduction on stiff problems: ESDIRK4
     // measured 3.03 here, capped, while BDF4 reaches 3.89 by Cauchy self-
     // convergence (suite test M02) and 3.94 against the analytic solution
-    // (M22). The ESDIRK4 figure predates the time-loop fix and was never
+    // (route B of M02). The ESDIRK4 figure predates the time-loop fix and was never
     // re-measured, so read it as the order it showed and not as a comparison
     // digit for digit. BDF has stage order equal to its order and no such cap. And in the regime this solver's
     // physiological sibling lives in, the ODE integrations dominate the runtime
@@ -6567,7 +6778,7 @@ int main(int argc, char* argv[])
             << " capped without any error being reported."
             << exit(FatalError);
     }
-    // Modified for cardiacFoam: compared exactly, no longer lower-cased first.
+    // Compared exactly, no longer lower-cased first.
     const word& memoryOptimizationMode = memoryOptimization;
 
     if
@@ -6676,7 +6887,7 @@ int main(int argc, char* argv[])
             << endl;
     }
 
-    // Modified for cardiacFoam: one spelling per method. picard, jfnk, diagonal
+    // One spelling per method. picard, jfnk, diagonal
     // and localDiagonal were accepted as aliases and are now refused.
     const bool usePicard = nonlinearMethod == "Picard";
     const bool useDiagonalIion = nonlinearMethod == "diagonalIion";
@@ -6691,7 +6902,7 @@ int main(int argc, char* argv[])
             << exit(FatalError);
     }
 
-    // Modified for cardiacFoam: one spelling per preconditioner. None, off and
+    // One spelling per preconditioner. None, off and
     // false stood for none; diagonal and localDiagonal for diagonalIion; and
     // diffusion and linear for AImplicit, the name kept because it is the name
     // of the matrix the preconditioner is built from.
@@ -6741,7 +6952,7 @@ int main(int argc, char* argv[])
         );
     }
 
-    // Added for cardiacFoam: publish this rank's global row offset for the
+    // Publish this rank's global row offset for the
     // linear-solver wrappers. The matrices carry local rows and global columns,
     // so every PETSc insertion has to shift the row index by this amount. Zero
     // in serial, which is why the serial path is unaffected.
@@ -6757,7 +6968,7 @@ int main(int argc, char* argv[])
     SpMat AImplicit;
     SpMat BImplicit;
 
-    // Added for cardiacFoam: reject Vm boundary conditions the assembly cannot
+    // Reject Vm boundary conditions the assembly cannot
     // represent, at startup, instead of producing a silently wrong answer.
     // Mirrors the check in the electro solver.
     //
@@ -6816,7 +7027,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    // Added for cardiacFoam: report the chunk sizes and how many chunks they
+    // Report the chunk sizes and how many chunks they
     // actually produce on THIS rank. Without the second number a chunking test
     // cannot tell whether it exercised the multi-chunk path at all - the counts
     // are local, so a mesh that needs two chunks in serial can need one per rank
@@ -6902,7 +7113,7 @@ int main(int argc, char* argv[])
         logMemoryCheckpoint("after stiffness assembly");
     }
 
-    // Added for cardiacFoam: consistency check on the assembled diffusion
+    // Consistency check on the assembled diffusion
     // operator. A constant field has zero gradient, so with no-flux boundaries
     // every row of K must sum to zero. This caught a silent failure during the
     // LRE -> movingLeastSquares port: CompactListList::operator[] returns a
@@ -6938,7 +7149,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    // Added for cardiacFoam: with CF_DUMP_STENCILS set, write the MLS stencil
+    // With CF_DUMP_STENCILS set, write the MLS stencil
     // MEMBERSHIP - one line per cell, "globalCell : global columns" - so that a
     // serial and a parallel build can be diffed cell by cell. This is one level
     // below CF_DUMP_K: it says whether a differing operator row comes from
@@ -6998,7 +7209,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    // Added for cardiacFoam: with CF_DUMP_K set in the environment, write K as
+    // With CF_DUMP_K set in the environment, write K as
     // (global row, global column, value) triples, one file per rank.
     //
     // This is the check that a row-sum or nnz fingerprint cannot make: mapping
@@ -7032,14 +7243,14 @@ int main(int argc, char* argv[])
     }
 #endif
 
-    // Modified for cardiacFoam: the only thing BDF changes in the operator is
+    // The only thing BDF changes in the operator is
     // the scalar in front of M. a_0 is 1 for the theta family and for BDF1, so
     // backwardEuler and BDF1 build the same matrix down to the bit.
     AImplicit = M;
     AImplicit *= (timeScheme.a[0]/dt);
     AImplicit -= (theta*lapScale)*K;
 
-    // Added for cardiacFoam: the ESDIRK stage operator. Because the method is
+    // The ESDIRK stage operator. Because the method is
     // SINGLY diagonally implicit, every implicit stage has the same gamma on
     // its diagonal, so one matrix and one factorisation serve all of them -
     // this is the whole reason to insist on "singly". Built here, before M is
@@ -7064,7 +7275,7 @@ int main(int argc, char* argv[])
         BImplicit += ((1.0 - theta)*lapScale)*K;
     }
 
-    // Added for cardiacFoam: PETSc mirrors of the two implicit operators, used
+    // PETSc mirrors of the two implicit operators, used
     // for every matrix-vector product. Eigen cannot do A*x any more, because A
     // has local rows and global columns while x only holds this rank's block;
     // MatMult performs the halo exchange internally. Built once here, since
@@ -7089,7 +7300,7 @@ int main(int argc, char* argv[])
     }
 #endif
 
-    // Modified for cardiacFoam: the KSP and PC the two cached PETSc solvers below
+    // The KSP and PC the two cached PETSc solvers below
     // actually use, resolved once from linearSolver, petscLinearKspType and
     // petscLinearPcType. They must NOT take the raw dictionary values - see
     // resolvePetscKspPc for the silent wrong answer that produced. Logged,
@@ -7109,7 +7320,7 @@ int main(int argc, char* argv[])
     Info<< "PETSc linear solve, resolved: KSP = " << petscLinearKspTypeResolved
         << ", PC = " << petscLinearPcTypeResolved << endl;
 
-    // Added for cardiacFoam: one cached factorisation for every ESDIRK stage of
+    // One cached factorisation for every ESDIRK stage of
     // every step. Constant for the whole run, like the operator it factors.
     PetscKspMatrixSolver esdirkStageSolver;
 
@@ -7174,7 +7385,7 @@ int main(int argc, char* argv[])
     PetscShellKspSolver jfnkPetscShellSolver;
 
     autoPtr<OFstream> nonlinearResidualFilePtr;
-    // Modified for cardiacFoam: master only, global case directory. See the
+    // Master only, global case directory. See the
     // transient summary above.
     if (writeNonlinearResiduals && Pstream::master())
     {
@@ -7231,7 +7442,7 @@ int main(int argc, char* argv[])
                   dim
               );
 
-        // Modified for cardiacFoam: distributed product, see DistributedMatVec.
+        // Distributed product, see DistributedMatVec.
         EigVec lapNow = applyK(fieldToEigVec(Vm)) + bcNow;
         eigVecToField(lapNow, lapVm);
         lapVm.correctBoundaryConditions();
@@ -7250,7 +7461,7 @@ int main(int argc, char* argv[])
     // different number from the one the loop accumulated.
     FineGrainedTimings fineTimings;
 
-    // Added for cardiacFoam: BDF history, i.e. the k-1 levels OLDER than V^n
+    // BDF history, i.e. the k-1 levels OLDER than V^n
     // that a BDF-k step needs. VmBdfOlder[j] holds V^{n-1-j}, so index 0 is the
     // most recent of them. V^n itself is NOT duplicated here: it is VmOld,
     // rebuilt at the top of every step. The list is empty for the theta family
@@ -7309,7 +7520,7 @@ int main(int argc, char* argv[])
             << (bdfOrder - 1) << " step(s)" << endl;
     }
 
-    // Modified for cardiacFoam: stop within half a step of endTime, not within
+    // Stop within half a step of endTime, not within
     // SMALL. The accumulated time is a floating-point sum of dt, and it can land
     // just BELOW endTime by more than SMALL (1e-15): 160 steps of 3.2e-3 sum to
     // 0.51199999999999868, which is 1.3e-15 short of 0.512. The old test then
@@ -7435,7 +7646,7 @@ int main(int argc, char* argv[])
             );
         }
 
-        // Modified for cardiacFoam: the history vector handed to B. For the
+        // The history vector handed to B. For the
         // theta family it is V^n; for BDF-k it is -sum_{j>=1} a_j V^{n+1-j},
         // formed HERE as one field so that a BDF step still costs a single
         // mass-matrix product rather than k of them.
@@ -7545,7 +7756,7 @@ int main(int argc, char* argv[])
         bcN *= lapScale;
         bcNp1 *= lapScale;
 
-        // Added for cardiacFoam: the Dirichlet lift at an ARBITRARY time, which
+        // The Dirichlet lift at an ARBITRARY time, which
         // ESDIRK needs because its stages land at t + c_i dt and not only at
         // the two ends of the step. Same two assemblies as bcN/bcNp1 above,
         // with the same lapScale folded in, so the three are interchangeable.
@@ -7680,7 +7891,7 @@ int main(int argc, char* argv[])
             zeroGradientFvPatchScalarField::typeName
         );
 
-        // Added for cardiacFoam: the interval the state ODEs are integrated
+        // The interval the state ODEs are integrated
         // over, and the time the candidate fields belong to, measured from t.
         //
         // For every one-step scheme this is the whole step and never changes.
@@ -7824,8 +8035,8 @@ int main(int argc, char* argv[])
                 }
                 else
                 {
-                    // Legacy: integrate the ODE independently at every Gauss
-                    // point, then average the states back to the cell centres.
+                    // Integrate the ODE independently at every Gauss point, 
+                    // then average the states back to the cell centres.
                     updateIntegrationPointStatesODE
                     (
                         VmOldIntegrationPoints,
@@ -8273,7 +8484,7 @@ int main(int argc, char* argv[])
             finalLineSearchIterations = lineSearchIters;
         };
 
-        // Added for cardiacFoam: the ESDIRK startup step. This runs ONLY for
+        // The ESDIRK startup step. This runs ONLY for
         // the first bdfOrder-1 steps of a BDF run, to build the history; it is
         // not reachable as a scheme in its own right (see the note on
         // needEsdirkOperator above for why not).
@@ -8309,7 +8520,7 @@ int main(int argc, char* argv[])
         const bool esdirkThisStep =
             (bdfOrder > 1 && esdirkStartup && nSteps < bdfOrder - 1);
 
-        // Modified for cardiacFoam: a BDF step drives its state ODEs with the
+        // A BDF step drives its state ODEs with the
         // polynomial through its OWN history levels, for the same reason ESDIRK
         // uses its stage values, and at the same price - the levels are already
         // stored, so the only cost is the interpolation itself.
@@ -8707,7 +8918,7 @@ int main(int argc, char* argv[])
             const bool usePetscJfnkBackend =
                 usesPetscBackend(jfnkLinearSolverBackend);
 
-            // Modified for cardiacFoam: the Eigen JFNK path is serial only, for
+            // The Eigen JFNK path is serial only, for
             // a DIFFERENT reason than the assembled path - there is no matrix
             // to be rectangular. solveLeftPreconditionedGMRES computes its
             // inner products with Eigen (V[i].dot(w), w.norm(), bPrec.norm())
@@ -8737,6 +8948,33 @@ int main(int argc, char* argv[])
             bool jfnkPcReadyThisStep = false;
             label jfnkPcSetupCorr = -1;
 
+            // The increments measured at the END of the previous corr, which are
+            // what the check at the top of the next one is entitled to look at.
+            //
+            // That check used to recompute them against a copy taken two lines
+            // further up, with only residualFor(x, true) in between - and that
+            // call re-evaluates the same x, so the "increments" were the
+            // difference between two evaluations of one point, i.e. identically
+            // zero. Four of the five tolerance terms therefore compared zero
+            // against a positive number and could never fail: the test reduced
+            // to `newtonResidual <= nonlinearTolerance` alone, and JFNK returned
+            // the jfnkInitGuessOrder extrapolation without taking a single
+            // Newton step whenever that extrapolation happened to land under the
+            // coupled tolerance. Measured on M08 in 3-D: 24 of 50 timesteps
+            // exited that way, 6.3e-08 from the solution the other two
+            // nonlinear methods agree on, and no tolerance the user could set
+            // made any difference - only nonlinearTolerance did.
+            //
+            // GREAT on entry means the first pass can never exit there, so at
+            // least one Newton step is always taken. Verified by construction
+            // against minNonlinearIterations = 2, which forces the same thing
+            // from the outside and closes the gap to 2.0e-11.
+            scalar VmIncrPrevIter = GREAT;
+            scalar u1IncrPrevIter = GREAT;
+            scalar u2IncrPrevIter = GREAT;
+            scalar u3IncrPrevIter = GREAT;
+            scalar IionIncrPrevIter = GREAT;
+
             for
             (
                 label corr = 0;
@@ -8756,33 +8994,15 @@ int main(int argc, char* argv[])
                 const EigVec R = residualFor(x, true);
                 const EigVec rhsCurrent = rhsFromSource(sourceVm);
                 const scalar newtonResidual = relativeL2Norm(R, rhsCurrent);
-                const scalar VmResidualInitial =
-                    relativeL2Difference(VmGuess.primitiveField(), VmPrevious);
-                scalar u1ResidualInitial = GREAT;
-                scalar u2ResidualInitial = GREAT;
-                scalar u3ResidualInitial = GREAT;
-                if (useHighOrder_Iion && dim > 1 && !reconstructStatesFromCellCentres)
-                {
-                    u1ResidualInitial =
-                        relativeL2Difference(u1GuessIntegrationPoints, u1IPPrevious);
-                    u2ResidualInitial =
-                        relativeL2Difference(u2GuessIntegrationPoints, u2IPPrevious);
-                    u3ResidualInitial =
-                        relativeL2Difference(u3GuessIntegrationPoints, u3IPPrevious);
-                }
-                else
-                {
-                    // cellCentredReconstruct (and the low-order path) carry the
-                    // authoritative states at cell centres -> measure there.
-                    u1ResidualInitial =
-                        relativeL2Difference(u1Guess.primitiveField(), u1Previous);
-                    u2ResidualInitial =
-                        relativeL2Difference(u2Guess.primitiveField(), u2Previous);
-                    u3ResidualInitial =
-                        relativeL2Difference(u3Guess.primitiveField(), u3Previous);
-                }
-                const scalar IionResidualInitial =
-                    relativeL2Difference(IionGuess.primitiveField(), IionPrevious);
+
+                // The increments that decide whether this iteration can be
+                // skipped are the ones the PREVIOUS one measured; recomputing
+                // them here would measure zero, see the note above the loop.
+                const scalar VmResidualInitial = VmIncrPrevIter;
+                const scalar u1ResidualInitial = u1IncrPrevIter;
+                const scalar u2ResidualInitial = u2IncrPrevIter;
+                const scalar u3ResidualInitial = u3IncrPrevIter;
+                const scalar IionResidualInitial = IionIncrPrevIter;
 
                 const bool residualConverged =
                     corr + 1 >= implicitMinNonlinearIterations
@@ -8818,7 +9038,7 @@ int main(int argc, char* argv[])
                     break;
                 }
 
-                // Modified for cardiacFoam: globally reduced. An unreduced
+                // Globally reduced. An unreduced
                 // norm here makes the finite-difference step, and therefore the
                 // Jacobian approximation, depend on the rank count.
                 const scalar epsScale = jfnkEpsilon*(1.0 + gNorm(x));
@@ -9100,14 +9320,14 @@ int main(int argc, char* argv[])
                 if (jfnkLineSearch)
                 {
                     const EigVec xBackup = x;
-                    const scalar Rold2 = gSquaredNorm(R);   // Modified for cardiacFoam
+                    const scalar Rold2 = gSquaredNorm(R);
                     scalar alpha = nonlinearRelaxation;
 
                     while (true)
                     {
                         x = xBackup + alpha*delta;
                         Rnew = residualFor(x, true);
-                        const scalar Rnew2 = gSquaredNorm(Rnew);   // Modified for cardiacFoam
+                        const scalar Rnew2 = gSquaredNorm(Rnew);
 
                         if (Rnew2 <= (1.0 - 2.0*jfnkArmijoC*alpha)*Rold2)
                         {
@@ -9195,6 +9415,13 @@ int main(int argc, char* argv[])
                     converged,
                     lineSearchIters
                 );
+
+                // What the top-of-loop check of the next iteration may look at.
+                VmIncrPrevIter = VmResidual;
+                u1IncrPrevIter = u1Residual;
+                u2IncrPrevIter = u2Residual;
+                u3IncrPrevIter = u3Residual;
+                IionIncrPrevIter = IionResidual;
 
                 nonlinearIters = corr + 1;
                 if (converged)
@@ -9448,7 +9675,7 @@ int main(int argc, char* argv[])
 
         bool nonlinearRolledBack = false;
 
-        // Modified for cardiacFoam: Picard used to have its own branch here
+        // Picard used to have its own branch here
         // that accepted the last iterate unconditionally, so the same solver
         // had two error semantics depending on the method. All three now obey
         // nonlinearAcceptUnconverged: false rolls the step back, true keeps the
@@ -9606,7 +9833,7 @@ int main(int argc, char* argv[])
             );
         }
 
-        // Modified for cardiacFoam: rotate the BDF history. V^n becomes
+        // Rotate the BDF history. V^n becomes
         // V^{n-1} and the oldest level falls off the end. Done here, after the
         // step has been accepted, so that what enters the history is the value
         // the step actually kept.

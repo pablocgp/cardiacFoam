@@ -336,9 +336,52 @@ distancia entre centros de celda. Las caras de frontera usan el tipo de patch de
 Los patches \code{zeroGradient} y \code{empty} dan contribuciones de flujo nulo; los
 patches de valor fijo contribuyen términos de frontera conocidos.
 
+\paragraph{La corrección de no ortogonalidad, y por qué el flujo de dos puntos solo no es
+el operador estándar.}
+Esa expresión es únicamente la parte del flujo que va a lo largo de la línea que une los dos
+centros de celda. Escribiendo $\mathbf{e}=\mathbf{d}/|\mathbf{d}|$ para esa dirección y
+$\mathbf{g}=\Dten\mathbf{n}$, el flujo exacto de cara se separa de forma exacta como
+\begin{equation}
+  |S_f|\,\mathbf{n}\cdot\Dten\grad\Vm
+  = \underbrace{|S_f|\,(\mathbf{g}\cdot\mathbf{e})\,(\grad\Vm\cdot\mathbf{e})}
+    _{\textstyle \approx a_f (V_N-V_P)}
+  + \underbrace{|S_f|\,\grad\Vm\cdot\mathbf{w}}_{\textstyle \text{descartado}},
+  \qquad
+  \mathbf{w}=\mathbf{g}-(\mathbf{g}\cdot\mathbf{e})\,\mathbf{e}.
+\end{equation}
+El segundo término es el resto tangencial. Se anula idénticamente cuando
+$\mathbf{e}\parallel\mathbf{n}$ y $\Dten$ es isótropa, así que en malla hexaédrica regular el
+flujo de dos puntos está completo. En una malla donde la línea entre centros no es paralela a
+la normal de cara no se anula, y descartarlo vuelve al operador \emph{inconsistente}: sobre la
+solución manufacturada, el test \code{M01} ajustaba orden $0.81$ en triángulos no estructurados
+contra $2.00$ en hexaedros, con un error $230$ veces mayor a la misma resolución.
+
+Por eso el solver ensambla también el segundo término, y \textbf{no de forma opcional} --- no
+hay llave de diccionario para apagarlo. En malla ortogonal con conductividad isótropa es
+idénticamente cero y no cuesta nada; en malla no ortogonal es lo que hace consistente al
+operador. No hay configuración en la que omitirlo sea el comportamiento deseado. Con él, las
+corridas no estructuradas ajustan $2.49$--$2.74$ sobre un nominal de $2$. El término se ensambla
+de forma \emph{implícita}, a través de las filas de reconstrucción, en vez de diferirse al lado
+derecho.
+
+Es la misma descomposición que hace OpenFOAM: \code{gaussLaplacianScheme} usa
+\code{nonOrthDeltaCoeffs} para la parte implícita y suma una \code{correction()} explícita
+armada con \code{nonOrthCorrectionVectors}, que se anulan idénticamente en malla ortogonal.
+
+Dos notas de implementación, porque las dos costaron una pasada de depuración. El otro lado de
+una cara de procesador calcula $-\mathbf{w}$, así que hace falta un \emph{segundo} intercambio
+de filas además del que ya hace el salto de estabilización. Y el test sobre $|\mathbf{w}|$
+tiene que ser \emph{relativo} a $|\mathbf{g}|$: con el \code{SMALL} absoluto que se usa en
+otras partes, el residuo de redondeo de $\mathbf{w}$ en malla ortogonal sobrevive a $K$ y mueve
+el error ajustado en $2{,}8\times10^{-7}$ donde la corrección debería ser cero exacto. El piso
+relativo de $10^{-12}$ queda dentro de un hueco medido de catorce órdenes: la mayor entrada que
+la corrección agrega a $K$ vale $8{,}0\times10^{-16}$ de la mayor entrada de $K$ en hexaedros y
+$2{,}3\times10^{-2}$ en la malla no estructurada.
+
 Para soluciones suaves en mallas ortogonales regulares, este operador de volúmenes finitos
-estándar es de segundo orden en el espacio para difusión. En mallas oblicuas o no
-ortogonales el orden efectivo depende de la calidad de malla y del tratamiento no ortogonal.
+estándar es de segundo orden en el espacio para difusión. Con la corrección de no
+ortogonalidad se mantiene en segundo orden también en mallas no estructuradas; sin ella el
+orden efectivo se degrada con la calidad de malla, como se cuantifica arriba.
 
 \subsection{Operador LRE de alto orden}
 \label{sec:lre}
@@ -356,10 +399,28 @@ polinómica de grado $N$ a partir de los valores de celdas vecinas:
   + \cdots.
   \label{eq:lre-taylor}
 \end{equation}
-Las entradas de diccionario \code{N}, \code{Nn}, \code{k} y \code{maxStencilSize} controlan
-el grado polinómico, el número objetivo de vecinos del esténcil, el exponente del peso
-radial y el tamaño máximo del esténcil. El solver puede evaluar valores reconstruidos,
-gradientes, Hessianos y tensores de tercer orden, según el orden polinómico seleccionado.
+Las entradas de diccionario \code{N}, \code{Nn} y \code{k} controlan el grado polinómico, el
+tamaño del esténcil y el exponente del peso radial.
+
+Vale la pena precisar \code{Nn}, porque leerlo como un total duplica el esténcil en silencio.
+Es el número de celdas que se \emph{agregan sobre} el mínimo que exige el grado, y ese mínimo
+es el número de términos de (\ref{eq:lre-taylor}) --- $(N{+}1)(N{+}2)/2$ en 2-D y
+$(N{+}1)(N{+}2)(N{+}3)/6$ en 3-D ---, que es la cantidad de incógnitas que determina el ajuste
+local por mínimos cuadrados. Entonces
+%
+\[ \text{tamaño del esténcil} \;=\; \text{mínimo} \;+\; \code{Nn}, \]
+%
+y \code{Nn} es la redundancia que se le da a ese ajuste. Con \code{N 3} en 2-D el mínimo es
+$10$, así que \code{Nn 10} da un esténcil de $20$ celdas, dos puntos por incógnita. Los
+barridos de este reporte usan $\code{Nn}=10$ en 2-D y $16/30/40$ para $p1/p2/p3$ en 3-D, donde
+los mínimos crecen más rápido y un esténcil tetraédrico está geométricamente peor condicionado;
+esos valores mantienen la razón en $3\times$ o mejor.
+
+\code{maxStencilSize} se lee pero es inerte: el adaptador sobre \code{movingLeastSquares} no
+tiene equivalente y lo descarta.
+
+El solver puede evaluar valores reconstruidos, gradientes, Hessianos y tensores de tercer
+orden, según el orden polinómico seleccionado.
 
 Los patches de frontera se clasifican automáticamente antes de construir los objetos LRE.
 Los patches \code{fixedValue} y \code{fixedVoltage} se insertan en los esténciles LRE como
@@ -702,6 +763,41 @@ refinar la malla no cambia nada; el de \code{exact} es $\tau_h$, así que su err
 por refinamiento y el tope se levanta a medida que se acerca $\tau_h\lesssim\Delta t^{k-1}$.
 En $N=40$ los dos coeficientes difieren por un factor $1{,}28\times10^{4}$.
 
+\paragraph{La otra forma en que un BDF pierde su orden en silencio: el índice de la historia.}
+Un BDF-$k$ avanza con $V^n=\sum_j a_j V^{n-j}$, y los coeficientes $a_j$ suponen que el nivel
+$j$ del arreglo de historia guarda la solución en $t-(j+1)\Delta t$. Si ese arreglo queda
+corrido un paso, la fórmula combina los instantes equivocados con los pesos correctos: el orden
+se cae y \emph{nada lo reporta} --- ni excepción, ni residuo grande, exit $0$.
+
+\code{CF\_DUMP\_BDF\_HISTORY} imprime, para los cuatro primeros pasos, la desviación máxima de
+cada nivel de historia contra $\Vm^{\text{exacta}}$ en el instante que ese nivel debería tener.
+El test \code{M23} lo convierte en un criterio sin ninguna tolerancia inventada: si la
+indexación es correcta, el nivel $j$ en el paso $n$ \emph{es} el campo que fue la solución
+previa en el paso $n-j-1$, así que su instante y su desviación impresos tienen que coincidir
+con los de ese paso dígito por dígito. El test hace $18$ comparaciones exactas de ese tipo.
+
+Valida además el propio diagnóstico, haciendo que los tres modos de arranque produzcan tres
+firmas predecibles en el paso $0$, donde los niveles todavía guardan lo que el arranque sembró:
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Arranque & Nivel $0$ & Nivel $1$ & Nivel $2$ \\
+\midrule
+\code{exact}    & $0$ & $0$ & $0$ \\
+\code{constant} & $6{,}322\times10^{-3}$ & $1{,}269\times10^{-2}$ & $1{,}909\times10^{-2}$ \\
+\code{ESDIRK3}  & $0{,}978$ & $0{,}972$ & $0{,}966$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+\code{exact} siembra cada nivel con la solución exacta en su propio instante, así que las
+desviaciones tienen que ser \emph{cero exacto}. \code{constant} repite el campo inicial, así que
+el nivel $j$ se desvía en $|\Vm(0)-\Vm^{\text{exacta}}(-(j+1)\Delta t)|$; como el perfil
+manufacturado lleva $\sqrt{1+t}$, las razones contra el nivel $0$ tienen forma cerrada,
+$1:2{,}006:3{,}019$, y el factor espacial se cancela al tomar razones, así que la predicción no
+depende de la malla. Medido: $1:2{,}007:3{,}020$. \code{ESDIRK3} no siembra nada en el paso $0$,
+así que sus desviaciones son $O(1)$, dos órdenes por encima de \code{constant}. Un diagnóstico
+que leyera el nivel equivocado, o el instante equivocado, no produciría ninguna de las tres.
+
 El remedio es un método autoarrancable de orden suficiente, y el solver usa un
 \textbf{ESDIRK3} --- Explicit first stage, Singly Diagonally Implicit Runge--Kutta, cuatro
 etapas, orden clásico tres, L-estable y \emph{stiffly accurate}. Cada letra se gana su
@@ -754,7 +850,7 @@ $N=40$ donde la siembra exacta capaba todo en uno
 \begin{center}
 \begin{tabular}{@{}llll@{}}
 \toprule
-Esquema & Nominal & Autoconvergencia (\code{M02}) & vs analítica (\code{M22}) \\
+Esquema & Nominal & Autoconvergencia, vía A (\code{M02}) & vs analítica, vía B (\code{M02}) \\
 \midrule
 \code{BDF2} & 2 & $1{,}979$ & $\mathbf{1{,}992}$ \\
 \code{BDF3} & 3 & $2{,}932$ & $\mathbf{2{,}971}$ \\
@@ -910,6 +1006,97 @@ interpolante recupera el orden propio del esquema. \code{history} es el modo por
 \code{linear} existe para que ese costo siga siendo medible, porque un orden capado es todo
 lo que la corrida reporta --- no hay error ni advertencia.
 
+
+\subsection{La grilla completa de tríadas, y el costo de cada combinación}
+\label{sec:m25}
+
+\code{M01} barre la diagonal --- cuatro tríadas que suben los tres eslabones
+juntos --- sobre cinco niveles de malla. El test \code{M25} barre el espacio entero
+sobre tres niveles finos: $4$ niveles de $\Vm$ $\times$ $4$ de $\Iion$ $\times$
+$\{\mathrm{CC}p1,\mathrm{CC}p2,\mathrm{CC}p3,\mathrm{GP}\}$ para los estados, o sea
+$52$ tríadas distinguibles por familia de malla (el eje de los estados no existe
+cuando $\Iion$ es de bajo orden, porque no hay puntos de cuadratura a los que
+reconstruir), en hexaedros y triángulos no estructurados con $N=100,120,140$. Son
+$312$ corridas.
+
+Contesta lo que \code{M01} no puede: qué pasa cuando los eslabones \emph{no}
+coinciden. El enunciado es que el orden observado es el mínimo sobre los tres, y la
+consecuencia es nítida. Dispersión del orden ajustado sobre las doce combinaciones
+de (estados, $\Iion$), por nivel de $\Vm$:
+\begin{center}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+Malla & $\Vm$ & mín & máx & dispersión \\
+\midrule
+hexaédrica       & \code{NO} & $2{,}000$ & $2{,}000$ & $0{,}000$ \\
+hexaédrica       & \code{p1} & $2{,}711$ & $2{,}711$ & $0{,}001$ \\
+hexaédrica       & \code{p2} & $2{,}039$ & $2{,}066$ & $0{,}027$ \\
+hexaédrica       & \code{p3} & $2{,}005$ & $4{,}281$ & $\mathbf{2{,}276}$ \\
+no estructurada  & \code{NO} & $2{,}984$ & $2{,}988$ & $0{,}005$ \\
+no estructurada  & \code{p1} & $2{,}432$ & $2{,}432$ & $0{,}000$ \\
+no estructurada  & \code{p2} & $2{,}004$ & $2{,}011$ & $0{,}007$ \\
+no estructurada  & \code{p3} & $2{,}002$ & $4{,}230$ & $\mathbf{2{,}228}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Por debajo de $p3$ en $\Vm$ la vía iónica es \emph{irrelevante} --- subir la
+cuadratura de $\Iion$ o el grado de reconstrucción de los estados no compra nada, a
+tres decimales sobre doce combinaciones --- y con $p3$ pasa a ser lo único que
+importa, llevando el orden de $2{,}0$ a $4{,}28$.
+
+\paragraph{El orden solo no permite elegir.} Cada fila de \code{M25} lleva su
+tiempo de pared, separado en montaje y lazo: el montaje construye los esténciles y
+factoriza un problema de mínimos cuadrados por celda y por punto de cuadratura, y
+crece con el grado, mientras el lazo crece con el número de pasos. La configuración
+más barata que alcanza cada orden objetivo, contra la diagonal:
+\begin{center}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+Malla & Más barata con orden $\geq 3$ & Orden & Total & Diagonal $(p3,\mathrm{CC}p3,p3)$ \\
+\midrule
+hexaédrica      & $(p3,\mathrm{CC}p2,p2)$ & $4{,}280$ & $9{,}1$\,s  & $10{,}9$\,s \\
+no estructurada & $(p3,\mathrm{CC}p2,p2)$ & $4{,}229$ & $22{,}2$\,s & $25{,}4$\,s \\
+\bottomrule
+\end{tabular}
+\end{center}
+La diagonal es lo que sugiere la simetría y no es óptima: $(p3,\mathrm{CC}p2,p2)$
+alcanza el mismo orden por menos. Es un resultado de diseño, y no se puede ver en
+una tabla que lleve sólo órdenes.
+
+Las tablas dan además los órdenes por par de \code{u1\_L2} y \code{u2\_L2} al lado
+del de $\Vm$, porque los estados son los que separan los dos modos --- promediarlos
+de vuelta desde los puntos de cuadratura cuesta orden, mientras $\Vm$ converge igual
+por los dos caminos.
+
+\paragraph{Localizar el tope en vez de observarlo.}
+\code{M21} muestra el tope; no puede mostrar \emph{dónde} vive. La variable de entorno
+\code{CF\_EXACT\_STATES} sobrescribe los estados integrados con su valor exacto manufacturado en
+cada etapa, lo que saca el camino de los estados de la cadena por completo, así que el orden
+temporal medido con ella encendida es el del paso de la PDE solo. El test \code{M24} la usa como
+instrumento de bisección, sobre la misma configuración de la tabla de arriba:
+\begin{center}
+\begin{tabular}{@{}lllc@{}}
+\toprule
+\code{stateODEDriver} & \code{CF\_EXACT\_STATES} & Orden medido & ¿Tope presente? \\
+\midrule
+\code{history} & apagado  & $3{,}890$ & --- \\
+\code{history} & encendido & $3{,}889$ & --- \\
+\code{linear}  & apagado  & $2{,}038$ & sí \\
+\code{linear}  & encendido & $\mathbf{3{,}889}$ & \textbf{desaparece} \\
+\bottomrule
+\end{tabular}
+\end{center}
+El salto de $2{,}038$ a $3{,}889$ en las dos últimas filas es la demostración: el mismo esquema,
+el mismo $\Delta t$, todo lo demás idéntico, y lo único que cambia es si los estados entran en
+la cadena. Las dos filas con el instrumento encendido coinciden a dieciséis dígitos, y tienen que
+hacerlo --- el driver sólo controla cómo se integran los estados, y con el instrumento encendido
+no se integran. Esa coincidencia exacta es el chequeo más fuerte de \code{M24}, porque un
+instrumento que perturbara cualquier otra cosa la rompería.
+
+El instrumento falsea el problema a propósito: inyectar la solución exacta en cada etapa no es
+una corrida válida de nada, y el único valor de cada número es el contraste contra su gemelo.
+Los órdenes que el paper reporta salen de \code{M02}.
+
 Un camino conserva deliberadamente la rampa de dos nodos: \code{gaussPointODE}, donde la ODE
 se resuelve en cada punto de cuadratura. Subirlo exigiría reconstruir y almacenar cada valor
 de etapa o nivel de historial \emph{en cada punto de cuadratura}, $n_{\text{etapas}}$ veces
@@ -987,12 +1174,59 @@ Los órdenes de arriba son los que los esquemas deberían entregar. Lo que sigue
 lo que entregan, medido de dos maneras distintas, porque ninguna de las dos
 alcanza sola.
 
+\subsection{Dos cosas contra las que el estudio de convergencia mide, y cómo estaban mal}
+\label{sec:h-and-nn}
+
+Un orden medido es un cociente de dos logaritmos, $\ln(e_1/e_2)/\ln(h_1/h_2)$. Las dos mitades
+estaban mal reportadas, y las dos se corrigieron el 2026-09-29. Ninguna era un defecto del
+solver; las dos cambiaron todos los números que los barridos habían producido.
+
+\paragraph{\code{Nn} son las celdas AGREGADAS sobre el mínimo, no el total.} La biblioteca arma
+el esténcil como $\mathrm{minNn}() + \code{Nn}$, donde $\mathrm{minNn}()$ es el número de
+términos del desarrollo de Taylor --- $(N{+}1)(N{+}2)/2$ en 2-D y $(N{+}1)(N{+}2)(N{+}3)/6$ en
+3-D ---, o sea la cantidad de incógnitas que determina el ajuste local por mínimos cuadrados.
+Los barridos venían escribiendo en ese campo el \emph{total} pretendido: las entradas 2-D eran
+$13/16/20$ para $p1/p2/p3$, que son exactamente $\mathrm{minNn}()+10$, así que la biblioteca
+sumaba el mínimo otra vez y los esténciles reales medían $16/22/30$ --- un 50\,\% más grandes de
+lo pretendido. Nada falló; un esténcil más grande es un ajuste válido, sólo más caro y más
+suavizante.
+
+Tampoco era inofensivo. Los esténciles sobredimensionados se pasaban del alcance del halo, y en
+las celdas pegadas a un corte de procesador el esténcil perdía un miembro, que es lo que hacía
+fallar a los tests \code{M11} y \code{M15} --- un fallo que se había atribuido a solids4foam y
+clasificado como "se mide y no se arregla" durante meses. Con \code{Nn} = 10 en 2-D y
+$16/30/40$ en 3-D, que dan esténciles de $13/16/20$ y $20/40/60$ y una redundancia de
+$2\times$ o mejor en todos los casos, \code{M11} mide cero esténciles distintos y \code{M15}
+baja de $4{,}981\times10^{-6}$ a $6{,}953\times10^{-15}$. La suite quedó 24/24.
+
+\paragraph{El $h$ se mide, no se supone igual a $1/N$.} En malla hexaédrica cada arista vale
+exactamente $1/N$ y la distinción es vacía. En una triangulación no estructurada no: a gmsh se
+le pide un $1/N$ uniforme y lo cumple \emph{en promedio}, pero a $N=160$ la arista más corta
+mide $0{,}00433$ y la más larga $0{,}00839$, o sea que la más corta es un 31\,\% más corta que
+la más larga y no hay un $h$ único.
+
+Lo que entra en el orden es la \emph{razón} entre niveles de refinamiento, y las cuatro
+definiciones candidatas se comportan distinto. Desvío máximo medido respecto del $2$ ideal:
+medio $0{,}022$, rms $0{,}024$, mínimo $0{,}292$, máximo $0{,}246$. El medio y el rms escalan
+como $1/N$ a ~1\,\%, así que para una norma $L_2$ el $1/N$ era un buen proxy --- recalcular
+\code{M01} con el $h$ real mueve los órdenes $L_2$ entre $0{,}006$ y $0{,}011$. El mínimo y el
+máximo no: sus razones van de $1{,}82$ a $2{,}29$, y con ellos el orden de $p3$ en malla no
+estructurada se mueve entre $4{,}31$ y $4{,}74$. Para una norma $L_\infty$, que mira el peor
+elemento, el $1/N$ metía un sesgo de ese tamaño.
+
+Así que el harness mide ahora los largos de arista de cada malla que genera --- en 2-D
+descartando las aristas paralelas a la extrusión, cuyo eje se detecta en vez de suponerse ---,
+guarda \code{h\_mean}, \code{h\_rms}, \code{h\_min} y \code{h\_max} junto a los errores, y
+ajusta cada métrica contra el $h$ que le corresponde: \code{h\_rms} para las normas $L_2$ y
+\code{h\_max} para las $L_\infty$. Los dos archivos de rates registran qué $h$ usaron, porque un
+orden sin ese dato no es reproducible.
+
 \paragraph{Por qué no basta comparar contra la solución exacta.} A malla fija el
 error contra la solución manufacturada es temporal \emph{más} espacial, y la
 parte espacial no baja con $\Delta t$. Sobre la solución de senos con la tríada
-$p3$ en malla hexaédrica 2-D $N=40$ vale $2{,}4\times10^{-5}$ para todos los
+$p3$ en malla hexaédrica 2-D $N=40$ vale $8{,}3\times10^{-6}$ para todos los
 esquemas, mientras que el error temporal de BDF4 en el $\Delta t$ más fino de su
-barrido es $\sim10^{-10}$: cinco órdenes de magnitud por debajo del piso.
+barrido es $\sim10^{-10}$: cuatro órdenes de magnitud por debajo del piso.
 Cualquier orden ajustado así es el del piso y no el del esquema --- una versión
 anterior del test temporal ajustaba $0{,}563$ para Crank--Nicolson y reportaba un
 fallo que no era del solver. Bajar el error espacial por debajo del temporal
@@ -1012,7 +1246,7 @@ manufacturada que la discretización reproduzca \emph{exactamente}:
 \code{manufacturedSolution uniform}, donde $\Vm=\sqrt{1+t}$ con todos los
 factores espaciales iguales a uno. Toda reconstrucción, cuadratura y flujo de
 este solver es exacto sobre un campo constante, así que el error espacial es cero
-a nivel de roundoff y el error entero es temporal. El test \code{M22} lo verifica
+a nivel de roundoff y el error entero es temporal. La vía B del test \code{M02} lo verifica
 en vez de suponerlo: a $\Delta t$ fijo el error sobre $N=20$ y $N=40$ coincide a
 $1{,}7\times10^{-15}$, y la dispersión espacial residual del campo final
 ($\sim10^{-11}$, relativa) baja entre $83$ y $246$ veces al apretar las
@@ -1031,7 +1265,7 @@ operador LRE, que no tiene forma cerrada, y las condiciones de borde
 \begin{center}
 \begin{tabular}{@{}llll@{}}
 \toprule
-\code{implicitScheme} & Nominal & Autoconvergencia (\code{M02}) & vs analítica (\code{M22}) \\
+\code{implicitScheme} & Nominal & Autoconvergencia, vía A (\code{M02}) & vs analítica, vía B (\code{M02}) \\
 \midrule
 \code{backwardEuler} & 1 & $1{,}000$ & $1{,}000$ \\
 \code{BDF1}          & 1 & $1{,}000$ & $1{,}000$ \\
@@ -1303,6 +1537,43 @@ El solve de Krylov se delega a un back-end de álgebra lineal seleccionable, que
 
 El back-end alternativo, \code{Eigen}, reemplaza PETSc por una implementación en-archivo equivalente: GMRES($m$) reiniciado con $m=\texttt{jfnkMaxKrylovIterations}$ y \code{jfnkMaxRestarts} reinicios, con la base de Arnoldi ortogonalizada explícitamente en el código y el problema proyectado de mínimos cuadrados resuelto mediante la factorización QR de Householder con pivoteo de columnas de Eigen —el pivoteo aporta robustez cuando la base de Arnoldi se vuelve casi deficiente en rango, situación que puede presentarse porque el producto matriz-vector por diferencias finitas arrastra ruido de redondeo. En cualquiera de los dos back-ends, el solve de Krylov se detiene cuando la norma relativa de su residuo cae por debajo de \code{jfnkLinearTolerance} o cuando se agota el presupuesto de iteraciones y reinicios; conviene subrayar que esta tolerancia es \emph{lineal} y sólo controla con qué precisión se resuelve la corrección de Newton $\delta_k$, mientras que la convergencia del problema no lineal la gobiernan las tolerancias de la sección~\ref{sec:controles-solver}. Los dos back-ends son numéricamente equivalentes para la misma matriz y las mismas tolerancias: difieren en la implementación del solver lineal, no en el residuo de la PDE.
 
+\subsection{La salida al tope de la iteración, y el defecto que escondió}
+\label{sec:jfnk-salida-temprana}
+
+El lazo de JFNK evalúa su test de convergencia \emph{dos} veces por iteración: una al tope, sobre el iterado que entra, para poder saltear el solve de Krylov si ese iterado ya está convergido, y otra al final, después de la actualización de Newton. Las dos evaluaciones no son intercambiables, y la del tope es el caso delicado: los incrementos que necesita son los que acumuló la iteración \emph{anterior}, porque la actual todavía no movió nada.
+
+Una revisión anterior los recalculaba en el lugar, contra una copia de los campos tomada unas líneas más arriba, con una sola evaluación de $\Fres(\mathsf{x}_k)$ en medio. Esa evaluación reusa el mismo $\mathsf{x}_k$ que el final de la iteración previa ya había evaluado, así que los cuatro «incrementos» medían la diferencia entre dos evaluaciones de un mismo punto y eran idénticamente cero. El test
+\begin{equation*}
+  k+1\ge\texttt{minNonlinearIterations}
+  \;\wedge\;
+  R_{\mathrm{cpl}}\le\texttt{nonlinearTolerance}
+  \;\wedge\;
+  \underbrace{R_{\Vm}\le\texttt{nonlinearVmTolerance}}_{0\,\le\,\text{tol}}
+  \;\wedge\;\cdots
+\end{equation*}
+quedaba reducido, sin condición alguna, a sus dos primeros términos: cuatro de las cinco tolerancias configuradas eran código muerto, comparando cero contra un número positivo.
+
+La consecuencia no es cosmética. Como el iterado de Newton se siembra por extrapolación (\code{jfnkInitGuessOrder}), JFNK aceptaba esa extrapolación sin dar un solo paso de Newton cada vez que su residuo acoplado caía por debajo de \code{nonlinearTolerance}. Medido sobre la configuración 3-D de M08 ($N=10$, tríada $\mathrm{p}3$, $\Delta t=2\times10^{-4}$, $50$ pasos): $24$ de los $50$ pasos salían así, con cero llamadas al KSP. El propio resumen transitorio del solver registraba el síntoma y nadie lo leía —\code{max Vm\_relL2} valía exactamente cero sobre la corrida completa, es decir que el incremento de voltaje más grande de toda la integración se reportaba como $0$.
+
+El arreglo consiste en llevar al test del tope los incrementos medidos al \emph{final} de la iteración anterior, inicializados de modo que la primera pasada no pueda salir por ahí; así siempre se da al menos un paso de Newton. Dos mediciones independientes confirman el diagnóstico. Forzar $\texttt{minNonlinearIterations}=2$, que impone lo mismo desde afuera sin tocar el código, reproduce el número corregido; y subirlo a $3$ no cambia nada más, así que lo único que faltaba era un paso de Newton.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+magnitud & antes & después \\
+\midrule
+\code{max coupled\_relL2} sobre la corrida & $9.493\times10^{-9}$ & $5.655\times10^{-16}$ \\
+\code{max Vm\_relL2} sobre la corrida & $0$ & $9.847\times10^{-9}$ \\
+$|\text{Vm\_L2}(\text{JFNK})-\text{Vm\_L2}(\text{Picard})|$ & $6.309\times10^{-8}$ & $2.015\times10^{-11}$ \\
+pasos con cero llamadas al KSP & $24/50$ & $0/50$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Picard y \code{diagonalIion} quedan bit a bit idénticos antes y después, que es lo que verifica que el cambio está confinado a la rama que tenía el defecto.
+
+La lección general es sobre los test de convergencia de dos lados más que sobre JFNK. Cuando el mismo predicado se evalúa en dos puntos de un lazo, las cantidades que lee significan cosas distintas en cada uno, y un término que es estructuralmente cero en uno de ellos no se anuncia: el test sigue pasando, la tolerancia sigue leyéndose del diccionario, y el único rastro visible es un campo de diagnóstico reportado como un cero exacto.
+
 \subsection{Búsqueda de línea de Armijo y rollback}
 \label{sec:rollback}
 
@@ -1395,7 +1666,7 @@ Lo que queda multiplicando el error ya no es $\mathbf{J}_S$ sino sólo la parte 
 \item \textbf{En el camino de alto orden, la tasa se reduce sin desaparecer.} Con reconstrucción de $\Vm$ y de estados a los puntos de cuadratura, $\mathbf{J}_S$ tiene acoplamientos fuera de la diagonal a través del estencil LRE. diagonalIion no los ensambla, así que la convergencia vuelve a ser lineal — pero con tasa $\rho\approx\omega\theta\Delta t\,\norm{\mathbf{J}_S-\mathrm{diag}(\mathbf{d})}$, donde la norma es la de los acoplamientos no locales, típicamente órdenes de magnitud menor que $\norm{\mathbf{J}_S}$ porque los términos dominantes son los del propio punto.
 \item \textbf{Detalle fino a favor: $d_i$ es la suma de fila, no la diagonal.} La perturbación se hace en la dirección uniforme $\varepsilon\mathbf{1}$, así que $$d_i=\frac{S_i(\mathsf{V}+\varepsilon\mathbf{1})-S_i(\mathsf{V})}{\varepsilon}\longrightarrow\sum_j\frac{\partial S_i}{\partial V_j},$$ o sea el row-sum del Jacobiano de la fuente. Para fuente local coincide con la diagonal; para el camino de alto orden es una elección mejor que la diagonal pura, porque es exacta sobre modos constantes ($\mathbf{J}_S\mathbf{1}=\mathrm{diag}(\mathbf{d})\mathbf{1}$ por construcción). Es decir, el sustituto captura exactamente la respuesta a perturbaciones suaves de larga longitud de onda, que son las que dominan la convergencia lenta.
 \item \textbf{Mejor condicionamiento del solve lineal.} Cuando la reacción es estabilizante ($d_i<0$, que es el régimen del término $-\beta(\Vm-u_3)/\chi C_m$ con $\beta<0$), el corrimiento $-\theta\,\mathrm{diag}(\mathbf{d})$ agrega a la diagonal, aumentando la dominancia diagonal de la matriz del sistema. GMRES/ILU convergen más rápido. Picard resuelve siempre con $\Aimp$, que no tiene esa ayuda.
-\item \textbf{Criterio de parada más fuerte.} No es una ventaja del método sino de la rama, pero es real y afecta la interpretación de las tablas: Picard sólo verifica $R_{\Vm}$ y los residuos de estado, mientras que \code{diagonalIion} exige además $R_{\mathrm{cpl}}\le\texttt{nonlinearTolerance}$ y $R_{\Iion}\le\texttt{nonlinearIionTolerance}$. Con Picard es posible salir del lazo con incrementos chicos pero residuo acoplado grande, lo que en un estudio MMS se manifiesta como un piso de error no lineal que enmascara el orden. 
+\item \textbf{Criterio de parada más fuerte.} No es una ventaja del método sino de la rama, pero es real y afecta la interpretación de las tablas: Picard sólo verifica $R_{\Vm}$ y los residuos de estado, mientras que \code{diagonalIion} exige además $R_{\mathrm{cpl}}\le\texttt{nonlinearTolerance}$ y $R_{\Iion}\le\texttt{nonlinearIionTolerance}$. Con Picard es posible salir del lazo con incrementos chicos pero residuo acoplado grande, lo que en un estudio MMS se manifiesta como un piso de error no lineal que enmascara el orden. La falla recíproca es la que exhibía JFNK, y es peor porque es silenciosa: salir del lazo con residuo acoplado chico e incrementos que nunca se midieron (sección~\ref{sec:jfnk-salida-temprana}). 
 \end{enumerate}
 
 
@@ -1654,8 +1925,8 @@ Control & Significado \\
 \code{manufacturedSolution} & \code{sines} (por defecto), la solución suave no polinómica cuyo orden espacial es el del esquema, o \code{uniform}, exactamente representable, de modo que el error contra la solución exacta es puramente temporal (\S\ref{sec:measured-temporal-orders}). \\
 \code{massMatrix} & Operador de masa identidad por promedio de celda \code{lumped} o masa de promediado de alto orden LRE \code{consistent}. \\
 \code{highOrderCoeffs/stabilisationAlpha} & Intensidad opcional positiva de estabilización de cara para el operador de difusión de alto orden; por defecto cero. \\
-\code{highOrderCoeffs/LRECoeffs\_Vm} & Ajustes LRE \code{N}, \code{Nn}, \code{k} y \code{maxStencilSize} para la difusión de $\Vm$ y la matriz de masa consistente. \\
-\code{highOrderCoeffs/LRECoeffs\_Iion} & Ajustes LRE requeridos \code{N}, \code{Nn}, \code{k} y \code{maxStencilSize} para la cuadratura iónica. \\
+\code{highOrderCoeffs/LRECoeffs\_Vm} & Ajustes LRE \code{N}, \code{Nn} y \code{k} para la difusión de $\Vm$ y la matriz de masa consistente. \code{Nn} son celdas AGREGADAS sobre el mínimo que exige el grado, no el total (\S\ref{sec:lre}). \\
+\code{highOrderCoeffs/LRECoeffs\_Iion} & Ajustes LRE requeridos \code{N}, \code{Nn} y \code{k} para la cuadratura iónica. \\
 \code{highOrderCoeffs/LRECoeffs\_states} & Requerido sólo para \code{stateIntegrationMode=cellCentredReconstruct} con cuadratura iónica de alto orden; controla la reconstrucción de estados centrados en celda a los puntos de cuadratura iónicos. \\
 \code{stateIntegrationMode} & \code{cellCentredReconstruct} (default, un solve de ODE por celda más reconstrucción de estados) o \code{gaussPointODE} (heredado, un solve de ODE por punto de cuadratura iónico). \\
 \code{linearSolverBackend} & \code{PETSc} (default) enruta el solve de voltaje por PETSc; \code{Eigen} mantiene el camino Eigen en-proceso original. \\
@@ -1690,7 +1961,7 @@ Control & Significado \\
 \code{jfnkPreconditionerUpdateFrequency}, \code{jfnkPreconditionerOptionsPrefix} & Con qué frecuencia se refrescan la matriz y el factor del precondicionador (cada $n$ iteraciones de Newton) y el prefijo de la base de opciones de PETSc. \\
 \code{diagonalIionEpsilon} & Perturbación de diferencias finitas para la derivada diagonal de la fuente. \\
 \code{stateODESolver} & \code{RKF45}, \code{RK4} o \code{Euler}. \\
-\code{stateODEInitialStep}, \code{stateODEAbsTol}, \code{stateODERelTol}, \code{stateODEMaxSteps} & Controles de paso y tolerancia del ODE adaptativo, leídos sólo con estos nombres. Este solver no lee \code{timeIntegrationProperties}, y los nombres anteriores \code{stateODETolerance} y \code{stateODEMaxSubSteps} se rechazan con un error. \\
+\code{stateODEInitialStep}, \code{stateODEAbsTol}, \code{stateODERelTol}, \code{stateODEMaxSteps} & Controles de paso y tolerancia del ODE adaptativo, leídos sólo con estos nombres. Este solver no lee \code{timeIntegrationProperties}. Los nombres anteriores \code{stateODETolerance} y \code{stateODEMaxSubSteps} simplemente no se leen: OpenFOAM ignora en silencio una clave que nadie consulta, así que un diccionario que los use corre con los valores por defecto sin avisar. \\
 \code{stateODEUseOpenMP}, \code{stateODENumThreads}, \code{stateODEOpenMPThreshold} & Habilita la paralelización OpenMP de la integración del ODE de estado por celda/por punto de cuadratura, fija el número de threads y el umbral de celdas por encima del cual se entra a la región paralela. \\
 \code{memoryOptimization} & \code{off}, \code{on} o \code{auto}. En \code{auto}, las optimizaciones de memoria son efectivas sólo para corridas 3D de $\Vm$ de alto orden con al menos \code{memoryOptimizationCellThreshold} celdas. \\
 \code{memoryOptimizationCellThreshold} & Umbral de conteo de celdas usado por \code{memoryOptimization=auto}; default 8000. \\
@@ -2437,17 +2708,20 @@ encima de \code{p1} pero con esténcil y costo mayores. La conclusión práctica
 operador, las opciones útiles son \code{p1} y \code{p3}; \code{p2} paga el costo de un esténcil
 más ancho sin comprar orden.
 
-\paragraph{El operador estándar pierde consistencia en la malla no estructurada.}
-Con \code{useHighOrder\_Vm=false} el orden observado en la malla triangular no estructurada cae
-a $0.96$ (y a $0.80$ en el ajuste amplio $N=10$--$100$), frente a $2.00$ en la hexaédrica. El
-motivo es el señalado en \S\ref{sec:std-operator}: el solver ensambla únicamente la parte
-ortogonal del flujo de cara, y en una malla triangular con no ortogonalidad significativa el
-término omitido no es una perturbación de alto orden sino una contribución de orden principal.
-La estabilización no lo arregla ($0.95$ con $\alpha=0.1$). En cambio, la reconstrucción LRE
-más barata, \code{p1}, recupera $2.60$ en esa misma malla, y \code{p3} llega a $4.48$. Éste es
-el argumento cuantitativo más fuerte del reporte a favor del camino de alto orden: en mallas no
-estructuradas el LRE no sólo mejora el orden, sino que restituye la consistencia que el
-operador estándar pierde.
+\paragraph{Las filas \code{NO} de este barrido son anteriores a la corrección de no
+ortogonalidad y hay que re-correrlas.}
+La columna \code{NO} de la tabla de arriba se midió con un binario que ensamblaba únicamente la
+parte ortogonal del flujo de cara (\S\ref{sec:std-operator}), así que su entrada no estructurada,
+$0.96$ en el ajuste asintótico y $0.80$ sobre $N=10$--$100$, describe un operador que el solver
+ya no tiene. La estabilización tampoco lo compensaba ($0.95$ con $\alpha=0.1$), lo que es
+consistente con que el término omitido sea una contribución de orden principal y no una
+perturbación de alto orden.
+
+Con la corrección, el operador de bajo orden mantiene su orden nominal $2$ también en esa malla:
+\code{M01} ajusta $2.49$ y $2.74$ con $\alpha=0$ y $0.1$. La comparación que este reporte traza
+contra el camino de alto orden es entonces una ganancia de orden --- $2$ contra $4.61$--$4.65$ de
+\code{p3} en la misma malla no estructurada --- y no una diferencia de consistencia. Las entradas
+\code{NO} hexaédricas no se ven afectadas: ahí la corrección es idénticamente cero.
 
 \paragraph{El cuello de botella se desplaza al camino iónico cuando $\Vm$ es de alto orden.}
 Con \code{NO} o \code{p1} para $\Vm$, la grilla completa de $5\times4$ combinaciones

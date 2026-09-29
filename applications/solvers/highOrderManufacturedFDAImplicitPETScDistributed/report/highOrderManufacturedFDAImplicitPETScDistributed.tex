@@ -318,6 +318,7 @@ When \code{useHighOrder\_Vm=false}, the solver assembles the standard
 cell-centred finite-volume diffusion operator. For an internal face $f$ between
 cells $P$ and $N$, the orthogonal part is of the form
 \begin{equation}
+  \label{eq:orthoflux}
   \frac{1}{|K_P|}\int_f \mathbf{n}\cdot\Dten\grad\Vm\,dA
   \approx
   \frac{a_f}{|K_P|}(V_N-V_P),
@@ -327,10 +328,57 @@ and distance between cell centres. Boundary faces use the OpenFOAM patch type.
 \code{zeroGradient} and \code{empty} patches give no-flux contributions; fixed
 value patches contribute known boundary terms.
 
+\paragraph{The non-orthogonal correction, and why the two-point flux alone is not
+the standard operator.}
+Equation~(\ref{eq:orthoflux}) is only the part of the flux that lies along the
+line joining the two cell centres. Writing $\mathbf{e}=\mathbf{d}/|\mathbf{d}|$
+for that direction and $\mathbf{g}=\Dten\mathbf{n}$, the exact face flux splits
+exactly as
+\begin{equation}
+  |S_f|\,\mathbf{n}\cdot\Dten\grad\Vm
+  = \underbrace{|S_f|\,(\mathbf{g}\cdot\mathbf{e})\,(\grad\Vm\cdot\mathbf{e})}
+    _{\textstyle \approx a_f (V_N-V_P)}
+  + \underbrace{|S_f|\,\grad\Vm\cdot\mathbf{w}}_{\textstyle \text{dropped}},
+  \qquad
+  \mathbf{w}=\mathbf{g}-(\mathbf{g}\cdot\mathbf{e})\,\mathbf{e}.
+\end{equation}
+The second term is the tangential remainder. It vanishes identically when
+$\mathbf{e}\parallel\mathbf{n}$ and $\Dten$ is isotropic, so on a regular
+hexahedral mesh the two-point flux is complete. On a mesh where the centre-to-centre
+line is not parallel to the face normal it does not vanish, and dropping it makes
+the operator \emph{inconsistent}: on the manufactured solution, suite test
+\code{M01} fitted order $0.81$ on unstructured triangles against $2.00$ on
+hexahedra, with an error $230\times$ larger at the same resolution.
+
+The solver therefore assembles the second term as well, and \textbf{not
+optionally} --- there is no dictionary key to switch it off. On an orthogonal mesh
+with isotropic conductivity it is identically zero and costs nothing; on a
+non-orthogonal mesh it is what makes the operator consistent. There is no
+configuration in which omitting it is the wanted behaviour. With it, the
+unstructured runs fit $2.49$--$2.74$ at order $2$ nominal. The correction is
+assembled \emph{implicitly}, through the reconstruction rows, rather than deferred
+to the right-hand side.
+
+This is the same decomposition OpenFOAM makes: \code{gaussLaplacianScheme} uses
+\code{nonOrthDeltaCoeffs} for the implicit part and adds an explicit
+\code{correction()} built from \code{nonOrthCorrectionVectors}, which vanish
+identically on an orthogonal mesh.
+
+Two implementation notes, because both cost a debugging pass. The far side of a
+processor face computes $-\mathbf{w}$, so a \emph{second} row exchange is needed
+next to the one the stabilisation jump already performs. And the test on
+$|\mathbf{w}|$ must be \emph{relative} to $|\mathbf{g}|$: with the absolute
+\code{SMALL} used elsewhere, the roundoff residue of $\mathbf{w}$ on an orthogonal
+mesh survives into $K$ and shifts the fitted error by $2.8\times10^{-7}$ where the
+correction should be exactly zero. The relative floor of $10^{-12}$ sits inside a
+measured fourteen-order gap: the largest entry the correction adds to $K$ is
+$8.0\times10^{-16}$ of the largest entry of $K$ on hexahedra and
+$2.3\times10^{-2}$ on the unstructured mesh.
+
 For smooth solutions on regular orthogonal meshes, this standard finite-volume
-operator is second-order accurate in space for diffusion. On skewed or
-non-orthogonal meshes the effective order depends on the mesh quality and the
-non-orthogonal treatment.
+operator is second-order accurate in space for diffusion. With the non-orthogonal
+correction it remains second order on unstructured meshes as well; without it the
+effective order degrades with mesh quality, as quantified above.
 
 \subsection{High-order LRE operator}
 \label{sec:lre}
@@ -348,11 +396,29 @@ reconstruction of degree $N$ is fitted from neighbouring cell values:
   + \cdots.
   \label{eq:lre-taylor}
 \end{equation}
-The dictionary entries \code{N}, \code{Nn}, \code{k}, and
-\code{maxStencilSize} control the polynomial degree, target number of stencil
-neighbours, radial weight exponent, and maximum stencil size. The solver can
-evaluate reconstructed values, gradients, Hessians, and third-order tensors,
-depending on the selected polynomial order.
+The dictionary entries \code{N}, \code{Nn} and \code{k} control the polynomial
+degree, the stencil size and the radial weight exponent.
+
+\code{Nn} is worth stating precisely, because reading it as a total silently
+doubles the stencil. It is the number of cells \emph{added on top of} the minimum
+the degree needs, and that minimum is the number of terms in
+(\ref{eq:lre-taylor}) --- $(N{+}1)(N{+}2)/2$ in 2-D and
+$(N{+}1)(N{+}2)(N{+}3)/6$ in 3-D --- which is the number of unknowns the local
+least-squares fit determines. So
+%
+\[ \text{stencil size} \;=\; \text{minimum} \;+\; \code{Nn}, \]
+%
+and \code{Nn} is the redundancy given to that fit. With \code{N 3} in 2-D the
+minimum is $10$, so \code{Nn 10} gives a $20$-cell stencil, two points per
+unknown. The sweeps in this report use $\code{Nn}=10$ in 2-D and $16/30/40$ for
+$p1/p2/p3$ in 3-D, where the minima grow faster and a tetrahedral stencil is
+geometrically worse conditioned; those keep the ratio at $3\times$ or better.
+
+\code{maxStencilSize} is read but inert: the adapter over
+\code{movingLeastSquares} has no equivalent and drops it.
+
+The solver can evaluate reconstructed values, gradients, Hessians, and
+third-order tensors, depending on the selected polynomial order.
 
 Boundary patches are classified automatically before the LRE objects are
 constructed. \code{fixedValue} and \code{fixedVoltage} patches are inserted into
@@ -732,6 +798,45 @@ $\tau_h$, so its error falls by $15.5$ per refinement and the cap lifts as
 $\tau_h\lesssim\Delta t^{k-1}$ is approached. At $N=40$ the two coefficients
 differ by a factor of $1.28\times10^{4}$.
 
+\paragraph{The other way a BDF loses its order silently: the history index.}
+A BDF-$k$ advances with $V^n=\sum_j a_j V^{n-j}$, and the coefficients $a_j$
+assume that level $j$ of the history array holds the solution at
+$t-(j+1)\Delta t$. If that array is off by one step, the formula combines the
+wrong instants with the right weights: the order drops and \emph{nothing reports
+it} --- no exception, no large residual, exit $0$.
+
+\code{CF\_DUMP\_BDF\_HISTORY} prints, for the first four steps, the maximum
+deviation of each history level from $\Vm^{\text{exact}}$ at the instant that
+level should hold. Suite test \code{M23} turns that into a criterion with no
+invented tolerance: if the indexing is right, level $j$ at step $n$ \emph{is} the
+field that was the previous solution at step $n-j-1$, so its printed instant and
+deviation must match that step's digit for digit. The test performs $18$ such
+exact comparisons.
+
+It also validates the diagnostic itself, by making the three startup modes produce
+three predictable signatures at step $0$, where the levels still hold whatever the
+startup seeded:
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Startup & Level $0$ & Level $1$ & Level $2$ \\
+\midrule
+\code{exact}    & $0$ & $0$ & $0$ \\
+\code{constant} & $6.322\times10^{-3}$ & $1.269\times10^{-2}$ & $1.909\times10^{-2}$ \\
+\code{ESDIRK3}  & $0.978$ & $0.972$ & $0.966$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+\code{exact} seeds each level from the exact solution at its own instant, so the
+deviations must be \emph{exactly} zero. \code{constant} repeats the initial field,
+so level $j$ deviates by $|\Vm(0)-\Vm^{\text{exact}}(-(j+1)\Delta t)|$; since the
+manufactured profile carries $\sqrt{1+t}$, the ratios against level $0$ have a
+closed form, $1:2.006:3.019$, and the spatial factor cancels when taking ratios,
+so the prediction is mesh-independent. Measured: $1:2.007:3.020$. \code{ESDIRK3}
+seeds nothing at step $0$, so its deviations are $O(1)$, two orders above
+\code{constant}. A diagnostic reading the wrong level or the wrong instant would
+produce none of the three.
+
 The remedy is a self-starting method of sufficient order, and the solver uses an
 \textbf{ESDIRK3} --- Explicit first stage, Singly Diagonally Implicit
 Runge--Kutta, four stages, classical order three, L-stable and stiffly accurate.
@@ -785,7 +890,7 @@ $N=40$ mesh where seeding from the exact solution capped everything at one
 \begin{center}
 \begin{tabular}{@{}llll@{}}
 \toprule
-Scheme & Nominal & Self-convergence (\code{M02}) & vs analytic (\code{M22}) \\
+Scheme & Nominal & Self-convergence, route A (\code{M02}) & vs analytic, route B (\code{M02}) \\
 \midrule
 \code{BDF2} & 2 & $1.979$ & $\mathbf{1.992}$ \\
 \code{BDF3} & 3 & $2.932$ & $\mathbf{2.971}$ \\
@@ -958,6 +1063,99 @@ the interpolant recovers the scheme's own order. \code{history} is the default;
 \code{linear} exists so that this cost stays measurable, because a capped order
 is all the run reports --- there is no error and no warning.
 
+
+\subsection{The full triad grid, and the cost of each combination}
+\label{sec:m25}
+
+\code{M01} sweeps the diagonal --- four triads that raise all three links
+together --- over five mesh levels. Suite test \code{M25} sweeps the whole space
+over three fine ones: $4$ levels of $\Vm$ $\times$ $4$ of $\Iion$ $\times$
+$\{\mathrm{CC}p1,\mathrm{CC}p2,\mathrm{CC}p3,\mathrm{GP}\}$ for the states, which
+is $52$ distinguishable triads per mesh family (the states axis does not exist when
+$\Iion$ is low order, because there are no quadrature points to reconstruct to),
+on hexahedra and unstructured triangles at $N=100,120,140$. That is $312$ runs.
+
+It answers what \code{M01} cannot: what happens when the links do \emph{not}
+match. The claim is that the observed order is the minimum over the three, and the
+consequence is sharp. Spread of the fitted order over all twelve
+(states, $\Iion$) combinations, per level of $\Vm$:
+\begin{center}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+Mesh & $\Vm$ & min & max & spread \\
+\midrule
+hexahedral   & \code{NO} & $2.000$ & $2.000$ & $0.000$ \\
+hexahedral   & \code{p1} & $2.711$ & $2.711$ & $0.001$ \\
+hexahedral   & \code{p2} & $2.039$ & $2.066$ & $0.027$ \\
+hexahedral   & \code{p3} & $2.005$ & $4.281$ & $\mathbf{2.276}$ \\
+unstructured & \code{NO} & $2.984$ & $2.988$ & $0.005$ \\
+unstructured & \code{p1} & $2.432$ & $2.432$ & $0.000$ \\
+unstructured & \code{p2} & $2.004$ & $2.011$ & $0.007$ \\
+unstructured & \code{p3} & $2.002$ & $4.230$ & $\mathbf{2.228}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Below $p3$ in $\Vm$ the ionic path is \emph{irrelevant} --- raising the quadrature
+of $\Iion$ or the reconstruction degree of the states buys nothing, to three
+decimals over twelve combinations --- and at $p3$ it becomes the only thing that
+matters, taking the order from $2.0$ to $4.28$.
+
+\paragraph{Order alone does not let you choose.} Every row of \code{M25} carries
+its wall time, split into setup and loop: the setup builds the stencils and
+factorises one least-squares problem per cell and per quadrature point and grows
+with the degree, while the loop grows with the number of steps. The cheapest
+configuration reaching each target order, against the diagonal:
+\begin{center}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+Mesh & Cheapest at order $\geq 3$ & Order & Total & Diagonal $(p3,\mathrm{CC}p3,p3)$ \\
+\midrule
+hexahedral   & $(p3,\mathrm{CC}p2,p2)$ & $4.280$ & $9.1$\,s  & $10.9$\,s \\
+unstructured & $(p3,\mathrm{CC}p2,p2)$ & $4.229$ & $22.2$\,s & $25.4$\,s \\
+\bottomrule
+\end{tabular}
+\end{center}
+The diagonal is what symmetry suggests and it is not optimal: $(p3,\mathrm{CC}p2,p2)$
+reaches the same order for less. That is a design result, and it cannot be seen in
+a table that carries only orders.
+
+The tables also give the pairwise orders of \code{u1\_L2} and \code{u2\_L2} beside
+$\Vm$'s, because the states are what separate the two state modes --- averaging
+them back from the quadrature points costs order, while $\Vm$ converges the same
+either way.
+
+\paragraph{Locating the cap rather than observing it.}
+\code{M21} shows the cap; it cannot show \emph{where} it lives. The environment
+variable \code{CF\_EXACT\_STATES} overwrites the integrated states with their
+exact manufactured values at every stage, which removes the state path from the
+chain entirely, so the temporal order measured with it on is that of the PDE step
+alone. Suite test \code{M24} uses it as a bisection instrument, on the same
+configuration as the table above:
+\begin{center}
+\begin{tabular}{@{}lllc@{}}
+\toprule
+\code{stateODEDriver} & \code{CF\_EXACT\_STATES} & Measured order & Cap present? \\
+\midrule
+\code{history} & off & $3.890$ & --- \\
+\code{history} & on  & $3.889$ & --- \\
+\code{linear}  & off & $2.038$ & yes \\
+\code{linear}  & on  & $\mathbf{3.889}$ & \textbf{gone} \\
+\bottomrule
+\end{tabular}
+\end{center}
+The jump from $2.038$ to $3.889$ on the last two rows is the demonstration: the
+same scheme, the same $\Delta t$, everything else identical, and the only change
+is whether the states enter the chain. The two rows with the instrument on agree
+to sixteen digits, which they must --- the driver only controls how the states are
+integrated, and with the instrument on they are not integrated at all. That exact
+agreement is the strongest check in \code{M24}, because an instrument that
+perturbed anything else would break it.
+
+The instrument falsifies the problem on purpose: injecting the exact solution at
+every stage is not a valid run of anything, and the only value of each number is
+the contrast against its twin. The orders that the paper reports come from
+\code{M02}.
+
 One path deliberately keeps the two-node ramp: \code{gaussPointODE}, where the
 ODE is solved at every quadrature point. Raising it would require reconstructing
 and storing every stage or history level \emph{at every quadrature point},
@@ -1034,12 +1232,65 @@ The orders above are what the schemes are supposed to deliver. What follows is
 what they deliver, measured two different ways, because neither way is
 sufficient on its own.
 
+\subsection{Two things the convergence study measures against, and how they were
+wrong}
+\label{sec:h-and-nn}
+
+A measured order is a ratio of two logarithms, $\ln(e_1/e_2)/\ln(h_1/h_2)$. Both
+halves turned out to be misreported, and both were fixed on 2026-09-29. Neither
+was a solver defect; both changed every number the sweeps had produced.
+
+\paragraph{\code{Nn} is the stencil cells ADDED on top of the minimum, not the
+total.} The library builds the stencil as $\mathrm{minNn}() + \code{Nn}$, where
+$\mathrm{minNn}()$ is the number of terms in the Taylor polynomial ---
+$(N{+}1)(N{+}2)/2$ in 2-D, $(N{+}1)(N{+}2)(N{+}3)/6$ in 3-D --- i.e. the number of
+unknowns the local least-squares fit determines. The sweeps had been writing the
+intended \emph{total} into that field: the 2-D entries were $13/16/20$ for
+$p1/p2/p3$, which are exactly $\mathrm{minNn}()+10$, so the library added the
+minimum again and the real stencils were $16/22/30$ --- about 50\,\% larger than
+intended. Nothing failed; a larger stencil is a valid fit, just more expensive and
+more smoothing.
+
+It was not harmless either. The oversized stencils reached past the halo depth, and
+on cells against a processor cut the stencil lost a member, which is what made
+suite tests \code{M11} and \code{M15} fail --- a failure that had been attributed
+to solids4foam and classed as measured-not-fixed for months. With \code{Nn} = 10
+in 2-D and $16/30/40$ in 3-D, giving stencils of $13/16/20$ and $20/40/60$ and a
+redundancy of $2\times$ or better everywhere, \code{M11} measures zero differing
+stencils and \code{M15} drops from $4.981\times10^{-6}$ to
+$6.953\times10^{-15}$. The suite is 24/24.
+
+\paragraph{$h$ is measured, not assumed to be $1/N$.} On a hexahedral mesh every
+edge is exactly $1/N$ and the distinction is empty. On an unstructured
+triangulation it is not: gmsh is asked for a uniform $1/N$ and honours it
+\emph{on average}, but at $N=160$ the shortest edge is $0.00433$ and the longest
+$0.00839$, so the shortest is 31\,\% shorter than the longest and there is no
+single $h$.
+
+What enters the rate is the \emph{ratio} between refinement levels, and the four
+candidate definitions behave differently. Measured maximum deviation from the
+ideal $2$: mean $0.022$, rms $0.024$, minimum $0.292$, maximum $0.246$. The mean
+and the rms scale as $1/N$ to about 1\,\%, so for an $L_2$ norm $1/N$ was a good
+proxy --- recomputing \code{M01} with the real $h$ moves the $L_2$ orders by
+$0.006$ to $0.011$. The minimum and the maximum do not: their ratios run from
+$1.82$ to $2.29$, and with them the order of $p3$ on the unstructured mesh moves
+between $4.31$ and $4.74$. For an $L_\infty$ norm, which looks at the worst
+element, $1/N$ introduced a bias of that size.
+
+So the harness now measures the edge lengths of every mesh it generates --- in 2-D
+discarding the edges parallel to the extrusion, whose axis is detected rather than
+assumed --- stores \code{h\_mean}, \code{h\_rms}, \code{h\_min} and
+\code{h\_max} alongside the errors, and fits each metric against the $h$ that
+belongs to it: \code{h\_rms} for the $L_2$ norms, \code{h\_max} for the
+$L_\infty$ ones. Both rate files record which $h$ they used, because an order
+without that is not reproducible.
+
 \paragraph{Why not simply compare against the exact solution.} At a fixed mesh
 the error against the manufactured solution is temporal \emph{plus} spatial, and
 the spatial part does not fall with $\Delta t$. On the sine solution with the
-$p3$ triad on a 2-D hexahedral $N=40$ mesh it is $2.4\times10^{-5}$ for every
+$p3$ triad on a 2-D hexahedral $N=40$ mesh it is $8.3\times10^{-6}$ for every
 scheme, while BDF4's temporal error at the finest $\Delta t$ of its sweep is
-$\sim10^{-10}$: five orders of magnitude below the floor. Any fitted order is
+$\sim10^{-10}$: four orders of magnitude below the floor. Any fitted order is
 then the floor's, not the scheme's --- an earlier version of the temporal test
 fitted $0.563$ for Crank--Nicolson this way and reported a failure that was not
 the solver's. Pushing the spatial error below the temporal one would require
@@ -1058,7 +1309,7 @@ manufactured solution the discretisation reproduces \emph{exactly}:
 \code{manufacturedSolution uniform}, where $\Vm=\sqrt{1+t}$ with every spatial
 factor equal to one. Every reconstruction, quadrature and flux here is exact on
 a constant field, so the spatial error is zero to roundoff and the whole error is
-temporal. Suite test \code{M22} verifies that rather than assuming it: at a fixed
+temporal. Route B of suite test \code{M02} verifies that rather than assuming it: at a fixed
 $\Delta t$ the error on $N=20$ and $N=40$ agrees to $1.7\times10^{-15}$, and the
 residual spatial variation of the final field ($\sim10^{-11}$, relative) falls by
 $83$--$246\times$ when the solver tolerances are tightened $100\times$, which is
@@ -1076,7 +1327,7 @@ out the linear profile that would otherwise serve.
 \begin{center}
 \begin{tabular}{@{}llll@{}}
 \toprule
-\code{implicitScheme} & Nominal & Self-convergence (\code{M02}) & vs analytic (\code{M22}) \\
+\code{implicitScheme} & Nominal & Self-convergence, route A (\code{M02}) & vs analytic, route B (\code{M02}) \\
 \midrule
 \code{backwardEuler} & 1 & $1.000$ & $1.000$ \\
 \code{BDF1}          & 1 & $1.000$ & $1.000$ \\
@@ -1391,6 +1642,75 @@ whereas convergence of the nonlinear problem is governed by the tolerances of
 same matrix and tolerances: they differ in the linear-solver implementation, not
 in the PDE residual.
 
+\subsection{The top-of-iteration exit, and the defect it hid}
+\label{sec:jfnk-early-exit}
+
+The JFNK loop evaluates its convergence test \emph{twice} per iteration: once at
+the top, on the incoming iterate, so that a Krylov solve can be skipped if the
+iterate is already converged, and once at the bottom, after the Newton update.
+The two evaluations are not interchangeable, and the top one is the delicate
+case: the increments it needs are those accumulated by the \emph{previous}
+iteration, because the current one has not moved anything yet.
+
+An earlier revision recomputed them in place, against a copy of the fields taken
+a few lines above, with only one evaluation of $\Fres(\mathsf{x}_k)$ in between.
+That evaluation re-uses the same $\mathsf{x}_k$ that the bottom of the previous
+iteration had already evaluated, so the four ``increments'' measured the
+difference between two evaluations of one point and were identically zero. The
+test
+\begin{equation*}
+  k+1\ge\texttt{minNonlinearIterations}
+  \;\wedge\;
+  R_{\mathrm{cpl}}\le\texttt{nonlinearTolerance}
+  \;\wedge\;
+  \underbrace{R_{\Vm}\le\texttt{nonlinearVmTolerance}}_{0\,\le\,\text{tol}}
+  \;\wedge\;\cdots
+\end{equation*}
+therefore reduced, unconditionally, to its first two terms: four of the five
+configured tolerances were dead, comparing zero against a positive number.
+
+The consequence is not cosmetic. Because the Newton iterate is seeded by
+extrapolation (\code{jfnkInitGuessOrder}), JFNK accepted that extrapolation
+without taking a single Newton step whenever its coupled residual happened to
+fall below \code{nonlinearTolerance}. Measured on the 3-D configuration of M08
+($N=10$, $\mathrm{p}3$ triplet, $\Delta t=2\times10^{-4}$, $50$ steps): $24$ of
+the $50$ steps exited that way with zero Krylov calls. The solver's own transient
+summary recorded the symptom and nobody read it --- \code{max Vm\_relL2} was
+exactly zero over the whole run, that is, the largest voltage increment of the
+entire integration was reported as $0$.
+
+The fix is to carry the increments measured at the \emph{end} of the previous
+iteration into the next top-of-loop test, initialised so that the first pass can
+never exit there; at least one Newton step is then always taken. Two independent
+measurements confirm the diagnosis. Forcing
+$\texttt{minNonlinearIterations}=2$, which imposes the same thing from the
+outside without touching the code, reproduces the corrected number; and raising
+it to $3$ changes nothing further, so a single Newton step is all that was
+missing.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+quantity & before & after \\
+\midrule
+\code{max coupled\_relL2} over the run & $9.493\times10^{-9}$ & $5.655\times10^{-16}$ \\
+\code{max Vm\_relL2} over the run & $0$ & $9.847\times10^{-9}$ \\
+$|\text{Vm\_L2}(\text{JFNK})-\text{Vm\_L2}(\text{Picard})|$ & $6.309\times10^{-8}$ & $2.015\times10^{-11}$ \\
+steps with zero Krylov calls & $24/50$ & $0/50$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Picard and \code{diagonalIion} are bit-identical before and after, which is what
+verifies that the change is confined to the branch that carried the defect.
+
+The general lesson is about two-sided convergence tests rather than about JFNK.
+When the same predicate is evaluated at two points of a loop, the quantities it
+reads have different meanings at each, and a term that is structurally zero at
+one of them does not announce itself: the test keeps passing, the tolerance keeps
+being accepted from the dictionary, and the only visible trace is a diagnostic
+field reported as an exact zero.
+
 \subsection{Armijo line search and rollback}
 \label{sec:rollback}
 
@@ -1540,7 +1860,10 @@ be read: Picard only checks $R_{\Vm}$ and the state residuals, whereas
 $R_{\mathrm{cpl}}\le\texttt{nonlinearTolerance}$ and
 $R_{\Iion}\le\texttt{nonlinearIionTolerance}$. With Picard it is possible to
 leave the loop with small increments but a large coupled residual, which in an
-MMS study shows up as a nonlinear error floor that masks the order.
+MMS study shows up as a nonlinear error floor that masks the order. The converse
+failure is the one JFNK exhibited, and it is worse because it is silent: leaving
+the loop with a small coupled residual and increments that were never measured
+at all (\S\ref{sec:jfnk-early-exit}).
 \end{enumerate}
 
 \textbf{Cost.} One extra source evaluation per iteration (the perturbed one) plus the diagonal
@@ -1778,7 +2101,7 @@ orders are:
 \begin{tabular}{@{}lll@{}}
 Component & Expected order & Main caveat \\
 \midrule
-standard FV diffusion & second order in space on regular orthogonal meshes & mesh quality \\
+standard FV diffusion & second order in space, on orthogonal \emph{and} unstructured meshes & mesh quality enters the constant, not the order \\
 LRE high-order reconstruction & increases with polynomial degree $N$ & stencil quality and quadrature \\
 \code{backwardEuler} & first order in time & numerical damping \\
 \code{crankNicolson} & second order in time & requires converged nonlinear/source terms \\
@@ -1825,8 +2148,8 @@ Control & Meaning \\
 \code{manufacturedSolution} & \code{sines} (default), the smooth non-polynomial solution whose spatial order is the scheme's, or \code{uniform}, exactly representable so that the error against the exact solution is purely temporal (\S\ref{sec:measured-temporal-orders}). \\
 \code{massMatrix} & \code{lumped} identity cell-average mass operator or LRE \code{consistent} high-order averaging mass. \\
 \code{highOrderCoeffs/stabilisationAlpha} & Optional positive face-stabilisation strength for the high-order diffusion operator; defaults to zero. \\
-\code{highOrderCoeffs/LRECoeffs\_Vm} & LRE settings \code{N}, \code{Nn}, \code{k}, and \code{maxStencilSize} for $\Vm$ diffusion and the consistent mass matrix. \\
-\code{highOrderCoeffs/LRECoeffs\_Iion} & Required LRE settings \code{N}, \code{Nn}, \code{k}, and \code{maxStencilSize} for ionic quadrature. \\
+\code{highOrderCoeffs/LRECoeffs\_Vm} & LRE settings \code{N}, \code{Nn} and \code{k} for $\Vm$ diffusion and the consistent mass matrix. \code{Nn} is cells ADDED on top of the minimum the degree needs, not the total (\S\ref{sec:lre}). \\
+\code{highOrderCoeffs/LRECoeffs\_Iion} & Required LRE settings \code{N}, \code{Nn} and \code{k} for ionic quadrature. \\
 \code{highOrderCoeffs/LRECoeffs\_states} & Required only for \code{stateIntegrationMode=cellCentredReconstruct} with high-order ionic quadrature; controls reconstruction of cell-centred states to ionic quadrature points. \\
 \code{stateIntegrationMode} & \code{cellCentredReconstruct} (default, one ODE solve per cell plus state reconstruction) or \code{gaussPointODE} (legacy, one ODE solve per ionic quadrature point). \\
 \code{linearSolverBackend} & \code{PETSc} (default) routes the voltage solve through PETSc; \code{Eigen} keeps the original in-process Eigen path. \\
@@ -1861,7 +2184,7 @@ Control & Meaning \\
 \code{jfnkPreconditionerUpdateFrequency}, \code{jfnkPreconditionerOptionsPrefix} & How often the preconditioner matrix and factor are refreshed (every $n$ Newton iterations) and the PETSc options-database prefix. \\
 \code{diagonalIionEpsilon} & Finite-difference perturbation for diagonal source derivative. \\
 \code{stateODESolver} & \code{RKF45}, \code{RK4} or \code{Euler}. \\
-\code{stateODEInitialStep}, \code{stateODEAbsTol}, \code{stateODERelTol}, \code{stateODEMaxSteps} & Adaptive ODE step and tolerance controls, read only under these names. \code{timeIntegrationProperties} is not read by this solver, and the former names \code{stateODETolerance} and \code{stateODEMaxSubSteps} are refused with an error. \\
+\code{stateODEInitialStep}, \code{stateODEAbsTol}, \code{stateODERelTol}, \code{stateODEMaxSteps} & Adaptive ODE step and tolerance controls, read only under these names. \code{timeIntegrationProperties} is not read by this solver. The former names \code{stateODETolerance} and \code{stateODEMaxSubSteps} are simply not read: OpenFOAM silently ignores a key nobody looks up, so a dictionary using them runs with the defaults and says nothing. \\
 \code{stateODEUseOpenMP}, \code{stateODENumThreads}, \code{stateODEOpenMPThreshold} & Enables OpenMP parallelisation of the per-cell/per-quadrature-point state ODE integration, sets the thread count and the cell threshold above which the parallel region is entered. \\
 \code{memoryOptimization} & \code{off}, \code{on}, or \code{auto}. In \code{auto}, memory optimisations are effective only for 3D high-order $\Vm$ runs with at least \code{memoryOptimizationCellThreshold} cells. \\
 \code{memoryOptimizationCellThreshold} & Cell-count threshold used by \code{memoryOptimization=auto}; default 8000. \\
@@ -2533,9 +2856,11 @@ binding link. The \code{gaussPointODE} family is dominated on both axes at once.
 its own: seven triads on hexahedral and unstructured tetrahedral meshes,
 $N=10$--$30$, BDF4 with the ESDIRK3 startup and $\Delta t=10^{-3}$. Its orders,
 and the 2-D ones, are Figure~\ref{fig:order-vm}. Two results carry over from 2-D
-unchanged. The loss of consistency of the standard operator on simplices is
-\emph{worse} in 3-D --- \code{NO} fits $0.65$ on tetrahedra against $0.77$ on
-triangles and $1.96$--$1.98$ on hexahedra --- and the cheap triad still matches
+unchanged. The loss of consistency of the \emph{uncorrected} two-point flux on
+simplices is \emph{worse} in 3-D --- \code{NO} fits $0.65$ on tetrahedra against
+$0.77$ on triangles and $1.96$--$1.98$ on hexahedra; this sweep predates the
+non-orthogonal correction, so the 3-D numbers need re-running before they are
+quoted as the operator's behaviour --- and the cheap triad still matches
 the diagonal, $3.383$ for $(p3,\mathrm{CC}p2,p2)$ against $3.381$ for
 $(p3,\mathrm{CC}p3,p3)$.
 
@@ -2608,19 +2933,21 @@ stencil and a higher cost. The practical conclusion is that, for this operator,
 the useful options are \code{p1} and \code{p3}; \code{p2} pays for a wider
 stencil without buying order.
 
-\paragraph{The standard operator loses consistency on the unstructured mesh.}
-With \code{useHighOrder\_Vm=false} the observed order on the unstructured
-triangular mesh drops to $0.96$ (and to $0.80$ in the broad $N=10$--$100$ fit),
-against $2.00$ on the hexahedral one. The reason is the one noted in
-\S\ref{sec:std-operator}: the solver assembles only the orthogonal part of the
-face flux, and on a triangular mesh with significant non-orthogonality the
-omitted term is not a high-order perturbation but a leading-order contribution.
-Stabilisation does not fix it ($0.95$ with $\alpha=0.1$). By contrast, the
-cheapest LRE reconstruction, \code{p1}, recovers $2.60$ on that same mesh, and
-\code{p3} reaches $4.48$. This is the strongest quantitative argument in the
-report in favour of the high-order path: on unstructured meshes the LRE does not
-merely improve the order, it restores the consistency that the standard operator
-loses.
+\paragraph{The \code{NO} rows of this sweep predate the non-orthogonal
+correction and need re-running.}
+The \code{NO} column of the table above was measured with a build that assembled
+only the orthogonal part of the face flux (\S\ref{sec:std-operator}), so its
+unstructured entry, $0.96$ in the asymptotic fit and $0.80$ over $N=10$--$100$,
+describes an operator the solver no longer has. Stabilisation did not compensate
+for it either ($0.95$ with $\alpha=0.1$), which is consistent with the omitted term
+being a leading-order contribution rather than a high-order perturbation.
+
+With the correction the low-order operator holds its nominal order $2$ on that
+mesh as well: \code{M01} fits $2.49$ and $2.74$ at $\alpha=0$ and $0.1$. The
+comparison this report draws against the high-order path is therefore a gain of
+order --- $2$ against $4.61$--$4.65$ for \code{p3} on the same unstructured mesh ---
+and not a difference in consistency. The hexahedral \code{NO} entries are
+unaffected: there the correction is identically zero.
 
 \paragraph{The bottleneck moves to the ionic path once $\Vm$ is high order.}
 With \code{NO} or \code{p1} for $\Vm$, the complete $5\times4$ grid of

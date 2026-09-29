@@ -33,8 +33,7 @@ IOdictionary spatialIntegrationProperties
     )
 );
 
-// Modified for cardiacFoam: constant/timeIntegrationProperties is no longer
-// read. All it supplied here were second NAMES for the state-ODE controls
+// All it supplied here were second NAMES for the state-ODE controls
 // (solver, initialODEStep, absTol, relTol, maxSteps), which are read as
 // stateODE* from implicitHOCoeffs and always won when both were present - two
 // names for one setting. The launchers still write the file, for the electro
@@ -372,12 +371,12 @@ const Switch useHighOrder_Vm
 // over the cell, which is what makes the source term match the order of the
 // diffusion term. Evaluating a nonlinear function at the centre is only
 // second-order accurate however good the operator is.
-// Modified for cardiacFoam: useHighOrder_states was the previous name of this
-// key and is no longer accepted. A dictionary that still carries it is refused
-// rather than ignored: ignoring it would quietly fall back to the default and
-// change the order the case was written to measure. The old name was wrong
-// anyway - this key is the quadrature of Iion, while how the states are treated
-// is stateIntegrationMode plus LRECoeffs_states.
+// useHighOrder_states was the previous name of this key and is no longer 
+// accepted. A dictionary that still carries it is refused rather than ignored: 
+// ignoring it would quietly fall back to the default and change the order the 
+// case was written to measure. The old name was wrong anyway - this key is the 
+// quadrature of Iion, while how the states are treated is stateIntegrationMode 
+// plus LRECoeffs_states.
 if (spatialIntegrationProperties.found("useHighOrder_states"))
 {
     FatalErrorInFunction
@@ -453,7 +452,7 @@ const word implicitScheme
 // ESDIRK3 is sufficient for every BDF offered: a one-step method of order p
 // leaves starting values accurate to O(dt^(p+1)), so it covers BDF up to k = 4.
 // ESDIRK3 on the current binary BDF4 fits 3.89 by Cauchy self-convergence
-// (suite test M02) and 3.94 against the analytic solution (M22).
+// (route A of suite test M02) and 3.94 against the analytic solution (route B).
 //
 // The solver REFUSES a startup of insufficient order rather than running it:
 // that failure produces no error and no warning, only a quietly capped order,
@@ -517,7 +516,7 @@ const word bdfStartup
 // Laplacian, so under uniform the diffusion operator contributes nothing and
 // only the time integration of the reaction system is being verified.
 // Diffusion is covered on the sines profile by Cauchy self-convergence
-// (suite test M02); the uniform profile is suite test M22.
+// (route A of suite test M02); the uniform profile is its route B.
 //
 // Why not a profile that is exact AND diffusive: it would have to be a
 // discrete eigenfunction of the LRE operator, which no closed form gives, and
@@ -654,10 +653,18 @@ const word petscLinearOptionsPrefix
     )
 );
 
-// Let PETSc's options database override the settings above.
+// Whether PETSc's options database may override everything configured above,
+// through each solve's prefix. OFF by default: the dictionary is then the only
+// source, and a run cannot be redirected by something in the environment
+// without leaving a trace in the case.
+//
+// Turning it on is also what makes PETSc's own diagnostics reachable, since
+// they are options too: PETSC_OPTIONS="-fdalinear_ksp_view" prints the KSP and
+// PC actually in use, which is not what the banner prints - the banner shows
+// the names as requested, before the database is consulted.
 const Switch petscUseOptions
 (
-    implicitHOCoeffs.lookupOrDefault<Switch>("petscUseOptions", true)
+    implicitHOCoeffs.lookupOrDefault<Switch>("petscUseOptions", false)
 );
 
 // --------------------------------------------------------------------
@@ -696,8 +703,8 @@ const word nonlinearMethod
 //       Iion is evaluated at the Gauss points (using the reconstructed Vm and
 //       states) and integrated to the cell by quadrature. Cost: 1 ODE/cell.
 //
-//   gaussPointODE: legacy path. The ODE is integrated independently at every
-//       Iion Gauss point (updateIntegrationPointStatesODE). Cost: Nq ODE/cell.
+//   gaussPointODE: the ODE is integrated independently at every Iion Gauss 
+//       point (updateIntegrationPointStatesODE). Cost: Nq ODE/cell.
 //
 // Only relevant when useHighOrder_Iion is true and dim > 1; otherwise the
 // cell-centred path is used regardless.
@@ -809,7 +816,7 @@ const scalar jfnkLinearTolerance
 // Step of the finite difference providing the Jacobian-vector product,
 // J v ~ (F(u + eps v) - F(u))/eps. Too large and the product is inaccurate,
 // too small and it is cancellation noise; the optimum is set by the noise
-// floor of the residual, i.e. by the state-ODE tolerance.
+// floor of the residual, i.e. by the state-ODE tolerance (stateODERelTol).
 const scalar jfnkEpsilon
 (
     implicitHOCoeffs.lookupOrDefault<scalar>("jfnkEpsilon", 1.0e-7)
@@ -872,7 +879,7 @@ const word jfnkPetscOptionsPrefix
 );
 
 // Initial-guess strategy at the start of each time step:
-//   0: x_0 = Vm_n  (constant extrapolation, legacy)
+//   0: x_0 = Vm_n  (constant extrapolation)
 //   1: x_0 = Vm_n + (Vm_n - Vm_{n-1}) * (dt / dt_prev)  (linear extrapolation)
 // On the first time step there is no Vm_{n-1}, so we fall back to order 0.
 const label jfnkInitGuessOrder
@@ -1033,7 +1040,7 @@ const word jfnkPreconditionerOptionsPrefix
 );
 
 // FD step used by the diagonalIion linearisation (finite-difference Jacobian
-// of Iion w.r.t. Vm, matched to solver2).
+// of Iion w.r.t. Vm).
 const scalar diagonalIionEpsilon
 (
     implicitHOCoeffs.lookupOrDefault<scalar>("diagonalIionEpsilon", 1.0e-6)
@@ -1045,11 +1052,11 @@ const Switch writeNonlinearResiduals
     implicitHOCoeffs.lookupOrDefault<Switch>("writeNonlinearResiduals", true)
 );
 
-// Escribir Vm, los estados y los campos exacto/error del ULTIMO instante, para
-// abrirlos en ParaView o compararlos contra otra corrida. No alcanza con que los
-// campos sean AUTO_WRITE: runTime.write() solo escribe en un write time, y con el
-// writeInterval que ponen los lanzadores eso no ocurre nunca. Ver el writeNow()
-// del final del solver.
+// Write Vm, the states and the exact/error fields at the LAST instant, to open
+// them in ParaView or compare them against another run. AUTO_WRITE on the
+// fields is not enough: runTime.write() only writes at a write time, and with
+// the writeInterval the launchers set that never happens. See the writeNow() at
+// the end of the solver.
 const Switch writeFinalFields
 (
     implicitHOCoeffs.lookupOrDefault<Switch>("writeFinalFields", false)
@@ -1096,8 +1103,8 @@ const Switch memoryOptimizationAdaptiveTripletReserve
     )
 );
 
-// Added for cardiacFoam: how often the per-step "Time step N : t = ... ,
-// RHS Linf = ..." line is printed. Was a hard-coded `nSteps % 50`.
+// how often the per-step "Time step N : t = ... , RHS Linf = ..." line is 
+// printed. Was a hard-coded `nSteps % 50`.
 //
 // Note this also gates updateNumericalLaplacian(), because the printed
 // RHS Linf cannot be formed without it - the cadence and the diagnostic are
@@ -1113,8 +1120,8 @@ const label stepLogInterval
     )
 );
 
-// Added for cardiacFoam: the chunk sizes of the two chunked assemblies, which
-// used to be hard-coded 50000 locals.
+// the chunk sizes of the two chunked assemblies, which used to be hard-coded 
+// 50000 locals.
 //
 // They are capacity controls - K is assembled as sum_i K_chunk_i and
 // addTripletIfNeeded filters individual contributions, not accumulated ones, so
@@ -1211,12 +1218,13 @@ requireOneOf("stateODESolver", stateODESolver, {"RKF45", "RK4", "Euler"});
 //   history  (default) the interpolant through the Vm levels the scheme has
 //            already stored: the k+1 levels of BDF-k, or the stage values of
 //            the ESDIRK startup. Costs nothing but the interpolation itself.
-//   linear   the two-node ramp between V^n and the candidate, which is what
-//            every scheme used before. Kept ONLY so its cost stays measurable:
+//   linear   the two-node ramp between V^n and the candidate, which is what.
+//            Kept ONLY so its cost stays measurable:
 //            it caps every BDF at order 2, and nothing reports it. The ramp
 //            is O(dt^2) wrong pointwise, O(dt^3) once integrated over the
-//            step, so O(dt^2) globally. Suite test M21: BDF4 fits 2.04 with
-//            it and 3.89 with history.
+//            step, so O(dt^2) globally.
+//
+//   Suite test M21: BDF4 fits 2.04 with linear and 3.89 with history.
 //
 // backwardEuler, crankNicolson and BDF1 store no level older than V^n, so they
 // take the two-node ramp under either value and are unaffected. So is the
@@ -1254,21 +1262,6 @@ const label stateODEMaxSteps
     implicitHOCoeffs.lookupOrDefault<label>("stateODEMaxSteps", 1000000000)
 );
 
-// Modified for cardiacFoam: stateODETolerance and stateODEMaxSubSteps were older
-// names of stateODERelTol and stateODEMaxSteps. Refused rather than ignored,
-// for the same reason as useHighOrder_states: ignoring one would quietly fall
-// back to the default tolerance and change the accuracy the case asked for.
-for (const char* oldKey : {"stateODETolerance", "stateODEMaxSubSteps"})
-{
-    if (implicitHOCoeffs.found(oldKey))
-    {
-        FatalErrorInFunction
-            << oldKey << " is no longer accepted." << nl
-            << "Use stateODERelTol and stateODEMaxSteps."
-            << exit(FatalError);
-    }
-}
-
 // Integrate the per-point ODEs with OpenMP. Numerically identical either
 // way (each point is an independent ODE); it pays off only where the ODE
 // dominates the cost.
@@ -1303,39 +1296,27 @@ const label stateODENumThreads
 );
 
 // ----------------------------------------------------------------------- //
-// LRE high-order interpolators for Vm and Iion.
+// High-order reconstruction stencils for Vm and Iion.
 // ----------------------------------------------------------------------- //
-
-// Classify each boundary patch into one of three roles for the LRE:
-//   - includePatchIn{Vm,Iion}Stencils  (Dirichlet → ghost point with value)
-//   - mirrorPatchNames{Vm,Iion}        (zeroGradient → mirror-ghost stencil)
-//   - skipped                          (everything else, e.g. empty)
-//
-// The mirror-ghost path was added in LRE to recover full high-order
-// convergence at zeroGradient boundaries (see LRE constructor in
-// $SOLIDS4FOAM_DIR/src/solids4FoamModels/numerics/LRE/LRE.C). A patch must
-// not appear simultaneously in includePatchIn*Stencils and in
-// mirrorPatchNames* — the LRE constructor enforces that with a FatalError.
-
-boolList includePatchInVmStencils(mesh.boundaryMesh().size(), false);
-// --------------------------------------------------------------------
-// LRE reconstruction stencils
-// --------------------------------------------------------------------
 // How each boundary patch enters the reconstruction stencils, classified
 // from Vm's boundary condition:
-//   fixedValue  -> a Dirichlet ghost value is added to the stencil, which
-//                  is what makes the reconstruction exact up to the
-//                  boundary for the manufactured solution;
-//   zeroGradient-> the stencil is mirrored across the patch;
-//   empty/processor/other -> neither; the library applies its own default.
+//   fixedValue / fixedVoltage -> the boundary value is added to the stencil
+//                  as a Dirichlet ghost point (includePatchIn{Vm,Iion}Stencils),
+//                  which keeps the reconstruction exact up to the boundary for
+//                  the manufactured solution;
+//   anything else -> not added. On a zeroGradient patch the boundary faces use
+//                  a one-sided stencil, and the Neumann condition enters as a
+//                  zero boundary flux: the finite-volume treatment, and exact
+//                  here, since the manufactured solution has zero normal
+//                  derivative on every boundary of the unit square.
+//
+// No mirrored stencil is built for zeroGradient patches. 
+boolList includePatchInVmStencils(mesh.boundaryMesh().size(), false);
 boolList includePatchInIionStencils(mesh.boundaryMesh().size(), false);
-wordList mirrorPatchNamesVm;
-wordList mirrorPatchNamesIion;
 
 forAll(mesh.boundaryMesh(), patchI)
 {
     const word bcType = Vm.boundaryField()[patchI].type();
-    const word& patchName = mesh.boundaryMesh()[patchI].name();
 
     if
     (
@@ -1346,20 +1327,52 @@ forAll(mesh.boundaryMesh(), patchI)
         includePatchInVmStencils[patchI] = true;
         includePatchInIionStencils[patchI] = true;
     }
-    else if (bcType == zeroGradientFvPatchScalarField::typeName)
-    {
-        mirrorPatchNamesVm.append(patchName);
-        mirrorPatchNamesIion.append(patchName);
-    }
-    // empty / processor / anything else: leave both lists at false; the
-    // LRE will treat the patch with its default boundary handling (skip
-    // for empty, NotImplemented for unsupported types).
 }
 
 // Sub-dictionary holding the stabilisation weight and the three LRE stencil
 // definitions (LRECoeffs_Vm, _Iion and _states).
 const dictionary& highOrderCoeffs =
     spatialIntegrationProperties.subDict("highOrderCoeffs");
+
+dictionary lreCoeffsVm(highOrderCoeffs.subDict("LRECoeffs_Vm"));
+
+// Stencil parameters echoed to the log so a run records what it was built
+// with. Only N, Nn and k reach the library; maxStencilSize is inert, the adapter
+// drops it.
+//
+//   N   the polynomial DEGREE of the local reconstruction.
+//   Nn  the stencil cells ADDED on top of the minimum that degree needs, NOT
+//       the total. The minimum is the number of terms in the Taylor polynomial,
+//       (N+1)(N+2)/2 in 2-D and (N+1)(N+2)(N+3)/6 in 3-D, which is the number of
+//       unknowns the local least-squares fit determines. So
+//
+//           stencil size = minimum + Nn
+//
+//       and Nn is the redundancy of that fit. With N 3 in 2-D the minimum is 10,
+//       so Nn 10 gives a 20-cell stencil, two points per unknown.
+//   k   exponent of the radial weight function.
+const label lreN = lreCoeffsVm.lookupOrDefault<label>("N", -1);
+const label lreNn = lreCoeffsVm.lookupOrDefault<label>("Nn", -1);
+const label lreMaxStencil = lreCoeffsVm.lookupOrDefault<label>("maxStencilSize", -1);
+const scalar lreK = lreCoeffsVm.lookupOrDefault<scalar>("k", -1.0);
+
+// Iion quadrature.
+const word IionCoeffsName("LRECoeffs_Iion");
+if (!highOrderCoeffs.found(IionCoeffsName))
+{
+    FatalErrorInFunction
+        << "highOrderCoeffs does not contain LRECoeffs_Iion (required for "
+        << "the Iion quadrature)." << nl
+        << exit(FatalError);
+}
+
+dictionary lreCoeffsIion(highOrderCoeffs.subDict(IionCoeffsName));
+// Same echo for the Iion interpolator.
+const label lreIionN = lreCoeffsIion.lookupOrDefault<label>("N", -1);
+const label lreIionNn = lreCoeffsIion.lookupOrDefault<label>("Nn", -1);
+const label lreIionMaxStencil =
+    lreCoeffsIion.lookupOrDefault<label>("maxStencilSize", -1);
+const scalar lreIionK = lreCoeffsIion.lookupOrDefault<scalar>("k", -1.0);
 
 // Weight of the face-jump stabilisation. Zero disables it. It penalises
 // the difference between the two cell values across a face and what their
@@ -1376,48 +1389,18 @@ const scalar stabilisationAlpha
     )
 );
 
-dictionary lreCoeffsVm(highOrderCoeffs.subDict("LRECoeffs_Vm"));
-// Inject the mirror-patch list before constructing the LRE so that
-// calcGlobalQRFaceGPCoeffs builds the doubled (mirror) stencil for those
-// patches. The entry is optional and harmless when empty.
-if (!mirrorPatchNamesVm.empty())
-{
-    lreCoeffsVm.set("mirrorPatches", mirrorPatchNamesVm);
-}
-
-// Iion quadrature uses LRECoeffs_Iion exclusively. The legacy fallback that
-// accepted LRECoeffs_states for Iion has been removed: LRECoeffs_states now has
-// a single, distinct meaning (the state-reconstruction interpolator used by
-// stateIntegrationMode = cellCentredReconstruct).
-const word IionCoeffsName("LRECoeffs_Iion");
-if (!highOrderCoeffs.found(IionCoeffsName))
-{
-    FatalErrorInFunction
-        << "highOrderCoeffs does not contain LRECoeffs_Iion (required for "
-        << "the Iion quadrature)." << nl
-        << exit(FatalError);
-}
-
-// Stencil parameters echoed to the log so a run records what it was built
-// with. Only N (polynomial order), Nn (extra stencil points) and k (weight
-// exponent) reach the library; maxStencilSize is inert, the adapter drops
-// it.
-const label lreN = lreCoeffsVm.lookupOrDefault<label>("N", -1);
-const label lreNn = lreCoeffsVm.lookupOrDefault<label>("Nn", -1);
-const label lreMaxStencil = lreCoeffsVm.lookupOrDefault<label>("maxStencilSize", -1);
-const scalar lreK = lreCoeffsVm.lookupOrDefault<scalar>("k", -1.0);
-
-dictionary lreCoeffsIion(highOrderCoeffs.subDict(IionCoeffsName));
-if (!mirrorPatchNamesIion.empty())
-{
-    lreCoeffsIion.set("mirrorPatches", mirrorPatchNamesIion);
-}
-// Same echo for the Iion interpolator.
-const label lreIionN = lreCoeffsIion.lookupOrDefault<label>("N", -1);
-const label lreIionNn = lreCoeffsIion.lookupOrDefault<label>("Nn", -1);
-const label lreIionMaxStencil =
-    lreCoeffsIion.lookupOrDefault<label>("maxStencilSize", -1);
-const scalar lreIionK = lreCoeffsIion.lookupOrDefault<scalar>("k", -1.0);
+// There is deliberately NO key for the non-orthogonal correction of the
+// low-order operator. It is always on.
+//
+// A bare two-point flux resolves only the part of grad(Vm) along the line joining
+// the two cell centres, so where that line is not parallel to the face normal it
+// drops the tangential remainder and the operator is INCONSISTENT: order 0.81 on
+// unstructured triangles instead of 2, with an error 230x larger than the same run
+// on hexahedra. No study wants that, so it is not selectable - the alternative
+// would be a switch whose only effect is to make the solver wrong. On an
+// orthogonal mesh with isotropic conductivity the correction is identically zero
+// and costs nothing, so there is no performance argument for a switch either.
+// See nonOrthFluxVector() in the solver for the decomposition.
 
 // Reconstruction used by the Vm diffusion operator and the consistent mass
 // matrix. Constructing it is the memory and time peak of the setup: it
@@ -1448,22 +1431,21 @@ highOrderInterp LREInterp_Iion
 // (p1/p2/p3) is set independently via highOrderCoeffs/LRECoeffs_states.
 //
 // Only built when actually needed (mode active, high-order Iion, dim > 1);
-// otherwise left null so the legacy gaussPointODE path pays no extra cost.
+// otherwise left null so the gaussPointODE path pays no extra cost.
 // ----------------------------------------------------------------------- //
 const bool buildStateInterp =
     reconstructStatesFromCellCentres
  && useHighOrder_Iion
  && mesh.nGeometricD() > 1;
 
-// Build the include-list for the state stencils from u1's boundary types
-// (the three states share fixedValue Dirichlet BCs in the MMS setup). Mirror
-// the Vm classification: fixedValue -> Dirichlet ghost; zeroGradient -> mirror.
+// Build the include-list for the state stencils from u1's boundary types, with
+// the same classification as Vm: a fixedValue patch adds its boundary value to
+// the stencil, anything else does not. In the MMS set-up the three states share
+// fixedValue boundary conditions.
 boolList includePatchInStateStencils(mesh.boundaryMesh().size(), false);
-wordList mirrorPatchNamesStates;
 forAll(mesh.boundaryMesh(), patchI)
 {
     const word bcType = u1.boundaryField()[patchI].type();
-    const word& patchName = mesh.boundaryMesh()[patchI].name();
 
     if
     (
@@ -1472,10 +1454,6 @@ forAll(mesh.boundaryMesh(), patchI)
     )
     {
         includePatchInStateStencils[patchI] = true;
-    }
-    else if (bcType == zeroGradientFvPatchScalarField::typeName)
-    {
-        mirrorPatchNamesStates.append(patchName);
     }
 }
 
@@ -1495,10 +1473,6 @@ if (buildStateInterp)
     }
 
     dictionary lreCoeffsStates(highOrderCoeffs.subDict("LRECoeffs_states"));
-    if (!mirrorPatchNamesStates.empty())
-    {
-        lreCoeffsStates.set("mirrorPatches", mirrorPatchNamesStates);
-    }
 
     LREInterp_statesPtr.reset
     (

@@ -38,7 +38,7 @@
 
 \author{}
 
-\date{Generado el 2026-09-17 a partir de \texttt{highOrderManufacturedFDAImplicitPETScDistributed.C} (9931 líneas)}
+\date{Generado el 2026-09-29 a partir de \texttt{highOrderManufacturedFDAImplicitPETScDistributed.C} (10145 líneas)}
 
 \begin{document}
 
@@ -75,6 +75,74 @@ principio porque el archivo los trata en lugares distintos: \textbf{MPI} reparte
 la malla entre ranks y toca todas las fases, mientras \textbf{OpenMP} reparte un
 lazo de celdas dentro de un rank y sólo toca la integración de las EDO.
 
+\section{De qué se compone: tres archivos y una capa}
+
+Conviene decirlo antes de mirar un listado, porque los nombres que aparecen en
+todos ellos no dicen de dónde salen. El solver se construye a partir de
+\textbf{tres} archivos del repositorio y de nada más:
+
+\begin{itemize}
+  \item \texttt{highOrderManufacturedFDAImplicitPETScDistributed.C}, el recorrido
+        de este documento;
+  \item \texttt{createFields.H}, que lee los diccionarios y construye los campos
+        y los operadores;
+  \item \texttt{src/highOrderAdapter/highOrderInterp.H}, la capa de alto orden.
+\end{itemize}
+
+Afuera queda OpenFOAM, PETSc, Eigen y \textbf{solids4foam}, de donde sale la
+reconstrucción de alto orden propiamente dicha. Después de sacar del
+\texttt{Make/options} las inclusiones y bibliotecas que ya no se usaban, el
+binario enlaza tres objetos compartidos:
+\texttt{libsolids4FoamModels}, \texttt{libpetsc} y \texttt{libOpenFOAM}.
+
+\textbf{Por qué el código dice ``LRE'' en todas partes.} La reconstrucción la
+hacía originalmente LRE (Castrillo \emph{et al.}, \emph{Comput Struct}
+268:106829, 2022), una biblioteca \textbf{serial}: su construcción de stencils
+retorna antes del intercambio MPI --- que está comentado --- y los patches de
+procesador lanzan \texttt{NotImplemented}. Es decir que el port a MPI no podía
+hacerse sobre ella. La reemplaza \texttt{movingLeastSquares}, también de
+solids4foam, que sí es paralela de verdad: los stencils llevan
+\textbf{identificadores globales} de celda y cada punto de evaluación hace su
+propio intercambio de halo, de modo que el llamador no cambia para correr en
+paralelo. Los nombres \texttt{LREInterp\_Vm}, \texttt{LREInterp\_Iion},
+\texttt{LREInterp\_states} y las claves \texttt{LRECoeffs*} del diccionario son
+\textbf{históricos}: LRE ya no interviene.
+
+\textbf{Qué hace la capa}, porque casi todo lo que contiene es reenvío de una
+línea y podría no existir. Cuatro diferencias de contrato la justifican:
+
+\begin{enumerate}
+  \item \textbf{Las claves del diccionario.} El solver y todos los casos del
+        árbol de corridas están escritos en la ortografía de LRE
+        (\texttt{N}, \texttt{Nn}, \texttt{weightFunction}, \texttt{k}), y la capa
+        las traduce a las de \texttt{movingLeastSquares}. Vale la pena saber que
+        \texttt{N} es el \emph{grado} del polinomio y \texttt{Nn} son las celdas
+        \emph{agregadas} sobre el mínimo, que es el número de términos del
+        desarrollo de Taylor: $(p{+}1)(p{+}2)/2$ en 2D y
+        $(p{+}1)(p{+}2)(p{+}3)/6$ en 3D. Con \texttt{N 2} y \texttt{Nn 10} en 2D
+        el stencil tiene $6+10=16$ celdas.
+  \item \textbf{Los coeficientes de derivadas por debajo del orden que los
+        necesita.} LRE reservaba los arreglos de derivada segunda y tercera
+        siempre, así que el solver liga la referencia y recién guarda el
+        \emph{uso} con \texttt{order() >= 2}. \texttt{movingLeastSquares} no los
+        construye por debajo del orden requerido y \textbf{aborta} si se los
+        piden; la capa devuelve una lista vacía y eso es lo que mantiene
+        correctos los tres bindings incondicionales del solver.
+  \item \textbf{Los pesos de cuadratura cambiaron de significado.} LRE los
+        normalizaba --- una cara sumaba 1 --- y el llamador multiplicaba por
+        $|S_f|$; los de solids4foam son \textbf{físicos} y suman $|S_f|$. Para
+        que la diferencia no reescalara un resultado en silencio, los accesores
+        se llaman \texttt{faceQuadWeightPhysical()} y
+        \texttt{cellQuadWeightPhysical()}: un sitio portado sin revisar
+        \textbf{no compila}.
+  \item \textbf{Una sobrecarga rota.} La forma de \texttt{fGrad} que devuelve
+        \texttt{autoPtr} llama a un miembro que no existe, así que la capa
+        dimensiona el resultado y usa la de dos argumentos.
+\end{enumerate}
+
+Nada de eso desaparece si se borra la capa: se muda a cada consumidor. Y hay dos
+consumidores, porque el solver del electro usa la misma.
+
 \section{Andamiaje de PETSc: errores y matriz distribuida}
 
 El solver ensambla en Eigen y resuelve en PETSc, así que lo primero del archivo
@@ -90,10 +158,10 @@ de PETSc se propaga como un entero que nadie mira.
 el layout que PETSc espera. En serie \texttt{gRowStart} vale cero y
 \texttt{nLocal == nGlobal}, así que el camino es el mismo.
 
-\lstinputlisting[firstnumber=117, firstline=117, lastline=126, caption={Un código de retorno de PETSc pasa a ser un error legible.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=117, firstline=117, lastline=126, caption={Un código de retorno de PETSc pasa a ser un error legible.}]
+\lstinputlisting[firstnumber=133, firstline=133, lastline=142, caption={Un código de retorno de PETSc pasa a ser un error legible.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=133, firstline=133, lastline=142, caption={Un código de retorno de PETSc pasa a ser un error legible.}]
 
 
-\lstinputlisting[firstnumber=139, firstline=139, lastline=198, caption={Tripletes locales a matriz distribuida. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=139, firstline=139, lastline=198, caption={Tripletes locales a matriz distribuida. Recortado. \textit{(recortado; sigue en el fuente.)}}]
+\lstinputlisting[firstnumber=155, firstline=155, lastline=214, caption={Tripletes locales a matriz distribuida. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=155, firstline=155, lastline=214, caption={Tripletes locales a matriz distribuida. Recortado. \textit{(recortado; sigue en el fuente.)}}]
 
 
 \section{El offset global de fila}
@@ -121,7 +189,7 @@ sea que los ranks $>0$ escribirían sus filas encima de las del rank 0: operador
 corrompido y respuesta plausible pero equivocada, nunca un error. Hoy nada lo
 hace; el accesor lo vuelve imposible en vez de meramente improbable.
 
-\lstinputlisting[firstnumber=80, firstline=80, lastline=108, caption={El offset, y el accesor que se niega a servirlo sin asignar.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=80, firstline=80, lastline=108, caption={El offset, y el accesor que se niega a servirlo sin asignar.}]
+\lstinputlisting[firstnumber=96, firstline=96, lastline=124, caption={El offset, y el accesor que se niega a servirlo sin asignar.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=96, firstline=96, lastline=124, caption={El offset, y el accesor que se niega a servirlo sin asignar.}]
 
 
 \section{Nombres de opciones: una sola ortografía, y los de PETSc}
@@ -167,13 +235,13 @@ un factor de 2.86 millones.
 Para producción la respuesta es otra y está en \textbf{M18}: ahí lo que importa
 es el tiempo, y el ranking cambia con el paso de tiempo.
 
-\lstinputlisting[firstnumber=343, firstline=343, lastline=373, caption={Una sola ortografía por opción, validada al arrancar.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=343, firstline=343, lastline=373, caption={Una sola ortografía por opción, validada al arrancar.}]
+\lstinputlisting[firstnumber=359, firstline=359, lastline=389, caption={Una sola ortografía por opción, validada al arrancar.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=359, firstline=359, lastline=389, caption={Una sola ortografía por opción, validada al arrancar.}]
 
 
-\lstinputlisting[firstnumber=409, firstline=409, lastline=426, caption={El par (KSP, PC) de un linearSolver, en un solo lugar.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=409, firstline=409, lastline=426, caption={El par (KSP, PC) de un linearSolver, en un solo lugar.}]
+\lstinputlisting[firstnumber=425, firstline=425, lastline=442, caption={El par (KSP, PC) de un linearSolver, en un solo lugar.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=425, firstline=425, lastline=442, caption={El par (KSP, PC) de un linearSolver, en un solo lugar.}]
 
 
-\lstinputlisting[firstnumber=460, firstline=460, lastline=472, caption={La sustitución que hace que ilu deje de ser ilu en paralelo.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=460, firstline=460, lastline=472, caption={La sustitución que hace que ilu deje de ser ilu en paralelo.}]
+\lstinputlisting[firstnumber=476, firstline=476, lastline=488, caption={La sustitución que hace que ilu deje de ser ilu en paralelo.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=476, firstline=476, lastline=488, caption={La sustitución que hace que ilu deje de ser ilu en paralelo.}]
 
 
 \section{La solución manufacturada}
@@ -206,7 +274,7 @@ Existe por una razón puntual: toda reconstrucción, cuadratura y flujo de este
 solver es exacto sobre un campo constante, así que el error espacial es cero a
 nivel de redondeo y el error contra la solución exacta es \textbf{puramente
 temporal}. Es la única forma de ajustar un orden temporal contra la solución
-analítica en vez de contra otra solución numérica, y es lo que mide \textbf{M22}.
+analítica en vez de contra otra solución numérica, y es la vía B de \textbf{M02}.
 A malla fija con \texttt{sines} eso es imposible: el error espacial
 ($2{,}4\times10^{-5}$ en hexa $N=40$) entierra al temporal, que para BDF4 es
 $\sim10^{-10}$.
@@ -217,16 +285,16 @@ que se verifica es la integración temporal del sistema de reacción. La difusi�
 la cubre \textbf{M02} por autoconvergencia. Y \texttt{computeBeta} devuelve cero
 en ese modo, porque no hay laplaciano que cancelar.
 
-\lstinputlisting[firstnumber=1456, firstline=1456, lastline=1459, caption={El campo exacto.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=1456, firstline=1456, lastline=1459, caption={El campo exacto.}]
+\lstinputlisting[firstnumber=1472, firstline=1472, lastline=1475, caption={El campo exacto.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=1472, firstline=1472, lastline=1475, caption={El campo exacto.}]
 
 
-\lstinputlisting[firstnumber=1403, firstline=1403, lastline=1427, caption={El factor espacial, y dónde el modo uniform lo vuelve 1.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=1403, firstline=1403, lastline=1427, caption={El factor espacial, y dónde el modo uniform lo vuelve 1.}]
+\lstinputlisting[firstnumber=1419, firstline=1419, lastline=1443, caption={El factor espacial, y dónde el modo uniform lo vuelve 1.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=1419, firstline=1419, lastline=1443, caption={El factor espacial, y dónde el modo uniform lo vuelve 1.}]
 
 
-\lstinputlisting[firstnumber=1550, firstline=1550, lastline=1562, caption={El término que lo convierte en solución.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=1550, firstline=1550, lastline=1562, caption={El término que lo convierte en solución.}]
+\lstinputlisting[firstnumber=1566, firstline=1566, lastline=1578, caption={El término que lo convierte en solución.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=1566, firstline=1566, lastline=1578, caption={El término que lo convierte en solución.}]
 
 
-\lstinputlisting[firstnumber=1568, firstline=1568, lastline=1591, caption={Lee la celda 0: sólo vale con D uniforme.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=1568, firstline=1568, lastline=1591, caption={Lee la celda 0: sólo vale con D uniforme.}]
+\lstinputlisting[firstnumber=1584, firstline=1584, lastline=1607, caption={Lee la celda 0: sólo vale con D uniforme.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=1584, firstline=1584, lastline=1607, caption={Lee la celda 0: sólo vale con D uniforme.}]
 
 
 \section{Bloques de construcción del ensamblado}
@@ -239,12 +307,23 @@ patrón de esparsidad dependa del valor y, por lo tanto, de la partición al niv
 del redondeo.
 
 \texttt{addCellGradientDotCoeffs} agrega la fila de gradiente de una celda
-proyectada sobre un vector. Usa \texttt{globalCellStencils()}, y ahí está el
-problema abierto más grande del proyecto: sobre las celdas pegadas a un corte de
-procesador ese stencil \textbf{pierde un miembro} (17 en serie contra 16 en
-paralelo). Como el ajuste MLS se rehace sobre el conjunto reducido, no cambia
-sólo el término que falta --- \textbf{refita toda la fila}. Eso es lo que hace
-fallar a \textbf{M11} y, río abajo, a \textbf{M15}.
+proyectada sobre un vector. Usa \texttt{globalCellStencils()}, y ahí vivió durante
+meses el que se creía el problema abierto más grande del proyecto: sobre las
+celdas pegadas a un corte de procesador el stencil \textbf{perdía un miembro} (17
+en serie contra 16 en paralelo). Como el ajuste MLS se rehace sobre el conjunto
+reducido, no cambiaba sólo el término que faltaba --- \textbf{refitaba toda la
+fila}. Eso era lo que hacía fallar a \textbf{M11} y, río abajo, a \textbf{M15}, y
+se había dado por un item de solids4foam que se mide y no se arregla.
+
+\textbf{No lo era.} La causa estaba del lado del caso: la clave \texttt{Nn} del
+diccionario son las celdas que se AGREGAN sobre el mínimo que exige el grado, y
+los barridos la venían escribiendo como si fuera el TOTAL. La biblioteca sumaba
+el mínimo otra vez, así que los estencils medían $2\,\mathrm{min}+10$ en vez de
+$\mathrm{min}+10$ --- 16/22/30 celdas en 2D en vez de 13/16/20, un 50 \% más
+grandes de lo pretendido --- y el halo no alcanzaba a cubrirlos. Con el tamaño
+correcto el stencil es invariante a la partición: \textbf{M11 mide 0 stencils
+distintos y M15 baja de 4.981e-06 a 6.953e-15}, los dos en PASS. La suite quedó
+24/24.
 
 \texttt{exchangeCoupledFaceRows} es la que permite que el término de
 estabilización cruce un corte: intercambia con el rank vecino las filas que
@@ -252,13 +331,13 @@ hacen falta del otro lado. Es \textbf{colectiva}, y está deliberadamente fuera
 del lazo de chunks --- adentro se trabaría en cuanto dos ranks tuvieran una
 cantidad distinta de chunks.
 
-\lstinputlisting[firstnumber=2301, firstline=2301, lastline=2313, caption={Por acá pasa toda entrada de la matriz.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=2301, firstline=2301, lastline=2313, caption={Por acá pasa toda entrada de la matriz.}]
+\lstinputlisting[firstnumber=2308, firstline=2308, lastline=2320, caption={Por acá pasa toda entrada de la matriz.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=2308, firstline=2308, lastline=2320, caption={Por acá pasa toda entrada de la matriz.}]
 
 
-\lstinputlisting[firstnumber=2621, firstline=2621, lastline=2666, caption={La fila de gradiente. Recortada.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=2621, firstline=2621, lastline=2666, caption={La fila de gradiente. Recortada.}]
+\lstinputlisting[firstnumber=2703, firstline=2703, lastline=2748, caption={La fila de gradiente. Recortada.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=2703, firstline=2703, lastline=2748, caption={La fila de gradiente. Recortada.}]
 
 
-\lstinputlisting[firstnumber=2822, firstline=2822, lastline=2881, caption={Intercambio de filas a través de un corte. Recortada. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=2822, firstline=2822, lastline=2881, caption={Intercambio de filas a través de un corte. Recortada. \textit{(recortado; sigue en el fuente.)}}]
+\lstinputlisting[firstnumber=2904, firstline=2904, lastline=2963, caption={Intercambio de filas a través de un corte. Recortada. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=2904, firstline=2904, lastline=2963, caption={Intercambio de filas a través de un corte. Recortada. \textit{(recortado; sigue en el fuente.)}}]
 
 
 \section{Las dos matrices de rigidez}
@@ -271,7 +350,7 @@ dos puntos entre celdas vecinas. Usa el \textbf{promedio}
 $\tfrac12(D_{own}+D_{nei})$ como tensor de cara.
 
 \texttt{assembleHighOrderStiffnessMatrix} es el de alto orden, sobre el stencil
-LRE con cuadratura en las caras. Acá estuvo el defecto más grande que encontró
+MLS con cuadratura en las caras. Acá estuvo el defecto más grande que encontró
 la verificación: usaba \texttt{conductivity[own]} \textbf{en las dos filas} de
 una cara interna, en vez del promedio. Con $D$ uniforme los dos tensores
 coinciden y se cancela idénticamente, así que fue invisible durante toda la vida
@@ -285,10 +364,10 @@ solamente: el resultado no debe depender de él, y \textbf{M12} lo verifica ---
 con tolerancia y no bit a bit, porque cambiar el tamaño de bloque cambia el
 orden de suma en punto flotante.
 
-\lstinputlisting[firstnumber=3083, firstline=3083, lastline=3142, caption={Bajo orden: promedio en la cara. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=3083, firstline=3083, lastline=3142, caption={Bajo orden: promedio en la cara. Recortado. \textit{(recortado; sigue en el fuente.)}}]
+\lstinputlisting[firstnumber=3175, firstline=3175, lastline=3234, caption={Bajo orden: promedio en la cara. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=3175, firstline=3175, lastline=3234, caption={Bajo orden: promedio en la cara. Recortado. \textit{(recortado; sigue en el fuente.)}}]
 
 
-\lstinputlisting[firstnumber=3392, firstline=3392, lastline=3451, caption={Alto orden, sobre el stencil LRE. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=3392, firstline=3392, lastline=3451, caption={Alto orden, sobre el stencil LRE. Recortado. \textit{(recortado; sigue en el fuente.)}}]
+\lstinputlisting[firstnumber=3594, firstline=3594, lastline=3653, caption={Alto orden, sobre el stencil MLS. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=3594, firstline=3594, lastline=3653, caption={Alto orden, sobre el stencil MLS. Recortado. \textit{(recortado; sigue en el fuente.)}}]
 
 
 \section{Resolución del sistema lineal}
@@ -328,13 +407,13 @@ transpuesta. Con la tríada de alto orden hay que usar \texttt{gmres}.
 mientras le alcancen pocas iteraciones y se cae cuando necesita más
 (\textbf{E13} lo muestra fallando con \texttt{jacobi} y \texttt{gamg}).
 
-\lstinputlisting[firstnumber=385, firstline=385, lastline=389, caption={El nombre del backend, validado.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=385, firstline=385, lastline=389, caption={El nombre del backend, validado.}]
+\lstinputlisting[firstnumber=401, firstline=401, lastline=405, caption={El nombre del backend, validado.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=401, firstline=401, lastline=405, caption={El nombre del backend, validado.}]
 
 
-\lstinputlisting[firstnumber=4149, firstline=4149, lastline=4208, caption={El despacho entre backends, con el guard de paralelo. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=4149, firstline=4149, lastline=4208, caption={El despacho entre backends, con el guard de paralelo. Recortado. \textit{(recortado; sigue en el fuente.)}}]
+\lstinputlisting[firstnumber=4351, firstline=4351, lastline=4410, caption={El despacho entre backends, con el guard de paralelo. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=4351, firstline=4351, lastline=4410, caption={El despacho entre backends, con el guard de paralelo. Recortado. \textit{(recortado; sigue en el fuente.)}}]
 
 
-\lstinputlisting[firstnumber=4070, firstline=4070, lastline=4129, caption={El camino serial. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=4070, firstline=4070, lastline=4129, caption={El camino serial. Recortado. \textit{(recortado; sigue en el fuente.)}}]
+\lstinputlisting[firstnumber=4272, firstline=4272, lastline=4331, caption={El camino serial. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=4272, firstline=4272, lastline=4331, caption={El camino serial. Recortado. \textit{(recortado; sigue en el fuente.)}}]
 
 
 \section{Discretización temporal: las dos familias}
@@ -380,13 +459,13 @@ sólo el orden sale mal, que es por lo que \texttt{bdfStartup} tiene hoy
 
 Con ese arranque los órdenes son los nominales. Medido a $N=40$ por las dos vías
 que usa la suite --- \textbf{M02}, autoconvergencia de Cauchy sobre la solución
-de senos con la difusión activa, y \textbf{M22}, error contra la solución
+de senos con la difusión activa, y su vía B, error contra la solución
 analítica sobre la MMS uniforme:
 
 \begin{center}
 \begin{tabular}{@{}llll@{}}
 \toprule
-\texttt{implicitScheme} & nominal & Cauchy (M02) & vs analítica (M22) \\
+\texttt{implicitScheme} & nominal & Cauchy, vía A & analítica, vía B \\
 \midrule
 \texttt{backwardEuler} y \texttt{BDF1} & 1 & $1{,}000$ & $1{,}000$ \\
 \texttt{crankNicolson} & 2 & $1{,}994$ & $2{,}000$ \\
@@ -413,13 +492,13 @@ donde BDF4 llega a $3{,}89$; esa cifra de ESDIRK4 es anterior al arreglo del laz
 temporal y no se volvió a medir --- y cada etapa reintegra las EDO, que es el
 $74$--$99\%$ del tiempo en el solver fisiológico.
 
-\lstinputlisting[firstnumber=1805, firstline=1805, lastline=1864, caption={Los coeficientes de las dos familias. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=1805, firstline=1805, lastline=1864, caption={Los coeficientes de las dos familias. Recortado. \textit{(recortado; sigue en el fuente.)}}]
+\lstinputlisting[firstnumber=1821, firstline=1821, lastline=1880, caption={Los coeficientes de las dos familias. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=1821, firstline=1821, lastline=1880, caption={Los coeficientes de las dos familias. Recortado. \textit{(recortado; sigue en el fuente.)}}]
 
 
-\lstinputlisting[firstnumber=1765, firstline=1765, lastline=1801, caption={La tabla del arranque, derivada de las condiciones de orden.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=1765, firstline=1765, lastline=1801, caption={La tabla del arranque, derivada de las condiciones de orden.}]
+\lstinputlisting[firstnumber=1781, firstline=1781, lastline=1817, caption={La tabla del arranque, derivada de las condiciones de orden.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=1781, firstline=1781, lastline=1817, caption={La tabla del arranque, derivada de las condiciones de orden.}]
 
 
-\lstinputlisting[firstnumber=8289, firstline=8289, lastline=8323, caption={Dónde el arranque ESDIRK es alcanzable, y sólo ahí.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=8289, firstline=8289, lastline=8323, caption={Dónde el arranque ESDIRK es alcanzable, y sólo ahí.}]
+\lstinputlisting[firstnumber=8487, firstline=8487, lastline=8521, caption={Dónde el arranque ESDIRK es alcanzable, y sólo ahí.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=8487, firstline=8487, lastline=8521, caption={Dónde el arranque ESDIRK es alcanzable, y sólo ahí.}]
 
 
 \section{El driver de Vm que manejan las EDO}
@@ -453,26 +532,26 @@ existen. El caso de dos nodos está escrito aparte y no pasa por el bucle, que e
 lo que garantiza que \texttt{backwardEuler} y \texttt{crankNicolson} sigan
 dando resultados idénticos bit a bit.
 
-\lstinputlisting[firstnumber=5284, firstline=5284, lastline=5316, caption={El interpolante, con el caso de dos nodos escrito aparte.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=5284, firstline=5284, lastline=5316, caption={El interpolante, con el caso de dos nodos escrito aparte.}]
+\lstinputlisting[firstnumber=5482, firstline=5482, lastline=5514, caption={El interpolante, con el caso de dos nodos escrito aparte.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=5482, firstline=5482, lastline=5514, caption={El interpolante, con el caso de dos nodos escrito aparte.}]
 
 
-\lstinputlisting[firstnumber=5318, firstline=5318, lastline=5339, caption={Dónde el driver entra a las EDO.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=5318, firstline=5318, lastline=5339, caption={Dónde el driver entra a las EDO.}]
+\lstinputlisting[firstnumber=5516, firstline=5516, lastline=5537, caption={Dónde el driver entra a las EDO.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=5516, firstline=5516, lastline=5537, caption={Dónde el driver entra a las EDO.}]
 
 
 \section{Reconstrucción a los puntos de integración}
 
 Con alto orden, $V_m$ y los estados viven en los centros de celda pero la
 corriente iónica se evalúa en los puntos de Gauss. Estas rutinas hacen la
-reconstrucción LRE de ida y el promedio de vuelta.
+reconstrucción MLS de ida y el promedio de vuelta.
 
 \texttt{reconstructStatesAtIionIntegrationPoints} lleva un limitador de
 Barth--Jespersen, acotando la reconstrucción al rango de los vecinos. No es
 cosmético: sin él, el sobrepaso de alto orden sobre estados rígidos desborda.
 
-\lstinputlisting[firstnumber=4933, firstline=4933, lastline=4992, caption={Reconstrucción de Vm. Recortada. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=4933, firstline=4933, lastline=4992, caption={Reconstrucción de Vm. Recortada. \textit{(recortado; sigue en el fuente.)}}]
+\lstinputlisting[firstnumber=5131, firstline=5131, lastline=5190, caption={Reconstrucción de Vm. Recortada. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=5131, firstline=5131, lastline=5190, caption={Reconstrucción de Vm. Recortada. \textit{(recortado; sigue en el fuente.)}}]
 
 
-\lstinputlisting[firstnumber=5105, firstline=5105, lastline=5136, caption={El promedio de vuelta a celdas.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=5105, firstline=5105, lastline=5136, caption={El promedio de vuelta a celdas.}]
+\lstinputlisting[firstnumber=5303, firstline=5303, lastline=5334, caption={El promedio de vuelta a celdas.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=5303, firstline=5303, lastline=5334, caption={El promedio de vuelta a celdas.}]
 
 
 \section{Integración de las EDO, y el paralelismo por hilos}
@@ -487,20 +566,25 @@ región funciona porque cada punto integra su propia EDO sin hablar con ningún
 otro, y por eso el resultado es \textbf{bit-idéntico} con cualquier cantidad de
 hilos, cosa que \textbf{E20} mide en el otro solver dando exactamente cero.
 
-El umbral por debajo del cual la región no se abre \textbf{está fijo en 256 en
-seis lazos}, ignorando la clave \texttt{stateODEOpenMPThreshold} del
-diccionario. Es un item abierto: la clave se lee y no hace nada.
+El umbral por debajo del cual la región no se abre llega como parámetro desde la
+clave \texttt{stateODEOpenMPThreshold}, en las \textbf{22} llamadas que lo pasan.
+Esto figuró un tiempo como item abierto --- se creía que el valor estaba fijo en
+256 en seis lazos y que la clave no hacía nada --- y al ir a arreglarlo resultó
+que ya estaba conectado y que lo desactualizado era el registro. Lo que sí se
+hizo fue \textbf{quitar los argumentos por defecto} de las seis firmas que
+reciben el umbral, para que una llamada nueva que se olvide de pasarlo no
+compile, en vez de correr en silencio con un 256 escrito en la firma.
 
-\lstinputlisting[firstnumber=5499, firstline=5499, lastline=5558, caption={El avance de los estados. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=5499, firstline=5499, lastline=5558, caption={El avance de los estados. Recortado. \textit{(recortado; sigue en el fuente.)}}]
+\lstinputlisting[firstnumber=5697, firstline=5697, lastline=5756, caption={El avance de los estados. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=5697, firstline=5697, lastline=5756, caption={El avance de los estados. Recortado. \textit{(recortado; sigue en el fuente.)}}]
 
 
-\lstinputlisting[firstnumber=5402, firstline=5402, lastline=5461, caption={El paso adaptativo. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=5402, firstline=5402, lastline=5461, caption={El paso adaptativo. Recortado. \textit{(recortado; sigue en el fuente.)}}]
+\lstinputlisting[firstnumber=5600, firstline=5600, lastline=5659, caption={El paso adaptativo. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=5600, firstline=5600, lastline=5659, caption={El paso adaptativo. Recortado. \textit{(recortado; sigue en el fuente.)}}]
 
 
 \section{main(): montaje}
 
 \texttt{main()} arranca leyendo la malla y los diccionarios, construye los
-operadores LRE, y ensambla $M$ y $K$ \textbf{una sola vez} --- son constantes,
+operadores de alto orden, y ensambla $M$ y $K$ \textbf{una sola vez} --- son constantes,
 porque la no linealidad está en el término iónico y no en la difusión. Por eso
 en el desglose de tiempos el \texttt{setup} aparece separado del \texttt{loop}.
 
@@ -510,13 +594,28 @@ gratis cuando están apagados: \texttt{CF\_DUMP\_K} escribe $K$ como tripletes
 (fila global, columna global, valor) y \texttt{CF\_DUMP\_STENCILS} escribe la
 membresía de los stencils. Son la base de M09, M10, M11 y M15.
 
-\lstinputlisting[firstnumber=6452, firstline=6452, lastline=6475, caption={El arranque.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=6452, firstline=6452, lastline=6475, caption={El arranque.}]
+Lo primero de \texttt{main()}, antes de cualquier asignación grande, son tres
+llamadas a \texttt{mallopt}, y no son cosmética: la construcción de los
+operadores corre unos \textbf{2.3 millones de factorizaciones QR} sobre una malla
+de tetraedros 3D con $N{=}40$ y p3, y sin ajustar el asignador glibc crece el
+heap en varios GB de fragmentos que no devuelve y la corrida muere por falta de
+memoria en una máquina de 16 GB. \texttt{M\_ARENA\_MAX=2} evita que glibc cree
+una arena por hilo de OpenMP --- el montaje es serial, así que las arenas sólo
+inflan el RSS ---, y los dos umbrales en 64\,KB hacen que las asignaciones
+medianas pasen por \texttt{mmap} y que el relleno del heap vuelva al sistema
+operativo. Es el mismo techo de memoria que \textbf{M17} mide y el que explica
+por qué en 3D no se pasa de $N{=}30$.
+
+\lstinputlisting[firstnumber=6650, firstline=6650, lastline=6673, caption={El arranque.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=6650, firstline=6650, lastline=6673, caption={El arranque.}]
 
 
-\lstinputlisting[firstnumber=6761, firstline=6761, lastline=6768, caption={Dónde se fija el offset global de fila.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=6761, firstline=6761, lastline=6768, caption={Dónde se fija el offset global de fila.}]
+\lstinputlisting[firstnumber=6653, firstline=6653, lastline=6667, caption={El asignador, ajustado antes de la primera asignación grande.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=6653, firstline=6653, lastline=6667, caption={El asignador, ajustado antes de la primera asignación grande.}]
 
 
-\lstinputlisting[firstnumber=2078, firstline=2078, lastline=2083, caption={Los checkpoints de memoria que M17 usa para ajustar el techo.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=2078, firstline=2078, lastline=2083, caption={Los checkpoints de memoria que M17 usa para ajustar el techo.}]
+\lstinputlisting[firstnumber=6959, firstline=6959, lastline=6966, caption={Dónde se fija el offset global de fila.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=6959, firstline=6959, lastline=6966, caption={Dónde se fija el offset global de fila.}]
+
+
+\lstinputlisting[firstnumber=2085, firstline=2085, lastline=2090, caption={Los checkpoints de memoria que M17 usa para ajustar el techo.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=2085, firstline=2085, lastline=2090, caption={Los checkpoints de memoria que M17 usa para ajustar el techo.}]
 
 
 \section{main(): el lazo temporal y los métodos no lineales}
@@ -525,8 +624,26 @@ Cada paso resuelve un sistema no lineal, y hay tres métodos: \textbf{Picard} co
 relajación, \textbf{JFNK} --- Newton sin jacobiano explícito, con el producto
 matriz-vector aproximado por diferencias --- y \textbf{diagonalIion}, que
 linealiza la corriente iónica por su derivada diagonal. \textbf{M08} verifica
-que los tres lleguen al mismo lugar, con una tolerancia \emph{derivada} de la
-tolerancia no lineal en vez de elegida a mano.
+que los tres lleguen al mismo lugar, y lo que exige no es una cota absoluta sino
+una \emph{dirección de cambio}: que la dispersión entre los tres caiga en cada
+escalón de una escalera de \texttt{implicitTolerance}. Eso dice exactamente lo
+que se quiere afirmar --- que lo que los separa es el piso del solve lineal y no
+una diferencia estructural --- y no lleva ninguna constante. Su versión anterior
+derivaba una cota de \texttt{nonlinearVmTolerance}, y estaba indexada a una
+perilla que no gobernaba la cantidad que acotaba: apretarla cuatro órdenes no
+movía la discrepancia ni en el décimo dígito.
+
+Ese test tenía además un punto ciego, y detrás había un defecto real en JFNK. Su
+lazo evalúa la convergencia dos veces por iteración, al tope y al final, y la del
+tope necesita los incrementos que acumuló la iteración \emph{anterior}. Los
+recalculaba en el lugar contra una copia tomada unas líneas antes, con una sola
+re-evaluación del \emph{mismo} punto en medio, así que valían cero por
+construcción: cuatro de las cinco tolerancias comparaban cero contra un número
+positivo y el test se reducía al residual acoplado. Consecuencia medida en 3-D:
+en 24 de 50 pasos JFNK devolvía la extrapolación inicial sin dar un paso de
+Newton y con cero llamadas al KSP. Se arregló guardando los incrementos medidos
+al final de cada iteración; \texttt{max coupled\_relL2} cayó de 9.493e-09 a
+5.655e-16 y Picard y \texttt{diagonalIion} quedaron bit a bit idénticos.
 
 Al agotar las iteraciones sin converger hay dos salidas posibles, y \textbf{los
 tres métodos las eligen ahora con la misma clave}: \texttt{false} descarta el
@@ -558,13 +675,16 @@ $\Delta t$ dejan de ser del mismo instante. Ahora la condición es
 encontró la guarda de un test de la suite, no una revisión del código, y el mismo
 error sigue presente en el solver electro.
 
-\lstinputlisting[firstnumber=6694, firstline=6694, lastline=6705, caption={El despacho de método no lineal, y el rechazo de un nombre inválido.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=6694, firstline=6694, lastline=6705, caption={El despacho de método no lineal, y el rechazo de un nombre inválido.}]
+\lstinputlisting[firstnumber=6892, firstline=6892, lastline=6903, caption={El despacho de método no lineal, y el rechazo de un nombre inválido.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=6892, firstline=6892, lastline=6903, caption={El despacho de método no lineal, y el rechazo de un nombre inválido.}]
 
 
-\lstinputlisting[firstnumber=9464, firstline=9464, lastline=9492, caption={Las dos salidas al agotar las iteraciones, ahora comunes a los tres métodos.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=9464, firstline=9464, lastline=9492, caption={Las dos salidas al agotar las iteraciones, ahora comunes a los tres métodos.}]
+\lstinputlisting[firstnumber=9678, firstline=9678, lastline=9706, caption={Las dos salidas al agotar las iteraciones, ahora comunes a los tres métodos.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=9678, firstline=9678, lastline=9706, caption={Las dos salidas al agotar las iteraciones, ahora comunes a los tres métodos.}]
 
 
-\lstinputlisting[firstnumber=7325, firstline=7325, lastline=7336, caption={El lazo que ya no da un paso de más, y por qué.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=7325, firstline=7325, lastline=7336, caption={El lazo que ya no da un paso de más, y por qué.}]
+\lstinputlisting[firstnumber=7523, firstline=7523, lastline=7534, caption={El lazo que ya no da un paso de más, y por qué.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=7523, firstline=7523, lastline=7534, caption={El lazo que ya no da un paso de más, y por qué.}]
+
+
+\lstinputlisting[firstnumber=8951, firstline=8951, lastline=8977, caption={Por qué los incrementos del chequeo del tope de JFNK viven fuera del lazo: recalculados adentro valían cero y mataban cuatro tolerancias.}]{../highOrderManufacturedFDAImplicitPETScDistributed.C}%[firstnumber=8951, firstline=8951, lastline=8977, caption={Por qué los incrementos del chequeo del tope de JFNK viven fuera del lazo: recalculados adentro valían cero y mataban cuatro tolerancias.}]
 
 
 \section{Índice de funciones}
@@ -574,111 +694,111 @@ Todas las funciones del espacio de nombres anónimo, en orden de aparición. Las
 línea & función & líneas \\
 \midrule
 \endhead
-94 & \texttt{globalRowStart} & 15 \\
-117 & \texttt{checkPetscError} & 10 \\
-139 & \texttt{buildDistributedMat} & 85 \\
-257 & \texttt{clear} & 15 \\
-273 & \texttt{reset} & 19 \\
-343 & \texttt{requireOneOf} & 31 \\
-385 & \texttt{usesPetscBackend} & 5 \\
-409 & \texttt{resolvePetscKspPc} & 18 \\
-438 & \texttt{petscKspTypeForLinearSolver} & 12 \\
-460 & \texttt{petscParallelPcTypeName} & 13 \\
-476 & \texttt{isGmresType} & 4 \\
-532 & \texttt{copyEigVecToPetscVec} & 12 \\
-546 & \texttt{copyPetscVecToEigVec} & 16 \\
-566 & \texttt{setPetscOptionsPrefix} & 11 \\
-802 & \texttt{updateValues} & 65 \\
-868 & \texttt{solve} & 54 \\
-935 & \texttt{petscShellMatMult} & 17 \\
-962 & \texttt{petscShellPCApply} & 17 \\
-1050 & \texttt{initialise} & 153 \\
-1403 & \texttt{computeF} & 25 \\
-1418 & \texttt{if} & 4 \\
-1431 & \texttt{computeG} & 21 \\
-1456 & \texttt{exactVm} & 4 \\
-1463 & \texttt{exactU1} & 4 \\
-1469 & \texttt{exactU2} & 4 \\
-1476 & \texttt{exactU3} & 4 \\
-1483 & \texttt{exactFieldValue} & 20 \\
-1507 & \texttt{reactionRates} & 18 \\
-1530 & \texttt{ionicCurrentPDE} & 15 \\
-1550 & \texttt{vmSourcePDE} & 13 \\
-1568 & \texttt{computeBeta} & 24 \\
-1595 & \texttt{estimatedN} & 8 \\
-1608 & \texttt{characteristicDx} & 35 \\
-1648 & \texttt{volumeWeightedL1} & 7 \\
-1658 & \texttt{volumeWeightedL2} & 7 \\
-1667 & \texttt{linfNorm} & 5 \\
-1676 & \texttt{cellErrorNorm} & 4 \\
-1765 & \texttt{esdirk3Tableau} & 37 \\
-1805 & \texttt{timeSchemeCoeffs} & 71 \\
-1879 & \texttt{normalizedMassMatrixType} & 19 \\
-1899 & \texttt{computeFieldErrorSummary} & 9 \\
-1911 & \texttt{quadraticForm} & 14 \\
-1933 & \texttt{reconstructFromTaylor} & 24 \\
-1961 & \texttt{fieldToEigVec} & 12 \\
-1976 & \texttt{sourceToEigVec} & 4 \\
-1984 & \texttt{eigVecToField} & 9 \\
-1996 & \texttt{relativeL2Difference} & 29 \\
-2033 & \texttt{gSquaredNorm} & 6 \\
-2042 & \texttt{gNorm} & 4 \\
-2049 & \texttt{gDot} & 6 \\
-2058 & \texttt{relativeL2Norm} & 4 \\
-2064 & \texttt{peakResidentSetSizeKB} & 10 \\
-2078 & \texttt{logMemoryCheckpoint} & 6 \\
-2086 & \texttt{addDiagonalToMatrix} & 15 \\
-2103 & \texttt{solveGMRES} & 95 \\
-2200 & \texttt{solveLeftPreconditionedGMRES} & 97 \\
-2301 & \texttt{addTripletIfNeeded} & 13 \\
-2319 & \texttt{assembleDiagonalMassMatrix} & 20 \\
-2347 & \texttt{assembleConsistentMassMatrixHO} & 222 \\
-2574 & \texttt{orthogonalDiffusionCoeff} & 14 \\
-2591 & \texttt{normalDiffusivity} & 4 \\
-2600 & \texttt{stabilisationFaceCoeff} & 17 \\
-2621 & \texttt{addCellGradientDotCoeffs} & 46 \\
-2677 & \texttt{cellTaylorEntryCoeff} & 31 \\
-2717 & \texttt{buildCellTaylorExtrapolationRow} & 32 \\
-2752 & \texttt{addRemoteRowCoeffs} & 19 \\
-2778 & \texttt{buildCellGradientDotRow} & 27 \\
-2822 & \texttt{exchangeCoupledFaceRows} & 78 \\
-2906 & \texttt{addCellTaylorExtrapolationCoeffs} & 46 \\
-2963 & \texttt{addRhieChowInternalJumpCoeffs} & 40 \\
-3011 & \texttt{addRhieChowCoupledJumpCoeffs} & 40 \\
-3055 & \texttt{addRhieChowBoundaryJumpCoeffs} & 22 \\
-3083 & \texttt{assembleStandardOrthogonalStiffnessMatrix} & 295 \\
-3392 & \texttt{assembleHighOrderStiffnessMatrix} & 506 \\
-3903 & \texttt{assembleStandardOrthogonalBoundaryVector} & 69 \\
-3976 & \texttt{assembleHighOrderBoundaryVector} & 90 \\
-4070 & \texttt{solveSparseSystemEigen} & 72 \\
-4149 & \texttt{solveSparseSystem} & 74 \\
-4227 & \texttt{appendTetQuadraturePointsAndWeights} & 58 \\
-4290 & \texttt{cellQuadraturePointsAndWeights} & 71 \\
-4365 & \texttt{updateStateBoundaryValues} & 36 \\
-4405 & \texttt{applyExactVmBoundaryValues} & 32 \\
-4440 & \texttt{fillExactFields} & 60 \\
-4506 & \texttt{computeHighOrderLaplacian} & 89 \\
-4598 & \texttt{computeCellCentredIion} & 34 \\
-4634 & \texttt{computeCellCentredVmSource} & 34 \\
-4673 & \texttt{stencilValue} & 17 \\
-4715 & \texttt{reconstructStatesAtIionIntegrationPoints} & 189 \\
-4933 & \texttt{reconstructVmAtIionIntegrationPoints} & 168 \\
-5105 & \texttt{averageIntegrationPointFieldToCells} & 32 \\
-5138 & \texttt{clampPhysical} & 13 \\
-5155 & \texttt{initialiseIionIntegrationPointStates} & 26 \\
-5185 & \texttt{computeIionFromIntegrationPoints} & 32 \\
-5219 & \texttt{computeVmSourceFromIntegrationPoints} & 32 \\
-5284 & \texttt{interpolateVmDriver} & 33 \\
-5318 & \texttt{reactionRatesLinearVm} & 22 \\
-5343 & \texttt{rk4StateStep} & 54 \\
-5402 & \texttt{rkf45StateStep} & 92 \\
-5499 & \texttt{advanceStateODE} & 125 \\
-5627 & \texttt{updateIntegrationPointStatesODE} & 56 \\
-5711 & \texttt{updateStateFieldsODE} & 72 \\
-5784 & \texttt{computeGaussReconstructedError} & 109 \\
-5894 & \texttt{cellAsReconstructionError} & 14 \\
-5909 & \texttt{computeIntegrationPointStateError} & 65 \\
-6452 & \texttt{main} & 3479 \\
+110 & \texttt{globalRowStart} & 15 \\
+133 & \texttt{checkPetscError} & 10 \\
+155 & \texttt{buildDistributedMat} & 85 \\
+273 & \texttt{clear} & 15 \\
+289 & \texttt{reset} & 19 \\
+359 & \texttt{requireOneOf} & 31 \\
+401 & \texttt{usesPetscBackend} & 5 \\
+425 & \texttt{resolvePetscKspPc} & 18 \\
+454 & \texttt{petscKspTypeForLinearSolver} & 12 \\
+476 & \texttt{petscParallelPcTypeName} & 13 \\
+492 & \texttt{isGmresType} & 4 \\
+548 & \texttt{copyEigVecToPetscVec} & 12 \\
+562 & \texttt{copyPetscVecToEigVec} & 16 \\
+582 & \texttt{setPetscOptionsPrefix} & 11 \\
+818 & \texttt{updateValues} & 65 \\
+884 & \texttt{solve} & 54 \\
+951 & \texttt{petscShellMatMult} & 17 \\
+978 & \texttt{petscShellPCApply} & 17 \\
+1066 & \texttt{initialise} & 153 \\
+1419 & \texttt{computeF} & 25 \\
+1434 & \texttt{if} & 4 \\
+1447 & \texttt{computeG} & 21 \\
+1472 & \texttt{exactVm} & 4 \\
+1479 & \texttt{exactU1} & 4 \\
+1485 & \texttt{exactU2} & 4 \\
+1492 & \texttt{exactU3} & 4 \\
+1499 & \texttt{exactFieldValue} & 20 \\
+1523 & \texttt{reactionRates} & 18 \\
+1546 & \texttt{ionicCurrentPDE} & 15 \\
+1566 & \texttt{vmSourcePDE} & 13 \\
+1584 & \texttt{computeBeta} & 24 \\
+1611 & \texttt{estimatedN} & 8 \\
+1624 & \texttt{characteristicDx} & 35 \\
+1664 & \texttt{volumeWeightedL1} & 7 \\
+1674 & \texttt{volumeWeightedL2} & 7 \\
+1683 & \texttt{linfNorm} & 5 \\
+1692 & \texttt{cellErrorNorm} & 4 \\
+1781 & \texttt{esdirk3Tableau} & 37 \\
+1821 & \texttt{timeSchemeCoeffs} & 71 \\
+1895 & \texttt{normalizedMassMatrixType} & 19 \\
+1915 & \texttt{computeFieldErrorSummary} & 9 \\
+1927 & \texttt{quadraticForm} & 14 \\
+1949 & \texttt{reconstructFromTaylor} & 24 \\
+1977 & \texttt{fieldToEigVec} & 12 \\
+1992 & \texttt{sourceToEigVec} & 4 \\
+2000 & \texttt{eigVecToField} & 9 \\
+2012 & \texttt{relativeL2Difference} & 29 \\
+2049 & \texttt{gSquaredNorm} & 6 \\
+2058 & \texttt{gNorm} & 4 \\
+2065 & \texttt{relativeL2Norm} & 4 \\
+2071 & \texttt{peakResidentSetSizeKB} & 10 \\
+2085 & \texttt{logMemoryCheckpoint} & 6 \\
+2093 & \texttt{addDiagonalToMatrix} & 15 \\
+2110 & \texttt{solveGMRES} & 95 \\
+2207 & \texttt{solveLeftPreconditionedGMRES} & 97 \\
+2308 & \texttt{addTripletIfNeeded} & 13 \\
+2326 & \texttt{assembleDiagonalMassMatrix} & 20 \\
+2354 & \texttt{assembleConsistentMassMatrixHO} & 222 \\
+2581 & \texttt{orthogonalDiffusionCoeff} & 14 \\
+2598 & \texttt{normalDiffusivity} & 4 \\
+2640 & \texttt{nonOrthFluxVector} & 37 \\
+2682 & \texttt{stabilisationFaceCoeff} & 17 \\
+2703 & \texttt{addCellGradientDotCoeffs} & 46 \\
+2759 & \texttt{cellTaylorEntryCoeff} & 31 \\
+2799 & \texttt{buildCellTaylorExtrapolationRow} & 32 \\
+2834 & \texttt{addRemoteRowCoeffs} & 19 \\
+2860 & \texttt{buildCellGradientDotRow} & 27 \\
+2904 & \texttt{exchangeCoupledFaceRows} & 78 \\
+2988 & \texttt{addCellTaylorExtrapolationCoeffs} & 46 \\
+3045 & \texttt{addRhieChowInternalJumpCoeffs} & 40 \\
+3093 & \texttt{addRhieChowCoupledJumpCoeffs} & 40 \\
+3137 & \texttt{addRhieChowBoundaryJumpCoeffs} & 22 \\
+3175 & \texttt{assembleStandardOrthogonalStiffnessMatrix} & 405 \\
+3594 & \texttt{assembleHighOrderStiffnessMatrix} & 506 \\
+4105 & \texttt{assembleStandardOrthogonalBoundaryVector} & 69 \\
+4178 & \texttt{assembleHighOrderBoundaryVector} & 90 \\
+4272 & \texttt{solveSparseSystemEigen} & 72 \\
+4351 & \texttt{solveSparseSystem} & 74 \\
+4429 & \texttt{appendTetQuadraturePointsAndWeights} & 58 \\
+4492 & \texttt{cellQuadraturePointsAndWeights} & 71 \\
+4567 & \texttt{updateStateBoundaryValues} & 36 \\
+4607 & \texttt{applyExactVmBoundaryValues} & 32 \\
+4642 & \texttt{fillExactFields} & 60 \\
+4708 & \texttt{computeHighOrderLaplacian} & 85 \\
+4796 & \texttt{computeCellCentredIion} & 34 \\
+4832 & \texttt{computeCellCentredVmSource} & 34 \\
+4871 & \texttt{stencilValue} & 17 \\
+4913 & \texttt{reconstructStatesAtIionIntegrationPoints} & 189 \\
+5131 & \texttt{reconstructVmAtIionIntegrationPoints} & 168 \\
+5303 & \texttt{averageIntegrationPointFieldToCells} & 32 \\
+5336 & \texttt{clampPhysical} & 13 \\
+5353 & \texttt{initialiseIionIntegrationPointStates} & 26 \\
+5383 & \texttt{computeIionFromIntegrationPoints} & 32 \\
+5417 & \texttt{computeVmSourceFromIntegrationPoints} & 32 \\
+5482 & \texttt{interpolateVmDriver} & 33 \\
+5516 & \texttt{reactionRatesLinearVm} & 22 \\
+5541 & \texttt{rk4StateStep} & 54 \\
+5600 & \texttt{rkf45StateStep} & 92 \\
+5697 & \texttt{advanceStateODE} & 125 \\
+5825 & \texttt{updateIntegrationPointStatesODE} & 56 \\
+5909 & \texttt{updateStateFieldsODE} & 72 \\
+5982 & \texttt{computeGaussReconstructedError} & 109 \\
+6092 & \texttt{cellAsReconstructionError} & 14 \\
+6107 & \texttt{computeIntegrationPointStateError} & 65 \\
+6650 & \texttt{main} & 3495 \\
 \bottomrule
 \end{longtable}
 
