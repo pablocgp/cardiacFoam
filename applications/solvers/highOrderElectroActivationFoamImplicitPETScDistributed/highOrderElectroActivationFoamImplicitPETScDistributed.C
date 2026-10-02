@@ -20,7 +20,11 @@ Description
     external stimulus current.
 
     Numerical features:
-      * Time integration: theta-method (Backward Euler or Crank-Nicolson).
+      * Time integration: theta-method (Backward Euler or Crank-Nicolson) or
+        BDF1-4, with ESDIRK3 for the steps a multistep method cannot take
+        (startup, restart at a stimulus change, a step of non-nominal
+        length). The ionic states are integrated with Vm driven across the
+        step (linear ramp, or the BDF/ESDIRK history interpolant).
       * Mass matrix: lumped (diagonal) or LRE-consistent high-order.
       * Diffusion operator: standard FV orthogonal stencil or LRE high-order
         face-quadrature reconstruction (Taylor expansion up to 3rd order).
@@ -84,6 +88,31 @@ namespace
     // decomposition), so it is set once in main() rather than threaded through
     // every linear-solver signature. Zero in serial.
     label gRowStart = 0;
+    bool gRowStartSet = false;
+
+    // Added for cardiacFoam, ported from the MMS solver: read through an
+    // accessor that refuses to serve the initial 0. The assignment happens in
+    // main, right after the mesh is read, and every PETSc row insertion reads
+    // it. A future code path that touched a matrix before that point would
+    // offset by 0 on EVERY rank, so ranks > 0 would write their rows on top of
+    // rank 0's: a corrupt operator and a plausible wrong answer, never an
+    // error. Nothing does that today - this makes it impossible rather than
+    // merely unlikely.
+    label globalRowStart()
+    {
+        if (!gRowStartSet)
+        {
+            FatalErrorInFunction
+                << "The global row offset was read before it was set."
+                << " It is assigned once in main from"
+                << " gCellsPtr->localStart(); reaching a PETSc matrix before"
+                << " that offsets every rank's rows by 0 and corrupts the"
+                << " operator."
+                << exit(FatalError);
+        }
+
+        return gRowStart;
+    }
 
     // Added for cardiacFoam: global cell addressing used for matrix COLUMNS.
     // Owned by main(); the assembly routines are free functions, so a
@@ -171,7 +200,7 @@ namespace
     {
         const PetscInt nLocalRows = static_cast<PetscInt>(A.rows());
         const PetscInt nGlobalCols = static_cast<PetscInt>(A.cols());
-        const PetscInt rStart = static_cast<PetscInt>(gRowStart);
+        const PetscInt rStart = static_cast<PetscInt>(globalRowStart());
         const PetscInt rEnd = rStart + nLocalRows;
 
         std::vector<PetscInt> dNnz(nLocalRows, 0);
@@ -391,106 +420,114 @@ namespace
         return s;
     }
 
-    // Lower-case copy of a dictionary word, so that user input is matched
-    // case-insensitively throughout.
-    std::string lowerWord(const word& value)
+    // Modified for cardiacFoam, ported from the MMS solver: every dictionary
+    // option has exactly ONE accepted spelling, compared case-sensitively, and
+    // anything else stops the run at start-up with the list of valid values.
+    //
+    // This replaces lowerWord, which matched user input case-insensitively and
+    // had accumulated aliases on top of it: SparseLU/sparselu/lu, Picard/picard,
+    // diagonalIion/diagonal/localDiagonal, RKF45/RKT45/rkf45, off/false/nopc,
+    // ilut, jakobi, amg, boomeramg and more. Two spellings for one thing is how
+    // the SparseLU bug hid in the MMS: one test compared case-sensitively and
+    // another did not, so the same word took a different path in each place.
+    void requireOneOf
+    (
+        const char* key,
+        const word& value,
+        std::initializer_list<const char*> valid
+    )
     {
-        std::string result(value.c_str());
-        std::transform
-        (
-            result.begin(),
-            result.end(),
-            result.begin(),
-            [](unsigned char c){ return std::tolower(c); }
-        );
-        return result;
+        for (const char* v : valid)
+        {
+            if (value == v)
+            {
+                return;
+            }
+        }
+
+        std::string options;
+        for (const char* v : valid)
+        {
+            if (!options.empty())
+            {
+                options += ", ";
+            }
+            options += v;
+        }
+
+        FatalErrorInFunction
+            << "Unknown " << key << ": " << value << nl
+            << "Valid options are " << options.c_str()
+            << " (exact spelling, case-sensitive)."
+            << exit(FatalError);
     }
 
     // True when a linearSolverBackend / jfnkLinearSolverBackend key selects
     // PETSc rather than the Eigen path.
+    //
+    // Modified for cardiacFoam, ported from the MMS solver: the name is
+    // VALIDATED. It used to be tested against a two-entry whitelist (petsc,
+    // ksp, any case) whose else-branch was Eigen, so a typo moved the whole run
+    // onto the serial backend without a word in the log - the same failure mode
+    // as "nonlinearMethod Picrad", which collapsed a method matrix onto one
+    // method. One spelling each, PETSc and Eigen.
     bool usesPetscBackend(const word& backend)
     {
-        const std::string b = lowerWord(backend);
-        return b == "petsc" || b == "ksp";
+        requireOneOf("linear solver backend", backend, {"PETSc", "Eigen"});
+        return backend == "PETSc";
     }
 
-    // Map the solver names used by the dictionaries onto PETSc KSP type names,
-    // so that the same case file drives either backend. Names PETSc already
-    // knows pass through unchanged. Note that the direct solvers (sparseLU/lu)
-    // become "preonly", i.e. apply the preconditioner once - it is PCLU that
-    // does the factorisation.
-    std::string petscKspTypeName(const word& kspType)
+    // Added for cardiacFoam, ported from the MMS solver: the (KSP, PC) pair a
+    // linearSolver request really means for PETSc, resolved in ONE place.
+    //
+    // A direct solve is preonly + lu whatever petscLinearPcType says, so that
+    // is what SparseLU resolves to. On the MMS side the PC used to come from its
+    // default (ilu) on two of the three PETSc paths: ONE application of ILU
+    // standing in for the inverse of A, and preonly never checks a tolerance, so
+    // Picard converged - to the fixed point of the wrong operator. BiCGSTAB
+    // needs no case of its own: the default of petscLinearKspType is already
+    // its translation (petscKspTypeForLinearSolver), and a petscLinearKspType
+    // written explicitly is an explicit choice that should win.
+    void resolvePetscKspPc
+    (
+        const word& linearSolver,
+        const word& petscKspType,
+        const word& petscPcType,
+        word& kspType,
+        word& pcType
+    )
     {
-        const std::string s = lowerWord(kspType);
+        kspType = petscKspType;
+        pcType = petscPcType;
 
-        if
-        (
-            s == "petsc"
-         || s == "gmres"
-         || s == "kspgmres"
-         || s == "jfnk"
-        )
+        if (linearSolver == "SparseLU")
+        {
+            kspType = "preonly";
+            pcType = "lu";
+        }
+    }
+
+    // Added for cardiacFoam, ported from the MMS solver: the PETSc KSP a
+    // backend-neutral linearSolver name stands for, used as the default of
+    // petscLinearKspType. SparseLU becomes preonly because in PETSc a direct
+    // solve is PCLU applied once (resolvePetscKspPc sets that PC).
+    //
+    // This replaces petscKspTypeName and petscPcTypeName, which accepted any
+    // capitalisation plus a list of aliases and passed anything else through
+    // to PETSc unchecked. The KSP and PC keys are now validated at start-up
+    // against closed lists of PETSc's own names, so nothing is left to
+    // translate.
+    word petscKspTypeForLinearSolver(const word& linearSolver)
+    {
+        if (linearSolver == "GMRES")
         {
             return "gmres";
         }
-        if (s == "bicgstab" || s == "bcgs")
+        if (linearSolver == "BiCGSTAB")
         {
             return "bcgs";
         }
-        if (s == "sparselu" || s == "lu")
-        {
-            return "preonly";
-        }
-
-        return s;
-    }
-
-    // Map preconditioner names onto PETSc PC type names, absorbing the
-    // spellings the dictionaries have accumulated (off/false/none/nopc, ilut,
-    // jakobi) and the AMG aliases. Anything else passes through, so any PC
-    // PETSc supports can be named directly.
-    std::string petscPcTypeName(const word& pcType)
-    {
-        const std::string s = lowerWord(pcType);
-
-        if
-        (
-            s == "off"
-         || s == "false"
-         || s == "none"
-         || s == "nopc"
-        )
-        {
-            return "none";
-        }
-        if (s == "ilut")
-        {
-            return "ilu";
-        }
-        if (s == "jakobi")
-        {
-            return "jacobi";
-        }
-        if (s == "lu" || s == "sparselu")
-        {
-            return "lu";
-        }
-        // Phase C3: algebraic multigrid convenience aliases. For the assembled
-        // (Picard / diagonalIion) branch the monodomain operator is SPD, so
-        // "kspType cg" + "pcType gamg" (PETSc native AMG) or "hypre" (BoomerAMG)
-        // scales far better than ILU/BiCGSTAB/LU on large 3D meshes. Any other
-        // PETSc PC name (gamg, hypre, gasm, bjacobi, ...) already passes through
-        // unchanged below, so no explicit mapping is required for them.
-        if (s == "amg")
-        {
-            return "gamg";
-        }
-        if (s == "boomeramg")
-        {
-            return "hypre";
-        }
-
-        return s;
+        return "preonly";
     }
 
 
@@ -505,7 +542,7 @@ namespace
     // on each block, or stays empty when no wrapping is needed.
     std::string petscParallelPcTypeName(const word& pcType, std::string& subPc)
     {
-        const std::string s = petscPcTypeName(pcType);
+        const std::string s(pcType);
         subPc.clear();
 
         if (Pstream::parRun() && (s == "ilu" || s == "lu"))
@@ -521,7 +558,7 @@ namespace
     // that needs a restart length to be configured.
     bool isGmresType(const word& kspType)
     {
-        return petscKspTypeName(kspType) == "gmres";
+        return kspType == "gmres";
     }
 
     // RAII guard around PetscInitialize/PetscFinalize.
@@ -711,7 +748,7 @@ namespace
             checkPetscError(KSPCreate(PETSC_COMM_WORLD, &ksp_), "KSPCreate");
             checkPetscError(KSPSetOperators(ksp_, A_, A_), "KSPSetOperators");
 
-            const std::string kspName = petscKspTypeName(kspType);
+            const std::string kspName(kspType);
             // Modified for cardiacFoam: ilu/lu have no MPIAIJ implementation
             // and KSPSetUp fails with PETSC_ERR_SUP. In parallel they are
             // wrapped in block-Jacobi, which applies the requested
@@ -844,7 +881,7 @@ namespace
                             // it needs the same gRowStart offset that
                             // buildDistributedMat() applies; without it every
                             // rank but the first wrote into the wrong rows.
-                            static_cast<PetscInt>(gRowStart + it.row()),
+                            static_cast<PetscInt>(globalRowStart() + it.row()),
                             static_cast<PetscInt>(it.col()),
                             static_cast<PetscScalar>(it.value()),
                             INSERT_VALUES
@@ -1089,7 +1126,7 @@ namespace
             checkPetscError(KSPCreate(PETSC_COMM_WORLD, &ksp_), "KSPCreate(cached shell)");
             checkPetscError(KSPSetOperators(ksp_, A_, A_), "KSPSetOperators(cached shell)");
 
-            const std::string kspName = petscKspTypeName(kspType);
+            const std::string kspName(kspType);
             checkPetscError(KSPSetType(ksp_, kspName.c_str()), "KSPSetType(cached shell)");
             checkPetscError
             (
@@ -1852,6 +1889,89 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
 }
 
 
+    // Added for cardiacFoam, ported from the MMS solver: the Vm the state ODEs
+    // are driven by, at ONE point, as a set of nodes in normalised time
+    // s = tau/interval over [0, 1].
+    //
+    // The ionic states are integrated over a PDE step with Vm held by the
+    // caller, and the ACCURACY OF THAT Vm(t) CAPS THE COUPLING. This solver used
+    // to hold it FROZEN at the candidate V^{n+1} for the whole step - a
+    // first-order splitting of the Vm-state coupling, whatever the PDE scheme,
+    // Crank-Nicolson included (E06 measured a Cauchy ratio of 0.41 ~ 2^-1.3 on
+    // CN, where second order gives 0.25). A linear blend between V^n and the
+    // candidate is O(dt^2); the MMS measured it capping every scheme above
+    // second order (BDF4 fits 2.04 with it and 3.89 with the history
+    // interpolant, ESDIRK4 1.88 against 2.99).
+    //
+    // nNodes == 2 with s = {0, 1} is the linear blend. BDF2-4 pass the k+1
+    // levels of their history and the ESDIRK stages their stage values - both
+    // already stored, so the higher-order interpolant costs no evaluation.
+    // The LAST node is always the candidate, at s = 1.
+    struct VmDriverNodes
+    {
+        label nNodes = 2;
+        //- Normalised abscissae; the last one is 1
+        FixedList<scalar, 6> s;
+        //- Vm [V] at those abscissae
+        FixedList<scalar, 6> v;
+    };
+
+    // Lagrange interpolation of the driver at normalised time s.
+    inline scalar interpolateVmDriver
+    (
+        const VmDriverNodes& nd,
+        const scalar s
+    )
+    {
+        // Written out for two nodes: the path every one-step scheme takes.
+        if (nd.nNodes <= 2)
+        {
+            return (1.0 - s)*nd.v[0] + s*nd.v[1];
+        }
+
+        scalar result = 0.0;
+
+        for (label j = 0; j < nd.nNodes; ++j)
+        {
+            scalar Lj = 1.0;
+
+            for (label m = 0; m < nd.nNodes; ++m)
+            {
+                if (m != j)
+                {
+                    Lj *= (s - nd.s[m])/(nd.s[j] - nd.s[m]);
+                }
+            }
+
+            result += Lj*nd.v[j];
+        }
+
+        return result;
+    }
+
+    // Added for cardiacFoam, ported from the MMS solver: the nodes of the
+    // driver at FIELD level - the same abscissae for every point, one field of
+    // values per node, indexed like the Vm array handed to solveODE. The last
+    // node is the candidate, which solveODE takes from its own Vm argument, so
+    // its field pointer is left null.
+    struct VmDriverStages
+    {
+        label nNodes = 2;
+        FixedList<scalar, 6> s;
+        FixedList<const scalarField*, 6> field;
+
+        VmDriverStages()
+        {
+            forAll(s, i)
+            {
+                s[i] = 0.0;
+                field[i] = nullptr;
+            }
+            s[1] = 1.0;
+        }
+    };
+
+
     // ten Tusscher-Noble-Noble-Panfilov (2004) ionic model, embedded in this
     // translation unit rather than taken from the ionicModels library.
     //
@@ -2028,6 +2148,26 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             }
         }
 
+        // Added for cardiacFoam: the membrane potential [mV] the driver
+        // prescribes at time tMs of an integration over [t0Ms, t0Ms + dtMs].
+        static scalar drivenVmMilliVolt
+        (
+            const VmDriverNodes& nodes,
+            const scalar tMs,
+            const scalar t0Ms,
+            const scalar dtMs
+        )
+        {
+            const scalar s = (dtMs > SMALL) ? (tMs - t0Ms)/dtMs : 1.0;
+            return 1000.0*interpolateVmDriver(nodes, s);
+        }
+
+        // Modified for cardiacFoam: with a driver, the rates are evaluated with
+        // V replaced by the driven Vm(tMs) instead of whatever the state vector
+        // carries. V is not integrated here (its rate is zero off the
+        // single-cell path), so the state entry only ever held the value set at
+        // the start of the step; the driver is what makes Vm vary across it.
+        // Without a driver nothing changes, bit for bit.
         void computeRates
         (
             const scalar tMs,
@@ -2035,12 +2175,19 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             scalarField& dydt,
             scalarField& algebraic,
             const label pointI,
-            const char* phase
+            const char* phase,
+            const VmDriverNodes* nodes = nullptr,
+            const scalar t0Ms = 0.0,
+            const scalar dtMs = 0.0
         )
         {
             if (numericalProtection_)
             {
                 scalarField yProtected(y);
+                if (nodes)
+                {
+                    yProtected[V] = drivenVmMilliVolt(*nodes, tMs, t0Ms, dtMs);
+                }
                 protectState(yProtected, tMs, pointI, phase);
                 TNNPcomputeRates
                 (
@@ -2056,6 +2203,10 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             else
             {
                 scalarField yCopy(y);
+                if (nodes)
+                {
+                    yCopy[V] = drivenVmMilliVolt(*nodes, tMs, t0Ms, dtMs);
+                }
                 TNNPcomputeRates
                 (
                     tMs,
@@ -2096,10 +2247,13 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             scalarField& y,
             scalarField& rates,
             scalarField& algebraic,
-            const label pointI
+            const label pointI,
+            const VmDriverNodes* nodes,
+            const scalar t0Ms,
+            const scalar dtMs
         )
         {
-            computeRates(tMs, y, rates, algebraic, pointI, "Euler");
+            computeRates(tMs, y, rates, algebraic, pointI, "Euler", nodes, t0Ms, dtMs);
             forAll(y, i)
             {
                 y[i] += hMs*rates[i];
@@ -2113,20 +2267,23 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             scalarField& y,
             scalarField& rates,
             scalarField& algebraic,
-            const label pointI
+            const label pointI,
+            const VmDriverNodes* nodes,
+            const scalar t0Ms,
+            const scalar dtMs
         )
         {
             scalarField k1(NUM_STATES, 0.0), k2(NUM_STATES, 0.0);
             scalarField k3(NUM_STATES, 0.0), k4(NUM_STATES, 0.0);
             scalarField yt(NUM_STATES, 0.0);
 
-            computeRates(tMs, y, k1, algebraic, pointI, "RK4_k1");
+            computeRates(tMs, y, k1, algebraic, pointI, "RK4_k1", nodes, t0Ms, dtMs);
             forAll(y, i) yt[i] = y[i] + 0.5*hMs*k1[i];
-            computeRates(tMs + 0.5*hMs, yt, k2, algebraic, pointI, "RK4_k2");
+            computeRates(tMs + 0.5*hMs, yt, k2, algebraic, pointI, "RK4_k2", nodes, t0Ms, dtMs);
             forAll(y, i) yt[i] = y[i] + 0.5*hMs*k2[i];
-            computeRates(tMs + 0.5*hMs, yt, k3, algebraic, pointI, "RK4_k3");
+            computeRates(tMs + 0.5*hMs, yt, k3, algebraic, pointI, "RK4_k3", nodes, t0Ms, dtMs);
             forAll(y, i) yt[i] = y[i] + hMs*k3[i];
-            computeRates(tMs + hMs, yt, k4, algebraic, pointI, "RK4_k4");
+            computeRates(tMs + hMs, yt, k4, algebraic, pointI, "RK4_k4", nodes, t0Ms, dtMs);
 
             forAll(y, i)
             {
@@ -2144,24 +2301,27 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             scalarField& rates,
             scalarField& algebraic,
             const label pointI,
-            scalar& err
+            scalar& err,
+            const VmDriverNodes* nodes,
+            const scalar t0Ms,
+            const scalar dtMs
         )
         {
             scalarField k1(NUM_STATES, 0.0), k2(NUM_STATES, 0.0), k3(NUM_STATES, 0.0);
             scalarField k4(NUM_STATES, 0.0), k5(NUM_STATES, 0.0), k6(NUM_STATES, 0.0);
             scalarField yt(NUM_STATES, 0.0), yFourth(NUM_STATES, 0.0);
 
-            computeRates(tMs, y, k1, algebraic, pointI, "RKF45_k1");
+            computeRates(tMs, y, k1, algebraic, pointI, "RKF45_k1", nodes, t0Ms, dtMs);
             forAll(y, i) yt[i] = y[i] + hMs*(1.0/5.0)*k1[i];
-            computeRates(tMs + hMs/5.0, yt, k2, algebraic, pointI, "RKF45_k2");
+            computeRates(tMs + hMs/5.0, yt, k2, algebraic, pointI, "RKF45_k2", nodes, t0Ms, dtMs);
             forAll(y, i) yt[i] = y[i] + hMs*((3.0/40.0)*k1[i] + (9.0/40.0)*k2[i]);
-            computeRates(tMs + 3.0*hMs/10.0, yt, k3, algebraic, pointI, "RKF45_k3");
+            computeRates(tMs + 3.0*hMs/10.0, yt, k3, algebraic, pointI, "RKF45_k3", nodes, t0Ms, dtMs);
             forAll(y, i) yt[i] = y[i] + hMs*((3.0/10.0)*k1[i] - (9.0/10.0)*k2[i] + (6.0/5.0)*k3[i]);
-            computeRates(tMs + 3.0*hMs/5.0, yt, k4, algebraic, pointI, "RKF45_k4");
+            computeRates(tMs + 3.0*hMs/5.0, yt, k4, algebraic, pointI, "RKF45_k4", nodes, t0Ms, dtMs);
             forAll(y, i) yt[i] = y[i] + hMs*((-11.0/54.0)*k1[i] + (5.0/2.0)*k2[i] - (70.0/27.0)*k3[i] + (35.0/27.0)*k4[i]);
-            computeRates(tMs + hMs, yt, k5, algebraic, pointI, "RKF45_k5");
+            computeRates(tMs + hMs, yt, k5, algebraic, pointI, "RKF45_k5", nodes, t0Ms, dtMs);
             forAll(y, i) yt[i] = y[i] + hMs*((1631.0/55296.0)*k1[i] + (175.0/512.0)*k2[i] + (575.0/13824.0)*k3[i] + (44275.0/110592.0)*k4[i] + (253.0/4096.0)*k5[i]);
-            computeRates(tMs + 7.0*hMs/8.0, yt, k6, algebraic, pointI, "RKF45_k6");
+            computeRates(tMs + 7.0*hMs/8.0, yt, k6, algebraic, pointI, "RKF45_k6", nodes, t0Ms, dtMs);
 
             err = 0.0;
             forAll(y, i)
@@ -2174,11 +2334,17 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             rates = k6;
         }
 
+        // Modified for cardiacFoam: nodes, when given, is the Vm driver of this
+        // point (see VmDriverNodes); its last node is VmVolt, the candidate, so
+        // state[V] - set to VmVolt below and never integrated - still carries
+        // the end-of-step value that the final computeVariables needs. Without
+        // nodes the rates see VmVolt for the whole step, as before.
         void advancePoint
         (
             const scalar tStartMs,
             const scalar dtMs,
             const scalar VmVolt,
+            const VmDriverNodes* nodes,
             scalarField& state,
             scalarField& algebraic,
             scalarField& rates,
@@ -2202,9 +2368,9 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                 return;
             }
 
-            if (odeSolverName_ == "Euler" || odeSolverName_ == "forwardEuler")
+            if (odeSolverName_ == "Euler")
             {
-                eulerStep(tStartMs, dtMs, state, rates, algebraic, pointI);
+                eulerStep(tStartMs, dtMs, state, rates, algebraic, pointI, nodes, tStartMs, dtMs);
                 protectState(state, tStartMs + dtMs, pointI, "solveODE_end");
                 computeVariables(tStartMs + dtMs, state, rates, algebraic);
                 stepMs = dtMs;
@@ -2213,25 +2379,17 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
 
             if (odeSolverName_ == "RK4")
             {
-                rk4Step(tStartMs, dtMs, state, rates, algebraic, pointI);
+                rk4Step(tStartMs, dtMs, state, rates, algebraic, pointI, nodes, tStartMs, dtMs);
                 protectState(state, tStartMs + dtMs, pointI, "solveODE_end");
                 computeVariables(tStartMs + dtMs, state, rates, algebraic);
                 stepMs = dtMs;
                 return;
             }
 
-            if
-            (
-                odeSolverName_ != "RKF45"
-             && odeSolverName_ != "RKT45"
-             && odeSolverName_ != "rkf45"
-            )
-            {
-                FatalErrorInFunction
-                    << "Unknown embedded TNNP ODE solver: " << odeSolverName_ << nl
-                    << "Valid options are RKF45, RKT45, RK4, Euler"
-                    << exit(FatalError);
-            }
+            // Modified for cardiacFoam: odeSolverName_ is validated in the
+            // constructor (RKF45, RK4, Euler, one spelling each), so reaching
+            // this point means RKF45. The aliases forwardEuler, RKT45 and rkf45
+            // are gone.
 
             scalar tau = 0.0;
             // Modified for cardiacFoam: the `initialODEStep` fallback that used
@@ -2279,7 +2437,10 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                     rates,
                     algebraic,
                     pointI,
-                    err
+                    err,
+                    nodes,
+                    tStartMs,
+                    dtMs
                 );
 
                 if (err <= 1.0 || h <= hMin)
@@ -2395,6 +2556,10 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                 dict.lookupOrDefault<label>("parallelODEThreshold", 256)
             )
         {
+            // Added for cardiacFoam: validated here, at start-up, instead of
+            // at the first ODE integration.
+            requireOneOf("stateODESolver", odeSolverName_, {"RKF45", "RK4", "Euler"});
+
             if (dict_.found("exportedVariables"))
             {
                 dict_.lookup("exportedVariables") >> exportedNames_;
@@ -2556,11 +2721,42 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             const scalarField& Vm,
             scalarField& Im,
             Field<Field<scalar>>& states,
-            const labelUList& scratchIDs = emptyScratchIDs()
+            const labelUList& scratchIDs = emptyScratchIDs(),
+            const VmDriverStages* driver = nullptr
         )
         {
             const scalar tStartMs = 1000.0*stepStartTime;
             const scalar dtMs = 1000.0*deltaT;
+
+            // Added for cardiacFoam: the Vm driver, when given, holds one field
+            // per node except the last, which is Vm itself (the candidate). A
+            // missing or mis-sized node is a silently wrong ODE driver rather
+            // than a crash, so it is checked here, before the parallel loop.
+            if (driver)
+            {
+                if (driver->nNodes < 2 || driver->nNodes > driver->s.size())
+                {
+                    FatalErrorInFunction
+                        << "Vm driver with " << driver->nNodes << " nodes."
+                        << abort(FatalError);
+                }
+
+                for (label j = 0; j < driver->nNodes - 1; ++j)
+                {
+                    if
+                    (
+                        !driver->field[j]
+                     || driver->field[j]->size() != Vm.size()
+                    )
+                    {
+                        FatalErrorInFunction
+                            << "Vm driver node " << j << " of "
+                            << driver->nNodes << " is not set or is not sized"
+                            << " to the " << Vm.size() << " points integrated."
+                            << abort(FatalError);
+                    }
+                }
+            }
             if (Im.size() != Vm.size())
             {
                 FatalErrorInFunction
@@ -2643,11 +2839,27 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                 const label slotI =
                     scratchIDs.empty() ? pointI : scratchIDs[pointI];
 
+                // Per-point nodes, local to the iteration, so the OpenMP loop
+                // shares nothing.
+                VmDriverNodes nodes;
+                if (driver)
+                {
+                    nodes.nNodes = driver->nNodes;
+                    for (label j = 0; j < driver->nNodes - 1; ++j)
+                    {
+                        nodes.s[j] = driver->s[j];
+                        nodes.v[j] = (*driver->field[j])[pointI];
+                    }
+                    nodes.s[driver->nNodes - 1] = driver->s[driver->nNodes - 1];
+                    nodes.v[driver->nNodes - 1] = Vm[pointI];
+                }
+
                 advancePoint
                 (
                     tStartMs,
                     dtMs,
                     Vm[pointI],
+                    driver ? &nodes : nullptr,
                     states[pointI],
                     algebraic_[slotI],
                     rates_[slotI],
@@ -2816,13 +3028,31 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             << currentPeakRSSMB() << nl;
     }
 
-    // Tissue-level external stimulus: sets the current to stimulusIntensity in
-    // the cells of every stimulus region whose window [tStart, tStart+duration]
-    // contains t0, and to zero everywhere else. Regions and their start times
-    // come from constant/stimulusProtocol.
-    void applyStimulus
+    // Tissue-level external stimulus over the step [t0, t0 + dt]: in the cells
+    // of every stimulus region, stimulusIntensity times the FRACTION of the step
+    // that falls inside the region's window [tStart, tStart + duration], and
+    // zero everywhere else. Regions and their start times come from
+    // constant/stimulusProtocol. Returns the fraction per region, which is
+    // what the BDF restart compares from one step to the next.
+    //
+    // Modified for cardiacFoam: the current used to be switched on for the
+    // WHOLE step whenever t0 lay in the CLOSED window. The step starting exactly
+    // at tStart + duration was therefore still stimulated, so a 2 ms stimulus
+    // at dt = 0.1 ms injected the charge of 2.1 ms: an O(dt) error in the
+    // stimulus itself, whatever the time scheme, and a first-order floor under
+    // every temporal convergence study. Averaging over the step makes the
+    // injected charge exact for any dt and any alignment: with the window on
+    // step boundaries it is exactly the windowed current, and a window that
+    // ends inside a step contributes that step's covered fraction. The value
+    // is constant within the step, so every scheme - the theta family, BDF and
+    // the ESDIRK stages - sees the same forcing.
+    //
+    // Where two windows cover the same cell the larger fraction wins, which is
+    // the old "set, not add" semantics carried over.
+    List<scalar> applyStimulus
     (
         const scalar t0,
+        const scalar dt,
         volScalarField& externalStimulusCurrent,
         const List<labelList>& stimulusCellIDsList,
         const List<scalar>& stimulusStartTimes,
@@ -2833,22 +3063,36 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         scalarField& extI = externalStimulusCurrent.primitiveFieldRef();
         extI = 0.0;
 
+        List<scalar> fraction(stimulusCellIDsList.size(), 0.0);
+
         forAll(stimulusCellIDsList, bI)
         {
             const scalar tStart = stimulusStartTimes[bI];
-            if (t0 < tStart || t0 > (tStart + stimulusDuration))
+            const scalar tEnd = tStart + stimulusDuration;
+            const scalar overlap = min(t0 + dt, tEnd) - max(t0, tStart);
+
+            if (overlap <= 0.0 || dt <= 0.0)
             {
                 continue;
             }
 
+            fraction[bI] = min(overlap/dt, scalar(1));
+
+            const scalar current = fraction[bI]*stimulusIntensity;
             const labelList& stimulusCellIDs = stimulusCellIDsList[bI];
             forAll(stimulusCellIDs, cI)
             {
-                extI[stimulusCellIDs[cI]] = stimulusIntensity;
+                const label cellI = stimulusCellIDs[cI];
+                if (mag(current) > mag(extI[cellI]))
+                {
+                    extI[cellI] = current;
+                }
             }
         }
 
         externalStimulusCurrent.correctBoundaryConditions();
+
+        return fraction;
     }
 
     // EXPLICIT high-order diffusion: evaluates the face fluxes
@@ -2987,46 +3231,175 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
     }
 
 
-    // theta of the time scheme: 1 for backward Euler, 1/2 for Crank-Nicolson.
-    // Anything else is a fatal dictionary error rather than a silent default.
-    scalar thetaFromScheme(const word& scheme)
+    // Added for cardiacFoam, ported from the MMS solver: coefficients of the
+    // time scheme. With M the mass operator and L the scaled diffusion
+    // operator, the two families are
+    //
+    //   theta family   M (V^{n+1} - V^n)/dt
+    //                    = L (theta V^{n+1} + (1-theta) V^n)
+    //                    + theta s^{n+1} + (1-theta) s^n
+    //
+    //   BDF-k          (M/dt) sum_{j=0}^{k} a_j V^{n+1-j}  =  L V^{n+1} + s^{n+1}
+    //
+    //     A = (a_0/dt) M - theta L        (theta = 1 for BDF)
+    //     B = M/dt + (1-theta) L          (= M/dt for BDF)
+    //
+    // and the step solves A V^{n+1} = B H + source, where the history vector H
+    // is V^n for the theta family and -sum_{j>=1} a_j V^{n+1-j} for BDF. So a
+    // BDF step is still ONE mass-matrix product: the combination of the stored
+    // levels is formed first, as a field. BDF1 and backwardEuler are the same
+    // scheme: a_0 = 1, a_1 = -1 gives H = V^n and A = M/dt - L, bit for bit.
+    struct TimeSchemeCoeffs
     {
-        if (scheme == "backwardEuler")
+        scalar theta = 1.0;
+        //- 0 for the theta family, k for BDF-k
+        label bdfOrder = 0;
+        //- a_0 .. a_k, trailing entries zero. a_0 is what scales M in A.
+        FixedList<scalar, 5> a;
+
+        TimeSchemeCoeffs()
         {
-            return 1.0;
+            a[0] = 1.0;
+            a[1] = -1.0;
+            a[2] = 0.0;
+            a[3] = 0.0;
+            a[4] = 0.0;
         }
-        else if (scheme == "crankNicolson")
+    };
+
+    // Added for cardiacFoam, ported from the MMS solver: Butcher tableau of an
+    // ESDIRK - Explicit first stage (raises the stage order to 2, against order
+    // reduction on stiff problems), Singly Diagonally Implicit (every implicit
+    // stage shares gamma, so ONE matrix M/(gamma dt) - L serves all of them) and
+    // stiffly accurate (b equals the last row, so V^{n+1} = Y_s and the method is
+    // L-stable). Here it only supplies what BDF-k cannot do by itself: the first
+    // k-1 steps, the k-1 steps after a restart, and a step of non-nominal length.
+    struct EsdirkTableau
+    {
+        label nStages = 0;
+        label order = 0;
+        scalar gamma = 0.0;
+        //- Lower-triangular including the diagonal; entries above it are zero
+        FixedList<FixedList<scalar, 6>, 6> a;
+        //- Abscissae. c[nStages - 1] == 1 for a stiffly accurate method
+        FixedList<scalar, 6> c;
+    };
+
+    // ESDIRK3(2)4L[2]SA: four stages, classical order 3, L-stable, stiffly
+    // accurate. gamma is the root of gamma^3 - 3 gamma^2 + (3/2) gamma - 1/6 = 0
+    // in (1/4, 1/2). The coefficients were obtained on the MMS side by solving
+    // the order conditions for c = [0, 2 gamma, 3/5, 1], row sums equal to c
+    // and b equal to the last row, and checked there: the four third-order
+    // conditions hold to ~1e-41 and the fourth-order one misses by 1.4e-3, so
+    // the method is exactly third order. Copied verbatim.
+    EsdirkTableau esdirk3Tableau()
+    {
+        EsdirkTableau tb;
+        tb.nStages = 4;
+        tb.order = 3;
+        tb.gamma = 0.435866521508458999416;
+
+        forAll(tb.c, i)
         {
-            return 0.5;
+            tb.c[i] = 0.0;
+            forAll(tb.a[i], j)
+            {
+                tb.a[i][j] = 0.0;
+            }
         }
 
-        FatalErrorInFunction
-            << "Unknown implicitScheme: " << scheme << nl
-            << "Valid options are backwardEuler or crankNicolson"
-            << exit(FatalError);
+        const scalar g = tb.gamma;
 
-        return 1.0;
+        tb.c[0] = 0.0;
+        tb.c[1] = 2.0*g;
+        tb.c[2] = 0.6;
+        tb.c[3] = 1.0;
+
+        tb.a[1][0] = g;
+        tb.a[1][1] = g;
+
+        tb.a[2][0] =  0.257648246066427245800;
+        tb.a[2][1] = -0.093514767574886245216;
+        tb.a[2][2] =  g;
+
+        tb.a[3][0] =  0.187641024346723825161;
+        tb.a[3][1] = -0.595297473576954948048;
+        tb.a[3][2] =  0.971789927721772123471;
+        tb.a[3][3] =  g;
+
+        return tb;
     }
 
-    // Collapse the accepted spellings of the massMatrix key onto the two modes
-    // the code actually branches on, lumped and consistent.
+    // Coefficients of the requested scheme. The name is validated at start-up
+    // (requireOneOf in createFields.H), so reaching the end is a programming
+    // error.
+    TimeSchemeCoeffs timeSchemeCoeffs(const word& scheme)
+    {
+        TimeSchemeCoeffs c;
+
+        if (scheme == "backwardEuler")
+        {
+            c.theta = 1.0;
+            return c;
+        }
+
+        if (scheme == "crankNicolson")
+        {
+            c.theta = 0.5;
+            return c;
+        }
+
+        // BDF is fully implicit in L, so theta = 1, and the source is wanted at
+        // t^{n+1} only - one source evaluation per step fewer than
+        // Crank-Nicolson needs.
+        c.theta = 1.0;
+
+        if (scheme == "BDF1")
+        {
+            c.bdfOrder = 1;
+            c.a[0] =  1.0;
+            c.a[1] = -1.0;
+        }
+        else if (scheme == "BDF2")
+        {
+            c.bdfOrder = 2;
+            c.a[0] =  3.0/2.0;
+            c.a[1] = -2.0;
+            c.a[2] =  1.0/2.0;
+        }
+        else if (scheme == "BDF3")
+        {
+            c.bdfOrder = 3;
+            c.a[0] =  11.0/6.0;
+            c.a[1] = -3.0;
+            c.a[2] =  3.0/2.0;
+            c.a[3] = -1.0/3.0;
+        }
+        else if (scheme == "BDF4")
+        {
+            c.bdfOrder = 4;
+            c.a[0] =  25.0/12.0;
+            c.a[1] = -4.0;
+            c.a[2] =  3.0;
+            c.a[3] = -4.0/3.0;
+            c.a[4] =  1.0/4.0;
+        }
+        else
+        {
+            FatalErrorInFunction
+                << "Unknown implicitScheme: " << scheme
+                << abort(FatalError);
+        }
+
+        return c;
+    }
+
+    // Modified for cardiacFoam: one spelling per mode, lumped and consistent.
+    // The aliases diagonal and consistentHO are gone (see requireOneOf).
     word normalizedMassMatrixType(const word& massMatrix)
     {
-        if (massMatrix == "lumped" || massMatrix == "diagonal")
-        {
-            return "lumped";
-        }
-        else if (massMatrix == "consistent" || massMatrix == "consistentHO")
-        {
-            return "consistent";
-        }
-
-        FatalErrorInFunction
-            << "Unknown massMatrix: " << massMatrix << nl
-            << "Valid options are lumped/diagonal and consistent/consistentHO"
-            << exit(FatalError);
-
-        return "lumped";
+        requireOneOf("massMatrix", massMatrix, {"lumped", "consistent"});
+        return massMatrix;
     }
 
     // Copy the internal field of an OpenFOAM volScalarField into an Eigen
@@ -3183,7 +3556,7 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         {
             for (SpMat::InnerIterator it(A, row); it; ++it)
             {
-                const label col = it.col() - gRowStart;
+                const label col = it.col() - globalRowStart();
                 if (col >= 0 && col < nLocal)
                 {
                     triplets.emplace_back(row, col, it.value());
@@ -3673,6 +4046,72 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         const vector e = d/dMag;
 
         return area*(n & (D & e))/dMag;
+    }
+
+    // Added for cardiacFoam, ported from the MMS solver: the part of the
+    // diffusive flux that a two-point flux cannot see.
+    //
+    // The exact flux through a face is |Sf| n . D . grad(V)|_f. Splitting the
+    // gradient along the owner-to-neighbour direction e = d/|d| and the rest,
+    //
+    //     |Sf| n.D.grad V = |Sf| (n.D.e)(grad V . e)  +  |Sf| (grad V . w)
+    //
+    // and approximating (grad V . e) by (V_nei - V_own)/|d| turns the FIRST term
+    // into exactly orthogonalDiffusionCoeff() times the two-point difference.
+    // This function returns the vector w of the SECOND term, which the two-point
+    // flux drops:
+    //
+    //     g = D . n,    w = g - (g . e) e
+    //
+    // i.e. the part of D.n orthogonal to the line joining the cell centres.
+    //
+    // Two cases make it non-zero, and both are real here:
+    //   - a NON-ORTHOGONAL mesh, where e is not parallel to n. This is what
+    //     makes the uncorrected two-point flux inconsistent on triangles and
+    //     tetrahedra: measured on the MMS, order 0.81 instead of 2.
+    //   - an ANISOTROPIC D, where D.n is not parallel to n even on an orthogonal
+    //     mesh. With fibre-oriented conductivity that is every face whose
+    //     normal is not aligned with the fibres, i.e. most of a heart mesh.
+    //
+    // With D aligned with an orthogonal mesh (the Niederer slab: diagonal D,
+    // axis-aligned hexahedra), g = lambda n and e = n, so w = 0 EXACTLY. That
+    // is why the term carries no dictionary key: where it would cost something
+    // it is also required for consistency, and where it is not required it
+    // costs nothing.
+    //
+    // Same decomposition as OpenFOAM's gaussLaplacianScheme (nonOrthDeltaCoeffs
+    // plus nonOrthCorrectionVectors), except that here the correction is
+    // assembled IMPLICITLY, through the reconstruction rows, instead of being
+    // deferred to the right-hand side.
+    vector nonOrthFluxVector(const vector& Sf, const vector& d, const tensor& D)
+    {
+        const vector n = Sf/(mag(Sf) + VSMALL);
+        const vector e = d/(mag(d) + VSMALL);
+        const vector g = D & n;
+        const vector w = g - (g & e)*e;
+
+        // w is the difference of two nearly equal vectors when e is nearly
+        // parallel to D.n, so where it should vanish it comes out at ROUNDOFF
+        // rather than at zero - face normals and cell centres are themselves
+        // computed by summation. That residue is not harmless: multiplied by
+        // |Sf|/V and the reconstruction coefficients it lands above the ABSOLUTE
+        // SMALL that addTripletIfNeeded filters on and survives into K. Measured
+        // on the hexahedral MMS at N=20: 3043 extra entries in K, all at 8.0e-16
+        // of the largest, moving Vm_L2 by 2.8e-07 relative.
+        //
+        // So the test is RELATIVE to |g|, the scale w is a remainder of, with a
+        // threshold inside a measured gap: on the unstructured MMS mesh the
+        // term's largest entry is 2.3e-02 of the largest entry of K, fourteen
+        // orders above the hexahedral residue. 1e-12 sits ~300x above the noise
+        // and ~1e11 below the signal.
+        const scalar wRelativeFloor = 1.0e-12;
+
+        if (mag(w) <= wRelativeFloor*max(mag(g), VSMALL))
+        {
+            return vector::zero;
+        }
+
+        return w;
     }
 
     // Diffusivity resolved along a face normal, n . D . n, floored at SMALL so
@@ -4191,11 +4630,24 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
     // and the row-sum check cannot see it, because an omitted face contributes
     // nothing to either of its rows. The far cell's data comes from
     // syncTools::swapBoundaryCellList, never from a patch field.
+    //
+    // Modified for cardiacFoam, ported from the MMS solver: the flux carries
+    // BOTH parts of the decomposition in nonOrthFluxVector() - the two-point
+    // term along the line joining the cell centres, and the tangential
+    // remainder, expanded implicitly through the reconstruction rows. The
+    // second one is not optional. A bare two-point flux is INCONSISTENT on
+    // triangles and tetrahedra (order 0.81 instead of 2 on the MMS, with an
+    // error 230x larger) and with conductivity not aligned with the faces, so
+    // it is not selectable. Where D is aligned with an orthogonal mesh the
+    // tangential term is identically zero and costs nothing.
+    //
+    // The reconstruction is taken by reference: createFields.H now always
+    // builds it, because this function always needs it.
     void assembleStandardOrthogonalStiffnessMatrix
     (
         const fvMesh& mesh,
         const volTensorField& conductivity,
-        const highOrderInterp* LREInterp,
+        const highOrderInterp& LREInterp,
         const scalar stabilisationAlpha,
         SpMat& K
     )
@@ -4208,27 +4660,46 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         std::vector<Triplet> triplets;
         triplets.reserve(4*mesh.nFaces());
 
-        if (stabilisationAlpha > SMALL && LREInterp == nullptr)
-        {
-            FatalErrorInFunction
-                << "stabilisationAlpha > 0 requires LRECoeffs_Vm so the "
-                << "Rhie-Chow stabilisation jump can be reconstructed."
-                << abort(FatalError);
-        }
-
         forAll(neighbour, faceI)
         {
             const label own = owner[faceI];
             const label nei = neighbour[faceI];
 
             const tensor Df = 0.5*(conductivity[own] + conductivity[nei]);
-            const scalar a =
-                orthogonalDiffusionCoeff(mesh.Sf()[faceI], C[nei] - C[own], Df);
+            const vector dPN = C[nei] - C[own];
+            const scalar a = orthogonalDiffusionCoeff(mesh.Sf()[faceI], dPN, Df);
 
             addTripletIfNeeded(triplets, own, gCol(own), -a/max(V[own], SMALL));
             addTripletIfNeeded(triplets, own, gCol(nei),  a/max(V[own], SMALL));
             addTripletIfNeeded(triplets, nei, gCol(own),  a/max(V[nei], SMALL));
             addTripletIfNeeded(triplets, nei, gCol(nei), -a/max(V[nei], SMALL));
+
+            // The tangential flux a two-point form would drop. grad V|_f is
+            // taken as the average of the two cell gradients, which is what
+            // OpenFOAM's correction does; here each of them is expanded into
+            // the matrix through its reconstruction row, so the term is
+            // IMPLICIT. Skipped where w is zero, which on an aligned orthogonal
+            // mesh is every face.
+            const vector w = nonOrthFluxVector(mesh.Sf()[faceI], dPN, Df);
+
+            if (w != vector::zero)
+            {
+                const scalar areaHalf = 0.5*(mag(mesh.Sf()[faceI]) + VSMALL);
+
+                for (const label cellI : {own, nei})
+                {
+                    addCellGradientDotCoeffs
+                    (
+                        triplets, own, areaHalf/max(V[own], SMALL), cellI, w,
+                        LREInterp
+                    );
+                    addCellGradientDotCoeffs
+                    (
+                        triplets, nei, -areaHalf/max(V[nei], SMALL), cellI, w,
+                        LREInterp
+                    );
+                }
+            }
         }
 
         const surfaceVectorField& Cf = mesh.Cf();
@@ -4263,7 +4734,7 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                     own,
                     nei,
                     dPN,
-                    *LREInterp
+                    LREInterp
                 );
 
                 addRhieChowInternalJumpCoeffs
@@ -4274,7 +4745,7 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                     own,
                     nei,
                     dPN,
-                    *LREInterp
+                    LREInterp
                 );
             }
         }
@@ -4292,6 +4763,13 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         List<label> nbrGlobalCell;
         List<labelList> nbrGradCols;
         List<scalarField> nbrGradCoeffs;
+        // Added for cardiacFoam, ported from the MMS solver: far-side
+        // reconstruction rows already dotted with the tangential flux vector w
+        // of the non-orthogonal correction. A SECOND exchange is needed because
+        // w is not dPN: the stabilisation jump ships grad|_far . dPN and this
+        // ships grad|_far . w.
+        List<labelList> nbrWCols;
+        List<scalarField> nbrWCoeffs;
 
         if (Pstream::parRun())
         {
@@ -4307,11 +4785,72 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             }
             syncTools::swapBoundaryCellList(mesh, myGlobalCell, nbrGlobalCell);
 
+            // w flips sign across a processor face: the far rank sees -Sf and
+            // -d, so its g and e both flip and w = g - (g.e)e flips with g.
+            // Building the row with MINUS the local w therefore hands the
+            // receiver exactly grad|_there . w_here, usable with the same sign
+            // as its own gradient term - the same trick the stabilisation
+            // exchange uses with -delta.
+            //
+            // Unconditional, unlike the stabilisation exchange below: the
+            // correction does not depend on alpha. COLLECTIVE, and every rank
+            // takes it. A face whose w is zero ships an empty row.
+            {
+                label lastWPatch = -1;
+                vectorField wDelta;
+
+                exchangeCoupledFaceRows
+                (
+                    mesh,
+                    [&]
+                    (
+                        const label patchI,
+                        const label faceI,
+                        labelList& cols,
+                        scalarField& coeffs
+                    )
+                    {
+                        const fvPatch& patch = mesh.boundary()[patchI];
+                        const label own = owner[patch.start() + faceI];
+
+                        // Cached per patch: delta() rebuilds the whole field.
+                        if (patchI != lastWPatch)
+                        {
+                            wDelta = patch.delta();
+                            lastWPatch = patchI;
+                        }
+
+                        const label bFaceI =
+                            patch.start() - mesh.nInternalFaces() + faceI;
+                        const tensor Df =
+                            0.5*(conductivity[own] + nbrConductivity[bFaceI]);
+                        const vector w =
+                            nonOrthFluxVector
+                            (
+                                mesh.Sf().boundaryField()[patchI][faceI],
+                                wDelta[faceI],
+                                Df
+                            );
+
+                        if (w == vector::zero)
+                        {
+                            cols.clear();
+                            coeffs.clear();
+                            return;
+                        }
+
+                        buildCellGradientDotRow
+                        (
+                            cols, coeffs, own, -w, LREInterp
+                        );
+                    },
+                    nbrWCols,
+                    nbrWCoeffs
+                );
+            }
+
             // Added for cardiacFoam: the far cell's gradient row, for the
-            // stabilisation jump. Only under alpha > 0 - the flux terms above
-            // need no reconstruction, and LREInterp may legitimately be null
-            // when alpha is zero (the guard at the top of this function only
-            // fatals when alpha > 0), so the lambda must not be built at all.
+            // stabilisation jump. Only under alpha > 0.
             //
             // The call is COLLECTIVE and the condition is uniform across ranks:
             // stabilisationAlpha comes from a dictionary.
@@ -4351,7 +4890,7 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                             coeffs,
                             own,
                             -sendDelta[faceI],
-                            *LREInterp
+                            LREInterp
                         );
                     },
                     nbrGradCols,
@@ -4433,6 +4972,38 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                         a/max(V[own], SMALL)
                     );
 
+                    // Added for cardiacFoam, ported from the MMS solver: the
+                    // tangential flux. Own half from the local reconstruction
+                    // row, far half from the row that arrived already dotted
+                    // with w. The far rank computed the same |w| and shipped an
+                    // empty row exactly when this w is zero.
+                    const vector w =
+                        nonOrthFluxVector
+                        (
+                            mesh.Sf().boundaryField()[patchI][faceI],
+                            patchDelta[faceI],
+                            Df
+                        );
+
+                    if (w != vector::zero)
+                    {
+                        const scalar areaHalf =
+                            0.5
+                           *(mag(mesh.Sf().boundaryField()[patchI][faceI])
+                           + VSMALL);
+                        const scalar scale = areaHalf/max(V[own], SMALL);
+
+                        addCellGradientDotCoeffs
+                        (
+                            triplets, own, scale, own, w, LREInterp
+                        );
+                        addRemoteRowCoeffs
+                        (
+                            triplets, own, scale,
+                            nbrWCols[bFaceI], nbrWCoeffs[bFaceI]
+                        );
+                    }
+
                     // Modified for cardiacFoam: the stabilisation jump used to
                     // be skipped here, because it needs the neighbouring cell's
                     // reconstruction stencil and that does not cross the
@@ -4469,7 +5040,7 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                             patchDelta[faceI],
                             nbrGradCols[bFaceI],
                             nbrGradCoeffs[bFaceI],
-                            *LREInterp
+                            LREInterp
                         );
                     }
                 }
@@ -4497,6 +5068,28 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
 
                     addTripletIfNeeded(triplets, own, gCol(own), -a/max(V[own], SMALL));
 
+                    // Added for cardiacFoam, ported from the MMS solver: no
+                    // neighbour to average with, so grad V|_f is the owner
+                    // gradient alone - hence the full area and not the half.
+                    const vector Sfb = mesh.Sf().boundaryField()[patchI][faceI];
+                    const vector w =
+                        nonOrthFluxVector
+                        (
+                            Sfb,
+                            Cf.boundaryField()[patchI][faceI] - C[own],
+                            conductivity[own]
+                        );
+
+                    if (w != vector::zero)
+                    {
+                        addCellGradientDotCoeffs
+                        (
+                            triplets, own,
+                            (mag(Sfb) + VSMALL)/max(V[own], SMALL),
+                            own, w, LREInterp
+                        );
+                    }
+
                     if (stabilisationAlpha > SMALL)
                     {
                         const vector Sf =
@@ -4522,7 +5115,7 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                             aStab/max(V[own], SMALL),
                             own,
                             dPb,
-                            *LREInterp
+                            LREInterp
                         );
                     }
                 }
@@ -5177,22 +5770,12 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             {
                 case MatrixUpdate::Rebuild:
                 {
-                    word kspType(petscKspType);
-                    word pcType(petscPcType);
-
-                    if (linearSolver == "SparseLU" || linearSolver == "LU")
-                    {
-                        kspType = "preonly";
-                        pcType = "lu";
-                    }
-                    else if
+                    word kspType;
+                    word pcType;
+                    resolvePetscKspPc
                     (
-                        linearSolver == "BiCGSTAB"
-                     && petscKspType == linearSolver
-                    )
-                    {
-                        kspType = "bcgs";
-                    }
+                        linearSolver, petscKspType, petscPcType, kspType, pcType
+                    );
 
                     petscSolver.reset
                     (
@@ -5222,6 +5805,26 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             }
 
             return petscSolver.solve(b, linearIterations, linearError);
+        }
+
+        // Added for cardiacFoam, ported from the MMS solver: the Eigen backend
+        // is serial only, and the comments above said so without enforcing it.
+        // A carries LOCAL rows and GLOBAL columns (the MPIAIJ layout), so in
+        // parallel it is rectangular by design and Eigen's SparseLU/BiCGSTAB
+        // die on an eigen_assert naming a file inside the library - not this
+        // solver, not the key that selected them, and not the word "parallel".
+        if (Pstream::parRun())
+        {
+            FatalErrorInFunction
+                << "linearSolverBackend = " << linearSolverBackend
+                << " selects the Eigen backend, which is serial only." << nl
+                << "The assembled matrix has " << A.rows()
+                << " local rows and " << A.cols()
+                << " global columns, so Eigen would be handed a rectangular"
+                << " system." << nl
+                << "Set 'linearSolverBackend PETSc;' to run on "
+                << Pstream::nProcs() << " ranks."
+                << exit(FatalError);
         }
 
         return solveSparseSystemEigen
@@ -6106,6 +6709,7 @@ int main(int argc, char* argv[])
 
     // Added for cardiacFoam: this rank's first global row. Zero in serial.
     gRowStart = gCellsPtr->localStart();
+    gRowStartSet = true;
 
     if (Pstream::parRun())
     {
@@ -6129,14 +6733,25 @@ int main(int argc, char* argv[])
     //
     // Checked on every rank: `processor` patches only exist in parallel, and a
     // rank-local list would disagree between ranks.
+    //
+    // Modified for cardiacFoam: fixedValue and fixedVoltage are no longer in the
+    // list. The operators assemble their diagonal term -a/V, so the boundary IS
+    // clamped - but to zero, because the +a*Vm_b/V lift on the right-hand side
+    // is never formed: Vm.boundaryField() is only ever read for its type, so the
+    // patch VALUE cannot reach the system. Measured on the low-order path with
+    // walls at -40 mV: max(Vm) -0.0198 V at step 5 against -0.0667 insulated,
+    // 47 mV of error and growing, exit 0, no warning. On the high-order path the
+    // run died inside solids4foam instead, an accidental abort rather than a
+    // check. A comment in the orthogonal assembly claimed the boundary value
+    // "enters through the RHS elsewhere"; there was no elsewhere. Refused here
+    // until the lift is implemented (the MMS solver has one, built from its
+    // exact solution, which is the natural model for a port).
     {
         const wordHashSet supportedVmPatchTypes
         ({
             word("empty"),
             zeroGradientFvPatchScalarField::typeName,
-            word("processor"),
-            fixedValueFvPatchScalarField::typeName,
-            word("fixedVoltage")
+            word("processor")
         });
 
         wordHashSet offending;
@@ -6161,6 +6776,10 @@ int main(int argc, char* argv[])
                 << nl
                 << "Any other type is silently ignored by the operator, which"
                 << " produces a plausible but wrong answer rather than an error."
+                << nl
+                << "fixedValue/fixedVoltage are refused because the Dirichlet"
+                << " value never reaches the right-hand side: the boundary would"
+                << " be clamped to 0 V, not to the value requested."
                 << exit(FatalError);
         }
     }
@@ -6263,22 +6882,27 @@ int main(int argc, char* argv[])
     );
 
     scalar dt = runTime.deltaTValue();
-    const scalar theta = thetaFromScheme(implicitScheme);
-    const word massMatrixMode = normalizedMassMatrixType(massMatrixType);
-    const std::string memoryOptimizationMode = lowerWord(memoryOptimization);
+    const TimeSchemeCoeffs timeScheme = timeSchemeCoeffs(implicitScheme);
+    const scalar theta = timeScheme.theta;
+    const label bdfOrder = timeScheme.bdfOrder;
+    const bool historyStateODEDriver = (stateODEDriver == "history");
+    const EsdirkTableau esdirkTab = esdirk3Tableau();
 
-    if
-    (
-        memoryOptimizationMode != "auto"
-     && memoryOptimizationMode != "on"
-     && memoryOptimizationMode != "off"
-    )
+    // Invariant rather than a reachable branch today (ported from the MMS
+    // solver): ESDIRK3 covers every BDF offered. Kept because adding BDF5 would
+    // break it silently - a startup of insufficient order does not fail, it
+    // caps the observed order without any error.
+    if (bdfOrder > 1 && esdirkTab.order + 1 < bdfOrder)
     {
         FatalErrorInFunction
-            << "Unknown memoryOptimization '" << memoryOptimization << "'. "
-            << "Valid options are auto, on and off."
-            << abort(FatalError);
+            << "bdfStartup = " << bdfStartup << " supplies starting values of"
+            << " order " << (esdirkTab.order + 1) << ", below the O(dt^"
+            << bdfOrder << ") that " << implicitScheme << " requires."
+            << exit(FatalError);
     }
+    const word massMatrixMode = normalizedMassMatrixType(massMatrixType);
+    requireOneOf("memoryOptimization", memoryOptimization, {"auto", "on", "off"});
+    const word& memoryOptimizationMode = memoryOptimization;
 
     const bool memoryOptimizationEffective =
         memoryOptimizationMode == "on"
@@ -6314,6 +6938,10 @@ int main(int argc, char* argv[])
         << "requested dt = " << dt << nl
         << "explicit stable dt reference = " << dtExplicitReference << nl
         << "implicitScheme = " << implicitScheme << nl
+        // Recorded even where inert (theta schemes, BDF1): the observed order
+        // of a BDF run means nothing without its startup and its ODE driver.
+        << "bdfStartup = " << bdfStartup << nl
+        << "stateODEDriver = " << stateODEDriver << nl
         << "massMatrix = " << massMatrixMode << nl
         << "linearSolverBackend = " << linearSolverBackend << nl
         << "PETSc linear KSP = " << petscLinearKspType
@@ -6375,12 +7003,39 @@ int main(int argc, char* argv[])
     bool stopPointTriggered = false;
     scalar stopPointActivationTime = -GREAT;
 
+    // Modified for cardiacFoam: nearestCellToPoint returns the cell on exactly
+    // ONE rank and -1 on every other, and this banner used to index mesh.C()
+    // with it on all of them. Info is a null stream off the master, but its
+    // ARGUMENTS are still evaluated, so the losing ranks read mesh.C()[-1]:
+    // undefined behaviour, which in an Opt build occasionally decoded as a
+    // signalling double and raised SIGFPE in mag() - measured at dx = 0.125 mm
+    // on 4 ranks, and it blocked that refinement level.
+    //
+    // Only the owner reads the mesh now, and its values reach the log whatever
+    // rank it is: the others contribute -GREAT to a max-reduction. That also
+    // fixes the second defect of the old banner, which printed the master's
+    // own -1 whenever the owner was another rank.
     if (stopAfterPointActivation)
     {
-        Info<< "Stop point nearest cell = " << stopActivationCellI
-            << ", centre = " << mesh.C()[stopActivationCellI]
-            << ", distance = "
-            << mag(mesh.C()[stopActivationCellI] - stopActivationPoint)
+        label stopCellGlobal = -1;
+        vector stopCellCentre(-GREAT, -GREAT, -GREAT);
+        scalar stopCellDistance = -GREAT;
+
+        if (stopActivationCellI >= 0)
+        {
+            stopCellGlobal = gCellsPtr->toGlobal(stopActivationCellI);
+            stopCellCentre = mesh.C()[stopActivationCellI];
+            stopCellDistance =
+                mag(mesh.C()[stopActivationCellI] - stopActivationPoint);
+        }
+
+        reduce(stopCellGlobal, maxOp<label>());
+        reduce(stopCellCentre, maxOp<vector>());
+        reduce(stopCellDistance, maxOp<scalar>());
+
+        Info<< "Stop point nearest cell = " << stopCellGlobal
+            << " (global), centre = " << stopCellCentre
+            << ", distance = " << stopCellDistance
             << " m" << nl << endl;
     }
 
@@ -6456,7 +7111,7 @@ int main(int argc, char* argv[])
         (
             mesh,
             conductivity,
-            LREInterp_VmPtr.valid() ? &LREInterp_VmPtr() : nullptr,
+            LREInterp_VmPtr(),
             stabilisationAlpha,
             K
         );
@@ -6465,6 +7120,113 @@ int main(int argc, char* argv[])
     if (profileTimings)
     {
         logMemoryCheckpoint("after stiffness assembly");
+    }
+
+    // Added for cardiacFoam, ported from the MMS solver: with CF_DUMP_STENCILS
+    // set, write the MLS stencil MEMBERSHIP - one line per cell, "globalCell :
+    // global columns" - so that a serial and a parallel build can be diffed
+    // cell by cell. This is one level below CF_DUMP_K: it says whether a
+    // differing operator row comes from different stencil members or from
+    // different coefficients over the same members, which is the question an
+    // entry-by-entry operator comparison (E15) cannot answer.
+    //
+    // Unlike the MMS, this solver builds up to three interpolators from three
+    // LRECoeffs blocks, each with its own Nn: Vm (operator and consistent mass
+    // matrix), Iion and states (quadrature points). Any of them can lose a
+    // member at a processor cut, so every one that exists is dumped. Vm keeps
+    // the MMS file names, so the MMS readers work unchanged; the other two carry
+    // their tag. The Vm interpolator always exists (see createFields.H); the
+    // other two only on the high-order Iion path.
+    if (getenv("CF_DUMP_STENCILS"))
+    {
+        const word rank(Foam::name(Pstream::myProcNo()));
+
+        // Cell centres alongside, at full precision: the selection is a
+        // nearest-N by distance, so a centroid that differs in the last bits
+        // between a serial and a decomposed mesh is enough to reorder a tie.
+        OFstream osc("cellCentre_dump_rank" + rank + ".dat");
+        osc.precision(17);
+        forAll(mesh.C(), cellI)
+        {
+            osc << gCellsPtr->toGlobal(cellI) << ' ' << mesh.C()[cellI].x()
+                << ' ' << mesh.C()[cellI].y() << ' ' << mesh.C()[cellI].z()
+                << nl;
+        }
+
+        auto dumpStencils = [&](const word& tag, const highOrderInterp& interp)
+        {
+            const globalIndex& gc = interp.globalCells();
+            const CompactListList<label>& cellSt = interp.globalCellStencils();
+
+            OFstream os("stencil_" + tag + "dump_rank" + rank + ".dat");
+            forAll(mesh.C(), cellI)
+            {
+                os  << gc.toGlobal(cellI) << " :";
+                const UList<label> st = cellSt[cellI];
+                forAll(st, i)
+                {
+                    os  << ' ' << st[i];
+                }
+                os  << nl;
+            }
+
+            // Face stencils, keyed by LOCAL face index: the reader maps them
+            // with processorN/constant/polyMesh/faceProcAddressing.
+            const CompactListList<label>& faceSt = interp.globalFaceStencils();
+
+            OFstream osf("faceStencil_" + tag + "dump_rank" + rank + ".dat");
+            forAll(faceSt, faceI)
+            {
+                osf << faceI << " :";
+                const UList<label> st = faceSt[faceI];
+                forAll(st, i)
+                {
+                    osf << ' ' << st[i];
+                }
+                osf << nl;
+            }
+        };
+
+        if (LREInterp_VmPtr.valid())
+        {
+            dumpStencils(word::null, LREInterp_VmPtr());
+        }
+        if (LREInterp_IionPtr.valid())
+        {
+            dumpStencils("Iion_", LREInterp_IionPtr());
+        }
+        if (LREInterp_statesPtr.valid())
+        {
+            dumpStencils("states_", LREInterp_statesPtr());
+        }
+    }
+
+    // Added for cardiacFoam, ported from the MMS solver: with CF_DUMP_K set in
+    // the environment, write K as (global row, global column, value) triples,
+    // one file per rank.
+    //
+    // This is the check that a row-sum or nnz fingerprint cannot make: mapping
+    // the parallel indices back through processorN/constant/polyMesh/
+    // cellProcAddressing gives an entry-by-entry comparison against the serial
+    // assembly. E15 does that already for the operator handed to KSP through
+    // PETSc's option database; this dumps K alone, before M and dt are mixed
+    // in, which is where a stiffness-only change (the non-orthogonal
+    // correction) has to be measured. Off by default, no cost.
+    if (getenv("CF_DUMP_K"))
+    {
+        OFstream os
+        (
+            "K_dump_rank" + Foam::name(Pstream::myProcNo()) + ".dat"
+        );
+        os.precision(17);
+        for (label r = 0; r < K.outerSize(); ++r)
+        {
+            for (SpMat::InnerIterator it(K, r); it; ++it)
+            {
+                os  << (globalRowStart() + r) << ' ' << it.col() << ' '
+                    << it.value() << nl;
+            }
+        }
     }
 
 #ifdef __GLIBC__
@@ -6576,15 +7338,77 @@ int main(int argc, char* argv[])
     PetscKspMatrixSolver persistentPetscSolver;
     PersistentEigenSolvers persistentEigenSolvers;
 
-    while (runTime.value() < effectiveEndTime - SMALL)
+    // Added for cardiacFoam, ported from the MMS solver: the BDF history, i.e.
+    // the k-1 levels OLDER than V^n that a BDF-k step needs. VmBdfOlder[j] holds
+    // V^{n-1-j}, so index 0 is the most recent of them; V^n itself is VmOld.
+    // Empty for the theta family and BDF1. Sized and zeroed up front so that a
+    // level read before it is filled is a wrong answer rather than an
+    // out-of-bounds read - which bdfValidLevels makes impossible anyway.
+    List<scalarField> VmBdfOlder(max(bdfOrder - 1, label(0)));
+    forAll(VmBdfOlder, j)
+    {
+        VmBdfOlder[j].setSize(mesh.nCells(), 0.0);
+    }
+
+    // How many of those levels hold a value on the CURRENT smooth piece of the
+    // solution at the nominal spacing. A BDF step needs all k-1; until then
+    // the step is taken by ESDIRK3. Reset to zero by everything that breaks
+    // the history: the start of the run, a change in the stimulus (a
+    // discontinuity in the source, across which the history polynomial would
+    // interpolate a kink), a step of non-nominal length, and a rolled-back step.
+    label bdfValidLevels = 0;
+
+    // The stimulus fractions of the previous step, to detect that change.
+    List<scalar> stimulusFractionPrev;
+
+    // The step BDF assumes. A step shorter than this (the clipped last step,
+    // the stop point) is taken by ESDIRK3.
+    const scalar nominalDt = runTime.deltaTValue();
+
+    // The ESDIRK stage operator M/(gamma dt) - L, one for every implicit stage
+    // because the method is SINGLY diagonally implicit, with its own cached
+    // solvers so that the BDF operator's factorisation is not thrown away. Only
+    // built for BDF2-4.
+    SpMat AEsdirk;
+    DistributedMatVec applyEsdirkOp;
+    PetscKspMatrixSolver esdirkPetscSolver;
+    PersistentEigenSolvers esdirkEigenSolvers;
+    bool esdirkSolverNeedsRebuild = true;
+
+    // L as a distributed product, for the stage right-hand sides F = L Y + s.
+    DistributedMatVec applyLOp;
+    if (bdfOrder > 1)
+    {
+        applyLOp.reset(L);
+    }
+
+    // Modified for cardiacFoam: stop within a small fraction of the NOMINAL
+    // step of the end time, not within SMALL.
+    //
+    // The accumulated time is a floating-point sum of dt and can land just
+    // BELOW the end time by more than SMALL (1e-15): 160 steps of 3.2e-3 sum to
+    // 0.51199999999999868, 1.3e-15 short of 0.512. With the old test that
+    // remainder took one more pass through the loop, clipped to dt = 1.3e-15:
+    // an operator M/dt fifteen orders larger than the real one, a
+    // refactorisation, a degenerate solve and an extra step in the count. The
+    // MMS solver hit the same accumulation and took a whole extra step.
+    //
+    // The MMS fix (stop within half a step) does not carry over, because dt is
+    // not constant here: the last step is clipped to land on the end time, and
+    // the stop-point trigger moves effectiveEndTime to an arbitrary instant. A
+    // half-step test would drop a legitimate partial last step. The tolerance
+    // is therefore relative to the nominal dt, and small: the accumulation
+    // error is ~ nSteps*eps*t, about 1e-11 s for 1e5 steps over 1 s, i.e.
+    // ~1e-6 of dt = 1e-5 s, so 1e-3*dt leaves three orders of margin while the
+    // most it can drop is a remainder of 1e-3*dt, which no physics resolves.
+    // Taken once, before the loop, from the nominal dt: setDeltaT() below
+    // changes deltaTValue() on the clipped last step.
+    const scalar endTimeTolerance = 1.0e-3*runTime.deltaTValue();
+
+    while (runTime.value() < effectiveEndTime - endTimeTolerance)
     {
         const scalar t0 = runTime.value();
         const scalar remaining = effectiveEndTime - t0;
-
-        if (remaining <= SMALL)
-        {
-            break;
-        }
 
         dt = min(runTime.deltaTValue(), remaining);
         runTime.setDeltaT(dt);
@@ -6606,6 +7430,11 @@ int main(int argc, char* argv[])
         //   with  AImplicit = M/dt - theta*L
         //         BImplicit = M/dt + (1-theta)*L
         //
+        //   Under BDF-k (theta = 1) A carries a_0/dt instead of 1/dt, and Vm^n
+        //   is replaced by the history vector -sum_{j>=1} a_j V^{n+1-j}; see
+        //   TimeSchemeCoeffs. The ESDIRK stage operator M/(gamma dt) - L is
+        //   assembled alongside for BDF2-4.
+        //
         //   M is either the lumped (diagonal) or consistent high-order mass
         //   matrix; L already carries the 1/(chi*Cm) scaling.
         //
@@ -6616,9 +7445,21 @@ int main(int argc, char* argv[])
         // ----------------------------------------------------------------- //
         if (mag(dt - assembledDt) > SMALL)
         {
+            // Modified for cardiacFoam: the only thing BDF changes in A is the
+            // scalar in front of M. a_0 is 1 for the theta family and BDF1, so
+            // backwardEuler and BDF1 build the same matrix bit for bit.
             AImplicit = M;
-            AImplicit *= (1.0/dt);
+            AImplicit *= (timeScheme.a[0]/dt);
             AImplicit -= theta*L;
+
+            if (bdfOrder > 1)
+            {
+                AEsdirk = M;
+                AEsdirk *= (1.0/(esdirkTab.gamma*dt));
+                AEsdirk -= L;
+                applyEsdirkOp.reset(AEsdirk);
+                esdirkSolverNeedsRebuild = true;
+            }
 
             BImplicit = M;
             BImplicit *= (1.0/dt);
@@ -6684,15 +7525,70 @@ int main(int argc, char* argv[])
             Iion
         );
 
-        applyStimulus
+        const List<scalar> stimulusFraction = applyStimulus
         (
             t0,
+            dt,
             externalStimulusCurrent,
             stimulusCellIDsList,
             stimulusStartTimes,
             stimulusIntensity.value(),
             stimulusDuration.value()
         );
+
+        // Added for cardiacFoam: does BDF take this step, or ESDIRK3?
+        //
+        // A multistep method interpolates through its history, so any
+        // discontinuity in the source between the levels it uses is
+        // interpolated as if it were smooth: the k-1 steps after it carry an
+        // O(dt) error that caps the global order, with no warning. The stimulus
+        // is exactly such a discontinuity. Its per-step value changes only
+        // where a window opens or closes, and there the history is DISCARDED:
+        // V^n, on the boundary, is a valid node of the new smooth piece, the
+        // older levels are not. The fractions depend on t0 and dt alone, so the
+        // decision is uniform across ranks.
+        //
+        // A step of non-nominal length (the clipped last step, the stop point)
+        // cannot be a BDF step either: the coefficients assume equal spacing.
+        const bool clippedStep = mag(dt - nominalDt) > 1.0e-9*nominalDt;
+
+        if (bdfOrder > 1)
+        {
+            bool stimulusChanged = false;
+            if (stimulusFractionPrev.size() == stimulusFraction.size())
+            {
+                forAll(stimulusFraction, bI)
+                {
+                    if
+                    (
+                        mag(stimulusFraction[bI] - stimulusFractionPrev[bI])
+                      > 1.0e-12
+                    )
+                    {
+                        stimulusChanged = true;
+                    }
+                }
+            }
+            stimulusFractionPrev = stimulusFraction;
+
+            if (stimulusChanged && bdfValidLevels > 0)
+            {
+                Info<< "BDF history discarded at t = " << t0
+                    << ": the stimulus changed. The next " << (bdfOrder - 1)
+                    << " step(s) are taken by ESDIRK3." << endl;
+                bdfValidLevels = 0;
+            }
+        }
+
+        const bool esdirkThisStep =
+            bdfOrder > 1 && (bdfValidLevels < bdfOrder - 1 || clippedStep);
+
+        // Added for cardiacFoam: V^n at the Iion integration points, kept for the
+        // whole step. It is the first node of the linear Vm driver on the paths
+        // that integrate the ODEs at those points (gaussPointODE and the front
+        // cells of the hybrid); VmIntegrationPoints itself is overwritten with
+        // every candidate.
+        scalarField VmOldIntegrationPoints;
 
         if (useHighOrder_Iion)
         {
@@ -6704,6 +7600,8 @@ int main(int argc, char* argv[])
                 LREInterp_IionPtr(),
                 VmIntegrationPoints
             );
+
+            VmOldIntegrationPoints = VmIntegrationPoints;
 
             if (statesAtCells)
             {
@@ -6779,7 +7677,30 @@ int main(int argc, char* argv[])
               + externalStimulusCurrent[cellI]/(chi.value()*Cm.value());
         }
 
-        const EigVec Vn = fieldToEigVec(VmOld);
+        // Modified for cardiacFoam, ported from the MMS solver: the history
+        // vector handed to B. For the theta family it is V^n; for BDF-k it is
+        // -sum_{j>=1} a_j V^{n+1-j}, formed HERE as one field so that a BDF step
+        // still costs a single mass-matrix product. For BDF1, a_1 = -1 and
+        // there are no older levels, so the scaling is by exactly 1.0 and the
+        // result is bit-identical to backwardEuler. An ESDIRK step does not use
+        // it (it forms B V^n itself).
+        EigVec Vn = fieldToEigVec(VmOld);
+
+        if (bdfOrder > 0 && !esdirkThisStep)
+        {
+            Vn *= -timeScheme.a[1];
+
+            forAll(VmBdfOlder, j)
+            {
+                const scalar aj = timeScheme.a[j + 2];
+                const scalarField& Vj = VmBdfOlder[j];
+
+                forAll(Vj, cellI)
+                {
+                    Vn[cellI] -= aj*Vj[cellI];
+                }
+            }
+        }
 
         volScalarField VmGuess
         (
@@ -6840,6 +7761,67 @@ int main(int argc, char* argv[])
             dimensionedScalar("sourceDerivative", dimless/dimTime, 0.0),
             Vm.boundaryField().types()
         );
+
+        // Added for cardiacFoam, ported from the MMS solver: the interval the
+        // state ODEs are integrated over, measured from t0. For every one-step
+        // scheme and for BDF it is the whole step. ESDIRK is the exception:
+        // stage i lands at t0 + c_i dt, so its states are integrated over
+        // c_i dt. Only the ESDIRK block assigns it, and it restores dt before
+        // leaving - a stale value would integrate the states over the wrong
+        // interval, which a convergence study reads as a bad order.
+        scalar stageDt = dt;
+
+        // Added for cardiacFoam, ported from the MMS solver: the Vm driver of
+        // the state ODEs on the CELL-indexed paths (cellCentredReconstruct and
+        // the low-order Iion path). Node 0 is V^n; the last node is the
+        // candidate, which solveODE takes from its Vm argument. The two-node
+        // linear blend set here is what backwardEuler, crankNicolson and BDF1
+        // use; BDF2-4 and the ESDIRK stages raise nNodes further down unless
+        // stateODEDriver is linear.
+        //
+        // The Gauss-point paths (gaussPointODE and the front cells of the
+        // hybrid) keep the linear blend always, as the MMS does: the
+        // higher-order interpolant there would mean storing every history level
+        // and every stage value at every quadrature point.
+        VmDriverStages cellDriver;
+        cellDriver.nNodes = 2;
+        cellDriver.s[0] = 0.0;
+        cellDriver.s[1] = 1.0;
+        cellDriver.field[0] = &VmOldValues;
+
+        // A BDF step drives its cell-indexed state ODEs with the polynomial
+        // through its OWN history levels (ported from the MMS solver): nodes
+        // at s = -(k-1) ... -1, 0, 1 in units of dt from t0, the candidate
+        // last. The ODEs are integrated over s in [0, 1], inside the node hull,
+        // so this interpolates rather than extrapolates. The levels are already
+        // stored, so it costs only the interpolation. An ESDIRK step sets its
+        // own driver below.
+        if (bdfOrder > 1 && !esdirkThisStep && historyStateODEDriver)
+        {
+            cellDriver.nNodes = bdfOrder + 1;
+
+            // Oldest first, so the candidate lands on the last slot.
+            for (label j = 0; j < bdfOrder - 1; ++j)
+            {
+                // VmBdfOlder[m] holds V^{n-1-m}, so walk it backwards.
+                const label m = bdfOrder - 2 - j;
+                cellDriver.s[j] = -scalar(m + 1);
+                cellDriver.field[j] = &VmBdfOlder[m];
+            }
+
+            cellDriver.s[bdfOrder - 1] = 0.0;
+            cellDriver.field[bdfOrder - 1] = &VmOldValues;
+
+            cellDriver.s[bdfOrder] = 1.0;
+            cellDriver.field[bdfOrder] = nullptr;
+        }
+
+        // The linear blend at the Gauss points, for the paths above.
+        VmDriverStages gaussDriver;
+        gaussDriver.nNodes = 2;
+        gaussDriver.s[0] = 0.0;
+        gaussDriver.s[1] = 1.0;
+        gaussDriver.field[0] = &VmOldIntegrationPoints;
 
         // Evaluate the coupled (Vm, states, Iion) triple for a given
         // membrane-potential candidate.
@@ -6959,7 +7941,20 @@ int main(int argc, char* argv[])
                         // rates_ and stepMs_ in the slot that belongs to it.
                         // Previously this pass used slots 0..nF-1, which the
                         // smooth-cell pass below then overwrote.
-                        ionicModel->solveODE(t0, dt, VmF, ImF, sF, frontIPs);
+                        // Linear Vm driver at these Gauss points, compacted
+                        // like VmF (see gaussDriver).
+                        scalarField VmOldF(nF);
+                        forAll(frontIPs, i)
+                        {
+                            VmOldF[i] = VmOldIntegrationPoints[frontIPs[i]];
+                        }
+                        VmDriverStages frontDriver(gaussDriver);
+                        frontDriver.field[0] = &VmOldF;
+
+                        ionicModel->solveODE
+                        (
+                            t0, stageDt, VmF, ImF, sF, frontIPs, &frontDriver
+                        );
                         forAll(frontIPs, i)
                         {
                             statesCandidate[frontIPs[i]] = sF[i];
@@ -7007,7 +8002,21 @@ int main(int argc, char* argv[])
                                 ionicModel->cellSlotOffset() + smoothCells[i];
                         }
 
-                        ionicModel->solveODE(t0, dt, VmS, ImS, sS, smoothSlots);
+                        // Linear Vm driver at these cell centres, compacted
+                        // like VmS.
+                        scalarField VmOldS(nS);
+                        forAll(smoothCells, i)
+                        {
+                            VmOldS[i] = VmOldValues[smoothCells[i]];
+                        }
+                        VmDriverStages smoothDriver;
+                        smoothDriver.field[0] = &VmOldS;
+
+                        ionicModel->solveODE
+                        (
+                            t0, stageDt, VmS, ImS, sS, smoothSlots,
+                            &smoothDriver
+                        );
                         forAll(smoothCells, i)
                         {
                             statesCellBuf[smoothCells[i]] = sS[i];
@@ -7062,7 +8071,9 @@ int main(int argc, char* argv[])
                         );
                         ionicModel->solveODE
                         (
-                            t0, dt, VmClamped, IionCandidate, statesCandidate
+                            t0, stageDt, VmClamped, IionCandidate,
+                            statesCandidate,
+                            EmbeddedTNNPModel::emptyScratchIDs(), &cellDriver
                         );
                     }
                     else
@@ -7070,10 +8081,12 @@ int main(int argc, char* argv[])
                         ionicModel->solveODE
                         (
                             t0,
-                            dt,
+                            stageDt,
                             VmCandidate.internalField(),
                             IionCandidate,
-                            statesCandidate
+                            statesCandidate,
+                            EmbeddedTNNPModel::emptyScratchIDs(),
+                            &cellDriver
                         );
                     }
 
@@ -7105,10 +8118,12 @@ int main(int argc, char* argv[])
                     ionicModel->solveODE
                     (
                         t0,
-                        dt,
+                        stageDt,
                         VmIntegrationPoints,
                         IionIntegrationPoints,
-                        statesCandidate
+                        statesCandidate,
+                        EmbeddedTNNPModel::emptyScratchIDs(),
+                        &gaussDriver
                     );
                 }
 
@@ -7137,10 +8152,12 @@ int main(int argc, char* argv[])
                     ionicModel->solveODE
                     (
                         t0,
-                        dt,
+                        stageDt,
                         VmClamped,
                         IionCandidate,
-                        statesCandidate
+                        statesCandidate,
+                        EmbeddedTNNPModel::emptyScratchIDs(),
+                        &cellDriver
                     );
                 }
                 else
@@ -7148,10 +8165,12 @@ int main(int argc, char* argv[])
                     ionicModel->solveODE
                     (
                         t0,
-                        dt,
+                        stageDt,
                         VmCandidate.internalField(),
                         IionCandidate,
-                        statesCandidate
+                        statesCandidate,
+                        EmbeddedTNNPModel::emptyScratchIDs(),
+                        &cellDriver
                     );
                 }
                 IionCandidate.correctBoundaryConditions();
@@ -7232,37 +8251,18 @@ int main(int argc, char* argv[])
             sourceDerivative.correctBoundaryConditions();
         };
 
-        const bool useDiagonalIion =
-            nonlinearMethod == "diagonalIion"
-         || nonlinearMethod == "diagonal"
-         || nonlinearMethod == "localDiagonal";
-
-        const bool useJFNK =
-            nonlinearMethod == "JFNK"
-         || nonlinearMethod == "jfnk";
-
-        // Added for cardiacFoam: reject an unknown method instead of silently
-        // falling through to Picard.
+        // Modified for cardiacFoam: nonlinearMethod is validated at start-up in
+        // createFields.H (requireOneOf), one spelling per method, so exactly
+        // one of these is true. The aliases picard, jfnk, diagonal and
+        // localDiagonal are gone.
         //
-        // The failure this prevents is not a bad run, it is a bad STUDY: a typo
-        // in a sweep script collapses the whole method matrix onto Picard while
-        // the directories are still named after JFNK and diagonalIion and every
-        // run exits 0. Measured before the fix, `nonlinearMethod Picrad`
-        // produced a trace bit-identical to Picard with no warning.
-        //
-        // The MMS solver has always validated this; the two now agree.
-        const bool usePicard =
-            nonlinearMethod == "Picard"
-         || nonlinearMethod == "picard";
-
-        if (!useDiagonalIion && !useJFNK && !usePicard)
-        {
-            FatalErrorInFunction
-                << "Unknown nonlinearMethod " << nonlinearMethod << nl
-                << "Valid options are Picard, JFNK and diagonalIion"
-                << " (aliases: picard, jfnk, diagonal, localDiagonal)."
-                << exit(FatalError);
-        }
+        // The validation exists because the failure it prevents is not a bad
+        // run but a bad STUDY: a typo in a sweep script used to collapse the
+        // whole method matrix onto Picard while the directories were still
+        // named after JFNK and diagonalIion and every run exited 0. Measured,
+        // `nonlinearMethod Picrad` produced a trace bit-identical to Picard.
+        const bool useDiagonalIion = nonlinearMethod == "diagonalIion";
+        const bool useJFNK = nonlinearMethod == "JFNK";
 
         Field<Field<scalar>> statesGuess(statesOld);
         evaluateNonlinearFields(VmGuess, statesGuess, IionGuess, true);
@@ -7329,7 +8329,242 @@ int main(int argc, char* argv[])
         bool nonlinearConverged = false;
         label nonlinearIters = 0;
 
-        if (useJFNK)
+        // Added for cardiacFoam, ported from the MMS solver: the ESDIRK3 step,
+        // for the steps BDF-k cannot take (see esdirkThisStep above).
+        //
+        // Stage 1 is explicit, Y_1 = V^n. For i >= 2 the stage solves
+        //
+        //   A_g Y_i = (1/g) [ B V^n + sum_{j<i} a_ij F_j ] + s(Y_i)
+        //
+        // with A_g = M/(g dt) - L, B = M/dt (theta = 1 under BDF, so BImplicit
+        // is exactly that), F_j = L Y_j + s(Y_j) and s the reaction source
+        // -Iion + Iext/(chi Cm). That falls out of dividing the stage equation
+        // M (Y_i - V^n)/dt = sum_{j<=i} a_ij F_j by g. Stiffly accurate: the
+        // last stage IS V^{n+1}, with its states, so no combination step.
+        //
+        // Every stage is solved by a Picard fixed point, whatever
+        // nonlinearMethod says, as on the MMS side: JFNK and diagonalIion would
+        // each need their per-stage Jacobian machinery threaded through, and
+        // these are at most k-1 steps per restart. Relaxation and stopping
+        // criteria are the Picard branch's own.
+        if (esdirkThisStep)
+        {
+            const label nS = esdirkTab.nStages;
+            const scalar gam = esdirkTab.gamma;
+            const scalar chiCm = chi.value()*Cm.value();
+
+            // The reaction source s(Y) at the cells, for the stage equations.
+            auto stageSource = [&](const volScalarField& IionCandidate)
+            {
+                EigVec src(mesh.nCells());
+                forAll(IionCandidate, cellI)
+                {
+                    src[cellI] =
+                       -IionCandidate[cellI]
+                      + externalStimulusCurrent[cellI]/chiCm;
+                }
+                return src;
+            };
+
+            List<EigVec> stageF(nS);
+            const EigVec BVn = applyBImplicit(fieldToEigVec(VmOld));
+
+            // The stage VALUES, kept so the state ODEs of later stages can be
+            // driven by a polynomial through them. Sized up front: a zero-length
+            // field behind a live driver pointer would be read out of bounds.
+            List<scalarField> stageVm(nS);
+            forAll(stageVm, j)
+            {
+                stageVm[j].setSize(mesh.nCells(), 0.0);
+            }
+            stageVm[0] = VmOldValues;
+
+            Info<< "ESDIRK3 step at t = " << t0 << " (dt = " << dt << "): "
+                << (clippedStep ? "non-nominal step length" : "building the BDF history")
+                << ", stages solved by Picard" << endl;
+
+            // Stage 1, explicit: Y_1 = V^n with the states at t^n, which is what
+            // stageDt = 0 delivers (the ODE integrator returns over a zero
+            // interval).
+            stageDt = 0.0;
+            VmGuess.primitiveFieldRef() = VmOldValues;
+            VmGuess.correctBoundaryConditions();
+            evaluateNonlinearFields(VmGuess, statesGuess, IionGuess, true);
+
+            stageF[0] =
+                applyLOp(fieldToEigVec(VmGuess)) + stageSource(IionGuess);
+
+            nonlinearConverged = true;
+
+            for (label i = 1; i < nS; ++i)
+            {
+                stageDt = esdirkTab.c[i]*dt;
+
+                // Drive the cell-indexed state ODEs with the polynomial through
+                // the stage values already known, in time normalised by THIS
+                // stage's interval: s_j = c_j/c_i, so s_0 = 0 and s_i = 1. The
+                // last node is the stage being solved. The abscissae need not be
+                // monotone; [0, 1] lies inside their hull because c_0 = 0 and
+                // c_i are both nodes.
+                if (historyStateODEDriver)
+                {
+                    cellDriver.nNodes = i + 1;
+                    for (label j = 0; j < i; ++j)
+                    {
+                        cellDriver.s[j] = esdirkTab.c[j]/esdirkTab.c[i];
+                        cellDriver.field[j] = &stageVm[j];
+                    }
+                    cellDriver.s[i] = 1.0;
+                    cellDriver.field[i] = nullptr;
+                }
+                else
+                {
+                    // The ramp from stage 0 (= V^n) to the stage being solved.
+                    cellDriver.nNodes = 2;
+                    cellDriver.s[0] = 0.0;
+                    cellDriver.s[1] = 1.0;
+                    cellDriver.field[0] = &stageVm[0];
+                    cellDriver.field[1] = nullptr;
+                }
+
+                EigVec rhsBase = BVn;
+                for (label j = 0; j < i; ++j)
+                {
+                    rhsBase += esdirkTab.a[i][j]*stageF[j];
+                }
+                rhsBase /= gam;
+
+                // Fields consistent with the current stage guess and interval.
+                evaluateNonlinearFields(VmGuess, statesGuess, IionGuess, true);
+
+                bool stageConverged = false;
+
+                for
+                (
+                    label corr = 0;
+                    corr < max(implicitNonlinearIterations, label(1));
+                    ++corr
+                )
+                {
+                    const scalarField VmPrevious(VmGuess.primitiveField());
+                    const scalarField IionPrevious(IionGuess.primitiveField());
+                    Field<Field<scalar>> statesPrevious(statesGuess);
+
+                    const EigVec rhs = rhsBase + stageSource(IionGuess);
+
+                    label linearIterations = 0;
+                    scalar linearError = GREAT;
+
+                    MatrixUpdate updatePolicy = MatrixUpdate::Reuse;
+                    if (esdirkSolverNeedsRebuild)
+                    {
+                        updatePolicy = MatrixUpdate::Rebuild;
+                        esdirkSolverNeedsRebuild = false;
+                    }
+
+                    const EigVec Ysol = solveSparseSystem
+                    (
+                        AEsdirk,
+                        rhs,
+                        linearSolverBackend,
+                        implicitLinearSolver,
+                        petscLinearKspType,
+                        petscLinearPcType,
+                        petscLinearRestart,
+                        petscLinearOptionsPrefix,
+                        petscUseOptions,
+                        implicitTolerance,
+                        implicitMaxIterations,
+                        linearIterations,
+                        linearError,
+                        esdirkPetscSolver,
+                        esdirkEigenSolvers,
+                        updatePolicy,
+                        petscReusePreconditioner
+                    );
+
+                    const EigVec Yprev = fieldToEigVec(VmGuess);
+                    eigVecToField
+                    (
+                        Yprev + nonlinearRelaxation*(Ysol - Yprev), VmGuess
+                    );
+                    VmGuess.correctBoundaryConditions();
+                    evaluateNonlinearFields
+                    (
+                        VmGuess, statesGuess, IionGuess, true
+                    );
+
+                    const EigVec rhsNew = rhsBase + stageSource(IionGuess);
+                    const scalar coupledResidual = relativeL2Norm
+                    (
+                        applyEsdirkOp(fieldToEigVec(VmGuess)) - rhsNew, rhsNew
+                    );
+                    const scalar VmResidual =
+                        relativeL2Difference(VmGuess.primitiveField(), VmPrevious);
+                    const scalar IionResidual =
+                        relativeL2Difference(IionGuess.primitiveField(), IionPrevious);
+                    const scalar maxStateResidual = maxStateRelativeL2Difference
+                    (
+                        statesGuess,
+                        statesPrevious,
+                        stateResiduals
+                    );
+
+                    const bool converged =
+                        corr + 1 >= implicitMinNonlinearIterations
+                     && coupledResidual <= nonlinearTolerance
+                     && VmResidual <= nonlinearVmTolerance
+                     && IionResidual <= nonlinearIionTolerance
+                     && (
+                            !nonlinearRequireStatesConvergence
+                         || maxStateResidual <= nonlinearStatesTolerance
+                        );
+
+                    writeAndPrintResiduals
+                    (
+                        corr + 1,
+                        linearIterations,
+                        linearError,
+                        coupledResidual,
+                        VmResidual,
+                        IionResidual,
+                        maxStateResidual,
+                        stateResiduals,
+                        converged
+                    );
+
+                    ++nonlinearIters;
+                    if (converged)
+                    {
+                        stageConverged = true;
+                        break;
+                    }
+                }
+
+                if (!stageConverged)
+                {
+                    nonlinearConverged = false;
+                }
+
+                // The fields are already evaluated at the accepted stage value
+                // (the last thing the loop did), and F_i feeds every later stage.
+                stageF[i] =
+                    applyLOp(fieldToEigVec(VmGuess)) + stageSource(IionGuess);
+
+                stageVm[i] = VmGuess.primitiveField();
+            }
+
+            // Restore the one-step defaults. stageVm is local to this block, so
+            // a driver left pointing into it would dangle - and a dangling read
+            // is a wrong answer, not a crash.
+            stageDt = dt;
+            cellDriver.nNodes = 2;
+            cellDriver.s[0] = 0.0;
+            cellDriver.s[1] = 1.0;
+            cellDriver.field[0] = &VmOldValues;
+            cellDriver.field[1] = nullptr;
+        }
+        else if (useJFNK)
         {
             EigVec x = fieldToEigVec(VmGuess);
 
@@ -7438,6 +8673,39 @@ int main(int argc, char* argv[])
                 return standardResidual(VmTmp, statesTmp, IionTmp);
             };
 
+            // The increments measured at the END of the previous corr, which are
+            // what the check at the top of the next one is entitled to look at.
+            //
+            // That check used to recompute them against a copy taken two lines
+            // further up, with only residualFor(x, true) in between - and that
+            // call re-evaluates the same x the bottom of the previous iteration
+            // already evaluated, with the states reset to statesOld both times.
+            // So the "increments" were the difference between two evaluations of
+            // one point: zero, or RKF45 step-history noise. Four of the five
+            // tolerance terms could never fail, the test reduced to
+            // `coupledResidual <= nonlinearTolerance`, and JFNK returned the
+            // jfnkInitGuessOrder extrapolation without taking a single Newton
+            // step whenever it landed under that tolerance. Same defect as the
+            // MMS solver, where it was found first: on its M08 in 3-D, 24 of 50
+            // timesteps exited that way.
+            //
+            // GREAT on entry means the first pass can never exit there, so at
+            // least one Newton step is always taken. stateResiduals needs no
+            // copy: only the bottom-of-loop call writes it, so on an early exit
+            // it still holds the per-state values that go with
+            // maxStateIncrPrevIter.
+            scalar VmIncrPrevIter = GREAT;
+            scalar IionIncrPrevIter = GREAT;
+            scalar maxStateIncrPrevIter = GREAT;
+
+            // Note for cardiacFoam: the MMS solver refuses its Eigen JFNK path
+            // in parallel because its GMRES does not reduce its inner products.
+            // This one does - solveGMRES goes through gDot/gNorm and caps the
+            // Krylov dimension uniformly across ranks - and its ILUT
+            // preconditioner is factorised on the local diagonal block, so the
+            // Eigen JFNK path here IS parallel and deliberately has no such
+            // guard. Only the assembled Eigen path (solveSparseSystem) does.
+
             for
             (
                 label corr = 0;
@@ -7451,21 +8719,17 @@ int main(int argc, char* argv[])
 
                 const EigVec R = residualFor(x, true);
                 const scalar coupledResidual = relativeL2Norm(R, x);
-                const scalar VmResidualInitial =
-                    relativeL2Difference(VmGuess.primitiveField(), VmPrevious);
-                const scalar IionResidualInitial =
-                    relativeL2Difference(IionGuess.primitiveField(), IionPrevious);
-                const scalar maxStateResidualInitial = maxStateRelativeL2Difference
-                (
-                    statesGuess,
-                    statesPrevious,
-                    stateResiduals
-                );
 
-                // Early-exit check: if the *current* iterate already
-                // satisfies all tolerances, skip the GMRES solve entirely.
-                // This typically fires at corr == 0 when the previous time
-                // step's solution is a good initial guess.
+                // The increments that decide whether this iteration can be
+                // skipped are the ones the PREVIOUS one measured; recomputing
+                // them here would measure zero, see the note above the loop.
+                const scalar VmResidualInitial = VmIncrPrevIter;
+                const scalar IionResidualInitial = IionIncrPrevIter;
+                const scalar maxStateResidualInitial = maxStateIncrPrevIter;
+
+                // Early-exit check: skip the GMRES solve when the current
+                // iterate meets the coupled tolerance AND the increments of the
+                // previous iteration met theirs. It cannot fire at corr == 0.
                 const bool residualConverged =
                     corr + 1 >= implicitMinNonlinearIterations
                  && coupledResidual <= nonlinearTolerance
@@ -7670,6 +8934,11 @@ int main(int argc, char* argv[])
                     lineSearchIters
                 );
 
+                // What the top-of-loop check of the next iteration may look at.
+                VmIncrPrevIter = VmResidual;
+                IionIncrPrevIter = IionResidual;
+                maxStateIncrPrevIter = maxStateResidual;
+
                 nonlinearIters = corr + 1;
                 if (converged)
                 {
@@ -7864,6 +9133,37 @@ int main(int argc, char* argv[])
         Iion.primitiveFieldRef() = IionGuess.primitiveField();
         Iion.correctBoundaryConditions();
         states = statesGuess;
+
+        // Added for cardiacFoam, ported from the MMS solver: rotate the BDF
+        // history once the step is final. V^n becomes V^{n-1} and the oldest
+        // level falls off the end.
+        //
+        // Two things RESTART it instead (a departure from the MMS, which
+        // rotates regardless): a rolled-back step, which advanced time but not
+        // the solution, so the history would hold two identical levels one dt
+        // apart; and a step of non-nominal length, after which the levels are
+        // no longer equally spaced. A restart costs k-1 ESDIRK3 steps; a
+        // history that is silently inconsistent costs the order.
+        if (bdfOrder > 1)
+        {
+            const bool rolledBack =
+                !nonlinearConverged && !nonlinearAcceptUnconverged;
+
+            if (rolledBack || clippedStep)
+            {
+                bdfValidLevels = 0;
+            }
+            else
+            {
+                for (label j = VmBdfOlder.size() - 1; j >= 1; --j)
+                {
+                    VmBdfOlder[j] = VmBdfOlder[j - 1];
+                }
+                VmBdfOlder[0] = VmOldValues;
+
+                bdfValidLevels = min(bdfValidLevels + 1, bdfOrder - 1);
+            }
+        }
 
         if (outFields.size())
         {

@@ -410,8 +410,25 @@ const Switch stateReconstructLimiter
 // --------------------------------------------------------------------
 // Time discretisation and mass operator
 // --------------------------------------------------------------------
-// Theta scheme: backwardEuler (theta = 1, first order, unconditionally
-// stable) or crankNicolson (theta = 1/2, second order).
+// Two families (modified for cardiacFoam: BDF ported from the MMS solver):
+//
+//   theta scheme  backwardEuler (theta = 1, O(dt)) or crankNicolson
+//                 (theta = 1/2, O(dt^2));
+//   BDF-k         BDF1, BDF2, BDF3, BDF4 - fully implicit, O(dt^k).
+//
+// BDF1 and backwardEuler are the same scheme and build the same operator bit
+// for bit.
+//
+// BDF5 and BDF6 are deliberately absent. Past BDF2 no linear multistep method
+// is A-stable (Dahlquist); the A(alpha) wedge is 86.0 deg for BDF3 and 73.4 for
+// BDF4, which a diffusion-dominated spectrum stays inside, but 51.8 for BDF5
+// and 17.8 for BDF6, which the reaction Jacobian of a depolarisation front
+// does not respect. BDF7 and beyond are zero-unstable.
+//
+// Worth knowing when choosing: Crank-Nicolson is A-stable but NOT L-stable -
+// its amplification factor tends to -1 as lambda*dt -> -infinity, so the
+// stiffest modes ring instead of being damped. BDF2 is second order AND
+// L-stable, so on a stiff front it is the better second-order option.
 const word implicitScheme
 (
     spatialIntegrationProperties.lookupOrDefault<word>
@@ -420,6 +437,58 @@ const word implicitScheme
         "backwardEuler"
     )
 );
+
+requireOneOf
+(
+    "implicitScheme",
+    implicitScheme,
+    {"backwardEuler", "crankNicolson", "BDF1", "BDF2", "BDF3", "BDF4"}
+);
+
+// How BDF-k gets the steps it cannot take by itself: the first k-1 (no
+// history yet), the k-1 after a restart (a change in the stimulus invalidates
+// the history, see the time loop), and a step of non-nominal length (the
+// clipped last step, and the stop point). All three are taken with ESDIRK3,
+// a one-step, L-stable, third-order method: it leaves starting values accurate
+// to O(dt^4), enough for every BDF offered, and needs no exact solution.
+//
+// The key has one accepted value. It is kept so a run records its startup:
+// the observed order of a BDF run is meaningless without it. The MMS solver
+// also offers exact and constant seeding, and measured both capping the order
+// at 1 (suite test M20); neither exists here - the first needs an exact
+// solution, and the second is only wrong.
+const word bdfStartup
+(
+    spatialIntegrationProperties.lookupOrDefault<word>("bdfStartup", "ESDIRK3")
+);
+
+requireOneOf("bdfStartup", bdfStartup, {"ESDIRK3"});
+
+// Which polynomial in time drives the state ODEs across a PDE step (ported
+// from the MMS solver; see VmDriverNodes in the solver).
+//
+//   history  (default) the interpolant through the Vm levels the scheme has
+//            already stored: the k+1 levels of BDF-k, or the stage values of
+//            the ESDIRK steps. Costs nothing but the interpolation.
+//   linear   the two-node ramp between V^n and the candidate. Kept so its cost
+//            stays measurable: it caps every BDF at order 2 (MMS suite test
+//            M21: BDF4 fits 2.04 with linear and 3.89 with history).
+//
+// backwardEuler, crankNicolson and BDF1 store no level older than V^n, so they
+// take the ramp under either value. So do the Gauss-point ODE paths
+// (gaussPointODE and the front cells of the hybrid), which always use it.
+const word stateODEDriver
+(
+    spatialIntegrationProperties.found("implicitHOCoeffs")
+  ? spatialIntegrationProperties.subDict("implicitHOCoeffs").lookupOrDefault<word>
+    (
+        "stateODEDriver",
+        "history"
+    )
+  : word("history")
+);
+
+requireOneOf("stateODEDriver", stateODEDriver, {"history", "linear"});
 
 // lumped puts the cell volume on the diagonal; consistent assembles the
 // high-order mass matrix over the LRE stencil, which is what makes the
@@ -433,6 +502,8 @@ const word massMatrixType
         "lumped"
     )
 );
+
+requireOneOf("massMatrix", massMatrixType, {"lumped", "consistent"});
 
 // --------------------------------------------------------------------
 // Linear solver for the assembled branches (Picard / diagonalIion)
@@ -450,6 +521,14 @@ const word implicitLinearSolver
   : word("GMRES")
 );
 
+// Modified for cardiacFoam, ported from the MMS solver: every option key in
+// this file has a single accepted spelling, compared case-sensitively, and is
+// validated here at start-up - see requireOneOf in the solver.
+requireOneOf
+(
+    "linearSolver", implicitLinearSolver, {"GMRES", "BiCGSTAB", "SparseLU"}
+);
+
 // Eigen or PETSc. Only PETSc works at more than one rank: Eigen has no
 // distributed matrix, so its path is serial by construction.
 const word linearSolverBackend
@@ -462,6 +541,20 @@ const word linearSolverBackend
     )
   : word("PETSc")
 );
+
+requireOneOf("linearSolverBackend", linearSolverBackend, {"PETSc", "Eigen"});
+
+// Added for cardiacFoam, ported from the MMS solver: GMRES exists only on the
+// PETSc side, and it is the default of linearSolver. Without this a case that
+// switched the backend to Eigen and nothing else ran through the whole set-up
+// and died in the first linear solve.
+if (linearSolverBackend == "Eigen" && implicitLinearSolver == "GMRES")
+{
+    FatalErrorInFunction
+        << "linearSolver GMRES is not available on the Eigen backend." << nl
+        << "With linearSolverBackend Eigen use BiCGSTAB or SparseLU."
+        << exit(FatalError);
+}
 
 // Relative residual at which the linear solve stops.
 const scalar implicitTolerance =
@@ -483,17 +576,26 @@ const label implicitMaxIterations =
     )
   : label(2000);
 
-// PETSc-specific overrides of the above. Defaulting kspType to the
-// backend-neutral name keeps a case that only sets linearSolver working.
+// PETSc-specific overrides of the above. Defaulting kspType to the PETSc
+// translation of the backend-neutral name keeps a case that only sets
+// linearSolver working. Modified for cardiacFoam: the default used to be the
+// neutral name itself (GMRES, BiCGSTAB), translated later by a case-folding
+// alias table; the translation now happens here, once, and the key only
+// accepts PETSc's own names.
 const word petscLinearKspType
 (
     spatialIntegrationProperties.found("implicitHOCoeffs")
   ? spatialIntegrationProperties.subDict("implicitHOCoeffs").lookupOrDefault<word>
     (
         "petscLinearKspType",
-        implicitLinearSolver
+        petscKspTypeForLinearSolver(implicitLinearSolver)
     )
-  : implicitLinearSolver
+  : petscKspTypeForLinearSolver(implicitLinearSolver)
+);
+
+requireOneOf
+(
+    "petscLinearKspType", petscLinearKspType, {"gmres", "bcgs", "cg", "preonly"}
 );
 
 // Preconditioner. NOTE for parallel comparisons: PETSc wraps ilu and lu in
@@ -509,6 +611,16 @@ const word petscLinearPcType
         "ilu"
     )
   : word("ilu")
+);
+
+// A closed list, as in the MMS solver: the preconditioners the suite uses. Any
+// other PETSc PC can still be tried through the options database, e.g.
+// -activation_linear_pc_type asm, which does not go through this dictionary.
+requireOneOf
+(
+    "petscLinearPcType",
+    petscLinearPcType,
+    {"none", "jacobi", "ilu", "lu", "gamg", "hypre"}
 );
 
 // Restart length m of GMRES(m); ignored by the other KSP types.
@@ -590,7 +702,7 @@ const label implicitMinNonlinearIterations =
     )
   : label(1);
 
-// picard (fixed point on the source), diagonalIion (adds a local
+// Picard (fixed point on the source), diagonalIion (adds a local
 // dIion/dVm to the matrix diagonal) or JFNK (Newton with a matrix-free
 // Jacobian). All three converge to the same solution; they differ in how
 // many iterations and how much work per iteration.
@@ -600,9 +712,14 @@ const word nonlinearMethod
   ? spatialIntegrationProperties.subDict("implicitHOCoeffs").lookupOrDefault<word>
     (
         "nonlinearMethod",
-        "picard"
+        "Picard"
     )
-  : word("picard")
+  : word("Picard")
+);
+
+requireOneOf
+(
+    "nonlinearMethod", nonlinearMethod, {"Picard", "JFNK", "diagonalIion"}
 );
 
 // Default relative tolerance for every nonlinear residual; the three keys
@@ -754,6 +871,11 @@ const word jfnkLinearSolverBackend
   : word("PETSc")
 );
 
+requireOneOf
+(
+    "jfnkLinearSolverBackend", jfnkLinearSolverBackend, {"PETSc", "Eigen"}
+);
+
 // KSP type of the inner solve. GMRES is the usual choice: the matrix-free
 // Jacobian is not symmetric.
 const word jfnkPetscKspType
@@ -767,6 +889,11 @@ const word jfnkPetscKspType
   : word("gmres")
 );
 
+requireOneOf
+(
+    "jfnkPetscKspType", jfnkPetscKspType, {"gmres", "bcgs", "cg", "preonly"}
+);
+
 // PETSc PC for the inner solve. Usually none, because the real
 // preconditioning is done by jfnkPreconditioner below (a PCShell).
 const word jfnkPetscPcType
@@ -778,6 +905,13 @@ const word jfnkPetscPcType
         "none"
     )
   : word("none")
+);
+
+requireOneOf
+(
+    "jfnkPetscPcType",
+    jfnkPetscPcType,
+    {"none", "jacobi", "ilu", "lu", "gamg", "hypre"}
 );
 
 // Restart length of the inner GMRES; defaults to the Krylov dimension so
@@ -823,6 +957,10 @@ const word jfnkPreconditioner
     )
   : word("none")
 );
+
+// Added for cardiacFoam: the solver only tests for "diffusion", so any other
+// value - a typo included - used to run unpreconditioned without a word.
+requireOneOf("jfnkPreconditioner", jfnkPreconditioner, {"none", "diffusion"});
 
 // ----------------------------------------------------------------------- //
 // Initial-guess strategy for Newton at the start of each time step.
@@ -1342,16 +1480,21 @@ const scalar stabilisationAlpha
   : scalar(0.0)
 );
 
-// Reconstruction used by the Vm diffusion operator and by the consistent
-// mass matrix. Held by pointer because it is built only when needed - its
-// construction is the memory and time peak of the setup.
+// Reconstruction used by the Vm diffusion operator, the consistent mass
+// matrix, the face-jump stabilisation and the non-orthogonal correction of the
+// low-order operator. Its construction is the memory and time peak of the
+// setup.
+//
+// Modified for cardiacFoam: built ALWAYS, as in the MMS solver. It used to be
+// built only for a high-order Vm or alpha > 0, which left the low-order
+// operator without a reconstruction - and that operator now needs one on every
+// mesh where the two-point flux is inconsistent (see nonOrthFluxVector() in
+// the solver). Deciding per mesh whether the correction is needed was
+// considered and rejected in favour of the MMS behaviour: one code path, and
+// the cost is paid only at setup. Still held by pointer so the rest of the
+// solver keeps its valid() checks unchanged.
 autoPtr<highOrderInterp> LREInterp_VmPtr;
 
-// The stabilisation needs the reconstruction even when the operator itself
-// is low order, hence the second condition.
-const bool needLREForVm = useHighOrder_Vm || stabilisationAlpha > SMALL;
-
-if (needLREForVm)
 {
     if
     (
@@ -1360,23 +1503,35 @@ if (needLREForVm)
     )
     {
         FatalErrorInFunction
-            << "Vm LRE coefficients are required when useHighOrder_Vm is "
-            << "true or stabilisationAlpha > 0, but "
             << "constant/spatialIntegrationProperties does not contain "
             << "highOrderCoeffs/LRECoeffs_Vm." << nl
+            << "The Vm reconstruction is always built: besides the high-order"
+            << " operator and the stabilisation, the low-order operator needs"
+            << " it for its non-orthogonal correction. For a low-order Vm,"
+            << " N 1 is enough." << nl
             << abort(FatalError);
     }
 
     const dictionary& highOrderCoeffs =
         spatialIntegrationProperties.subDict("highOrderCoeffs");
 
+    // Stencil treatment of each boundary patch, from Vm's boundary condition:
+    //   fixedValue / fixedVoltage -> the boundary value is added to the
+    //                  stencil as a Dirichlet ghost point;
+    //   anything else -> not added. A zeroGradient patch gets a one-sided
+    //                  stencil, and the Neumann condition enters as a zero
+    //                  boundary flux.
+    //
+    // Modified for cardiacFoam, as in the MMS solver: no mirrored stencil is
+    // requested for zeroGradient patches any more. A mirrorPatches list used
+    // to be built here and written into the dictionary, but movingLeastSquares
+    // has no mirroring for zeroGradient and the highOrderInterp adapter
+    // discarded it with a warning - two warnings per run and dead code.
     boolList includePatchInVmStencils(mesh.boundaryMesh().size(), false);
-    wordList mirrorPatchNamesVm;
 
     forAll(mesh.boundaryMesh(), patchI)
     {
         const word bcType = Vm.boundaryField()[patchI].type();
-        const word& patchName = mesh.boundaryMesh()[patchI].name();
 
         if
         (
@@ -1386,17 +1541,25 @@ if (needLREForVm)
         {
             includePatchInVmStencils[patchI] = true;
         }
-        else if (bcType == zeroGradientFvPatchScalarField::typeName)
-        {
-            mirrorPatchNamesVm.append(patchName);
-        }
     }
 
-    dictionary lreCoeffsVm(highOrderCoeffs.subDict("LRECoeffs_Vm"));
-    if (!mirrorPatchNamesVm.empty())
-    {
-        lreCoeffsVm.set("mirrorPatches", mirrorPatchNamesVm);
-    }
+    // What the LRECoeffs_* keys mean (added for cardiacFoam, as in the MMS
+    // solver). Only N, Nn and k reach the library; maxStencilSize is inert,
+    // the adapter drops it.
+    //
+    //   N   the polynomial DEGREE of the local reconstruction.
+    //   Nn  the stencil cells ADDED on top of the minimum that degree needs,
+    //       NOT the total. The minimum is the number of terms in the Taylor
+    //       polynomial, (N+1)(N+2)/2 in 2-D and (N+1)(N+2)(N+3)/6 in 3-D,
+    //       i.e. the number of unknowns of the local least-squares fit, so
+    //
+    //           stencil size = minimum + Nn
+    //
+    //       and Nn is the redundancy of that fit. With N 3 in 2-D the minimum
+    //       is 10, so Nn 10 gives a 20-cell stencil. Writing the intended
+    //       TOTAL here silently adds the minimum twice.
+    //   k   exponent of the radial weight function.
+    const dictionary lreCoeffsVm(highOrderCoeffs.subDict("LRECoeffs_Vm"));
 
     LREInterp_VmPtr.reset
     (
@@ -1443,13 +1606,12 @@ if (useHighOrder_Iion)
             << abort(FatalError);
     }
 
+    // Same patch classification as for Vm (see there; no mirrored stencils).
     boolList includePatchInIionStencils(mesh.boundaryMesh().size(), false);
-    wordList mirrorPatchNamesIion;
 
     forAll(mesh.boundaryMesh(), patchI)
     {
         const word bcType = Vm.boundaryField()[patchI].type();
-        const word& patchName = mesh.boundaryMesh()[patchI].name();
 
         if
         (
@@ -1459,17 +1621,9 @@ if (useHighOrder_Iion)
         {
             includePatchInIionStencils[patchI] = true;
         }
-        else if (bcType == zeroGradientFvPatchScalarField::typeName)
-        {
-            mirrorPatchNamesIion.append(patchName);
-        }
     }
 
-    dictionary lreCoeffsIion(highOrderCoeffs.subDict(IionCoeffsName));
-    if (!mirrorPatchNamesIion.empty())
-    {
-        lreCoeffsIion.set("mirrorPatches", mirrorPatchNamesIion);
-    }
+    const dictionary lreCoeffsIion(highOrderCoeffs.subDict(IionCoeffsName));
 
     LREInterp_IionPtr.reset
     (
@@ -1484,7 +1638,7 @@ if (useHighOrder_Iion)
     // Build the state-reconstruction interpolator only when the new mode is
     // active and Gauss points exist. The states are not volScalarFields (they
     // live in a Field<Field<scalar>>) but behave like Vm at the boundary, so
-    // the Iion include-list / mirror-patch classification is reused verbatim.
+    // the Iion include-list is reused verbatim.
     // Both cellCentredReconstruct and the front-aware hybrid reconstruct the
     // cell-centred states at the Gauss points (the hybrid only in the smooth
     // cells), so the interpolator is built for either.
@@ -1503,11 +1657,10 @@ if (useHighOrder_Iion)
                 << abort(FatalError);
         }
 
-        dictionary lreCoeffsStates(highOrderCoeffs.subDict("LRECoeffs_states"));
-        if (!mirrorPatchNamesIion.empty())
-        {
-            lreCoeffsStates.set("mirrorPatches", mirrorPatchNamesIion);
-        }
+        const dictionary lreCoeffsStates
+        (
+            highOrderCoeffs.subDict("LRECoeffs_states")
+        );
 
         LREInterp_statesPtr.reset
         (
