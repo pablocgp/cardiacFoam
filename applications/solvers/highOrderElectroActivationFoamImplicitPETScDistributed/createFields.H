@@ -392,18 +392,22 @@ const label hybridFrontDilation
 
 // Barth--Jespersen-style limiter on the state reconstruction: bound each
 // reconstructed Gauss value to the [min,max] of the cell + its face neighbours.
-// Prevents high-order (p3) overshoot of the stiff TNNP states at under-resolved
-// fronts from driving the ionic algebra to overflow (SIGFPE). Default on;
-// applies to cellCentredReconstruct and the front-aware hybrid (smooth cells).
+// Added against p3 overshoot of the stiff TNNP states at under-resolved fronts
+// driving the ionic algebra to overflow (SIGFPE); applies to
+// cellCentredReconstruct and the front-aware hybrid (smooth cells). Default
+// OFF since 2026-10-06: on E35's ladder (0.5 to 0.0625 mm) p3 ran stable
+// without it and 10-30 % more accurate in activation time, since clipping to
+// the neighbour range drops the reconstruction to first order exactly at the
+// front. Turn it on if a case overflows.
 const Switch stateReconstructLimiter
 (
     spatialIntegrationProperties.found("implicitHOCoeffs")
   ? spatialIntegrationProperties.subDict("implicitHOCoeffs").lookupOrDefault<Switch>
     (
         "stateReconstructLimiter",
-        true
+        false
     )
-  : Switch(true)
+  : Switch(false)
 );
 
 
@@ -489,6 +493,26 @@ const word stateODEDriver
 );
 
 requireOneOf("stateODEDriver", stateODEDriver, {"history", "linear"});
+
+// The Gauss-point state ODE paths (gaussPointODE, and the front cells of the
+// front-aware hybrid) drive the ODE with the two-node linear blend of Vm across
+// the step unless this is on. On, they use the same polynomial as the cell
+// paths - through the BDF history levels or the ESDIRK stage values - with each
+// level taken to the Gauss points by the reconstruction that gives V^n there:
+// at the start of the step for BDF, once per accepted stage for ESDIRK. Nothing
+// is kept at the Gauss points between steps. The blend caps BDF3/BDF4 near
+// second order on those paths (E02: GP gave 2.50 / 2.37 where CC gave
+// 2.96 / 4.60). Only acts with stateODEDriver history; off by default.
+const Switch stateODEGaussPointHistory
+(
+    spatialIntegrationProperties.found("implicitHOCoeffs")
+  ? spatialIntegrationProperties.subDict("implicitHOCoeffs").lookupOrDefault<Switch>
+    (
+        "stateODEGaussPointHistory",
+        false
+    )
+  : Switch(false)
+);
 
 // lumped puts the cell volume on the diagonal; consistent assembles the
 // high-order mass matrix over the LRE stencil, which is what makes the
@@ -939,28 +963,17 @@ const word jfnkPetscOptionsPrefix
   : word("activation_jfnk_")
 );
 
-// Phase A3: preconditioner for the matrix-free JFNK Jacobian.
-//   "none"      : no preconditioner (legacy behaviour, unchanged results path).
-//   "diffusion" : right-preconditioning with M^{-1}, where M = AImplicit is the
-//                 (constant, SPD) implicit diffusion operator = the linear part
-//                 of the Jacobian. M is LU-factorised once (reused across steps),
-//                 so each Krylov step costs one cheap triangular solve; this
-//                 sharply cuts the number of matrix-free matvecs (each of which
-//                 re-integrates the ionic ODE, the dominant cost).
-const word jfnkPreconditioner
+// The JFNK preconditioner controls, shared with the MMS solver. They read
+// from implicitHOCoeffs, empty when the dictionary has no such subdictionary
+// so every key takes its default.
+const dictionary implicitHOCoeffs
 (
-    spatialIntegrationProperties.found("implicitHOCoeffs")
-  ? spatialIntegrationProperties.subDict("implicitHOCoeffs").lookupOrDefault<word>
-    (
-        "jfnkPreconditioner",
-        "none"
-    )
-  : word("none")
+    spatialIntegrationProperties.subOrEmptyDict("implicitHOCoeffs")
 );
 
-// Added for cardiacFoam: the solver only tests for "diffusion", so any other
-// value - a typo included - used to run unpreconditioned without a word.
-requireOneOf("jfnkPreconditioner", jfnkPreconditioner, {"none", "diffusion"});
+#include "jfnkPreconditionerControls.H"
+
+#include "openMPControls.H"
 
 // ----------------------------------------------------------------------- //
 // Initial-guess strategy for Newton at the start of each time step.
@@ -1209,6 +1222,24 @@ const label assemblyFaceChunk
       ? spatialIntegrationProperties.subDict("implicitHOCoeffs").lookupOrDefault<label>
         (
             "assemblyFaceChunk",
+            50000
+        )
+      : label(50000),
+        label(1)
+    )
+);
+
+// Cells per block when assembling the consistent mass matrix: bounds the
+// triplet buffer. Same key and default as the MMS solver; the result does not
+// depend on it beyond summation order.
+const label assemblyCellChunk
+(
+    max
+    (
+        spatialIntegrationProperties.found("implicitHOCoeffs")
+      ? spatialIntegrationProperties.subDict("implicitHOCoeffs").lookupOrDefault<label>
+        (
+            "assemblyCellChunk",
             50000
         )
       : label(50000),
@@ -1515,33 +1546,14 @@ autoPtr<highOrderInterp> LREInterp_VmPtr;
     const dictionary& highOrderCoeffs =
         spatialIntegrationProperties.subDict("highOrderCoeffs");
 
-    // Stencil treatment of each boundary patch, from Vm's boundary condition:
-    //   fixedValue / fixedVoltage -> the boundary value is added to the
-    //                  stencil as a Dirichlet ghost point;
-    //   anything else -> not added. A zeroGradient patch gets a one-sided
-    //                  stencil, and the Neumann condition enters as a zero
-    //                  boundary flux.
-    //
-    // Modified for cardiacFoam, as in the MMS solver: no mirrored stencil is
-    // requested for zeroGradient patches any more. A mirrorPatches list used
-    // to be built here and written into the dictionary, but movingLeastSquares
-    // has no mirroring for zeroGradient and the highOrderInterp adapter
-    // discarded it with a warning - two warnings per run and dead code.
-    boolList includePatchInVmStencils(mesh.boundaryMesh().size(), false);
-
-    forAll(mesh.boundaryMesh(), patchI)
-    {
-        const word bcType = Vm.boundaryField()[patchI].type();
-
-        if
-        (
-            bcType == fixedValueFvPatchScalarField::typeName
-         || bcType == "fixedVoltage"
-        )
-        {
-            includePatchInVmStencils[patchI] = true;
-        }
-    }
+    // No boundary patch adds a ghost point to the stencils. Modified for
+    // cardiacFoam: the only patches that did were the Dirichlet ones
+    // (fixedValue/fixedVoltage), which both solvers now refuse at start-up; a
+    // zeroGradient patch gets a one-sided stencil and its Neumann condition
+    // enters as a zero boundary flux. No mirrored stencil is requested either:
+    // movingLeastSquares has none for zeroGradient, and the mirrorPatches list
+    // that used to be built here was discarded by the adapter.
+    const boolList includePatchInVmStencils(mesh.boundaryMesh().size(), false);
 
     // What the LRECoeffs_* keys mean (added for cardiacFoam, as in the MMS
     // solver). Only N, Nn and k reach the library; maxStencilSize is inert,
@@ -1606,22 +1618,8 @@ if (useHighOrder_Iion)
             << abort(FatalError);
     }
 
-    // Same patch classification as for Vm (see there; no mirrored stencils).
-    boolList includePatchInIionStencils(mesh.boundaryMesh().size(), false);
-
-    forAll(mesh.boundaryMesh(), patchI)
-    {
-        const word bcType = Vm.boundaryField()[patchI].type();
-
-        if
-        (
-            bcType == fixedValueFvPatchScalarField::typeName
-         || bcType == "fixedVoltage"
-        )
-        {
-            includePatchInIionStencils[patchI] = true;
-        }
-    }
+    // No ghost points, as for Vm (see there).
+    const boolList includePatchInIionStencils(mesh.boundaryMesh().size(), false);
 
     const dictionary lreCoeffsIion(highOrderCoeffs.subDict(IionCoeffsName));
 
@@ -1718,6 +1716,8 @@ autoPtr<EmbeddedTNNPModel> ionicModel
         runTime.deltaTValue()
     )
 );
+
+ionicModel->setOpenMP(stateODEUseOpenMP, stateODEOpenMPThreshold);
 
 // Time at which each cell first crossed activationThreshold; zero means
 // "not yet activated". READ_IF_PRESENT so a restart keeps the activation

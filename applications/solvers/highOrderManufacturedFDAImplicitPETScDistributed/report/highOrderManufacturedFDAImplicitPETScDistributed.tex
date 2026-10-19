@@ -82,9 +82,11 @@ allows the same nonlinear coupling strategies used in the physiological solver:
 		\item[(i)] at each quadrature point used to evaluate the ionic source;
 		\item[(ii)] only at the cell centres, reconstructing them afterwards wherever the ionic source has to be evaluated;
 	\end{itemize}
-	\item The ODE uses the OpenFOAM adaptive RKF45 integrator with configurable
-	tolerances;
-	\item Time integration follows a $\theta$ scheme (backward Euler or Crank--Nicolson);
+	\item The ODE uses the solver's own integrator (adaptive \code{RKF45} by
+	default, \code{RK4} or \code{Euler}) with configurable tolerances, driven by a
+	polynomial in time of $\Vm$ across the step;
+	\item Time integration follows a $\theta$ scheme (backward Euler or
+	Crank--Nicolson) or BDF1--4 with an ESDIRK3 startup;
 	\item The mass operator can be \code{lumped} or high-order \code{consistent};
 	\item Linear voltage systems are solved through a thin PETSc wrapper that
 	\emph{caches} the KSP, the matrix and the ILU(T) symbolic factorisation across
@@ -114,10 +116,19 @@ formulation is unchanged. Section~\ref{sec:distributed} documents what the
 decomposition requires --- including the exchange that carries a neighbouring
 cell's reconstruction row across a partition, without which the face-jump
 stabilisation is silently absent along every cut --- how a parallel operator is
-verified entry by entry, and the one remaining inconsistency: a stencil
-selection in the high-order library that is not invariant under partitioning
-(Section~\ref{sec:dist-stencils}). That inconsistency is measured there and
-shown not to affect the fitted convergence orders.
+verified entry by entry, and the inconsistency that was measured in the stencil
+selection of the high-order library (Section~\ref{sec:dist-stencils}); in 2-D it
+disappeared once the \code{Nn} semantics were corrected
+(Section~\ref{sec:h-and-nn}).
+
+\textbf{Status as of 2026-10-18.} Since October the code this solver shares with
+the electro solver lives in \code{src/monodomainCommon/}, and the solver gained a
+nonlinear stopping test common to the three methods (with a floor exit), right
+preconditioning of the KSP, the $\Vm$ history at the Gauss points, and the fix of
+the stage step on the \code{gaussPointODE} path. Section~\ref{sec:oct2026}
+collects those changes and the new M02 results; the earlier sections have been
+corrected where they had become false. The result tables of
+Section~\ref{sec:mms-results} \textbf{predate} those changes.
 \end{abstract}
 
 \tableofcontents
@@ -627,6 +638,11 @@ quadrature point. The quadrature-point states are then averaged back to cell
 centres. This legacy path costs one ODE integration per quadrature point.
 \end{itemize}
 
+The state reconstruction is the routine shared with the electro solver
+(\code{reconstructCellFieldsAtIntegrationPoints}, the three states in a single
+pass). It accepts a neighbour-range limiter, which this solver \textbf{never}
+requests: on a smooth field it would only clip legitimate extrema.
+
 % ================================================================== %
 \section{Time integration}
 % ================================================================== %
@@ -894,7 +910,7 @@ Scheme & Nominal & Self-convergence, route A (\code{M02}) & vs analytic, route B
 \midrule
 \code{BDF2} & 2 & $1.979$ & $\mathbf{1.992}$ \\
 \code{BDF3} & 3 & $2.932$ & $\mathbf{2.971}$ \\
-\code{BDF4} & 4 & $3.890$ & $\mathbf{3.941}$ \\
+\code{BDF4} & 4 & $3.891$ & $\mathbf{3.908}$ \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -1062,6 +1078,13 @@ The ramp lands on $2.04$, which is the order the argument above predicts, and
 the interpolant recovers the scheme's own order. \code{history} is the default;
 \code{linear} exists so that this cost stays measurable, because a capped order
 is all the run reports --- there is no error and no warning.
+
+\paragraph{The Gauss-point path (2026-10).} With \code{gaussPointODE} the driver
+was always the two-node ramp, because raising it seemed to require storing every
+level at every quadrature point. With \code{stateODEGaussPointHistory true} that
+path uses the same polynomial as the cell path without storing anything between
+steps: each history level (or each ESDIRK stage value) is reconstructed at the
+Gauss points at the start of the step. See Section~\ref{sec:oct-gausshist}.
 
 
 \subsection{The full triad grid, and the cost of each combination}
@@ -1331,10 +1354,10 @@ out the linear profile that would otherwise serve.
 \midrule
 \code{backwardEuler} & 1 & $1.000$ & $1.000$ \\
 \code{BDF1}          & 1 & $1.000$ & $1.000$ \\
-\code{crankNicolson} & 2 & $1.994$ & $2.000$ \\
+\code{crankNicolson} & 2 & $1.998$ & $2.000$ \\
 \code{BDF2}          & 2 & $1.979$ & $1.992$ \\
 \code{BDF3}          & 3 & $2.932$ & $2.971$ \\
-\code{BDF4}          & 4 & $3.890$ & $3.941$ \\
+\code{BDF4}          & 4 & $3.891$ & $3.908$ \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -1435,14 +1458,18 @@ The relaxed update is
   \qquad
   \omega=\texttt{nonlinearRelaxation}.
 \end{equation}
-Convergence requires at least \code{minNonlinearIterations}; in the Picard
-branch the active criteria are $R_{\Vm}\le\texttt{nonlinearVmTolerance}$ and
-all state residuals below \code{nonlinearStatesTolerance}. If Picard exhausts
-the iteration budget, the current implementation accepts the last Picard
-iterate and prints a warning.
-The source vector used for the Picard residual diagnostic is the lagged source
-from the current corrector evaluation; the fully coupled residual is not a
-Picard stopping criterion in this branch.
+Convergence requires at least \code{minNonlinearIterations}. \textbf{Since
+2026-10} Picard stops with the same test as JFNK and \code{diagonalIion}, the
+shared function \code{nonlinearIterationExit} (Section~\ref{sec:oct-stop}): the
+$\Vm$ and $\Iion$ increments --- and the state increments if
+\code{nonlinearRequireStatesConvergence} --- and the coupled residual
+$R_{\mathrm{cpl}}\le\texttt{nonlinearTolerance}$, with a floor exit when the
+residual stops falling. Before, Picard stopped on the $\Vm$ and state increments
+alone and the coupled residual was not a stopping criterion. If Picard exhausts
+the iteration budget it follows the same semantics as the other two methods: by
+default the step is rolled back, and with \code{nonlinearAcceptUnconverged} the
+iterate is accepted (the separate branch that always accepted the last iterate
+was removed in September).
 
 It is useful to have the expected convergence rate at hand, because it governs
 the iteration counts observed in the results. Linearising the iteration around
@@ -1485,12 +1512,12 @@ the full sweep is in \S\ref{sec:en-rollback-audit}.
   \State Solve $\Aimp\widehat{\mathsf{V}}^{k+1}=\mathsf{r}(\mathsf{S}^k)$
   \State Relax $\mathsf{V}^{k+1}=\mathsf{V}^{k}+\omega(\widehat{\mathsf{V}}^{k+1}-\mathsf{V}^{k})$
   \State Apply exact boundary values; the source is refreshed at the next Picard corrector
-  \State Compute $R_{\Vm}$, $R_{u_1}$, $R_{u_2}$, $R_{u_3}$, $R_{\Iion}$
-  \If{minimum iterations reached and Picard tolerances hold}
+  \State Compute $R_{\Vm}$, $R_{u_1}$, $R_{u_2}$, $R_{u_3}$, $R_{\Iion}$, $R_{\mathrm{cpl}}$
+  \If{\code{nonlinearIterationExit} reports converged or floor}
     \State accept and exit loop
   \EndIf
 \EndFor
-\Ensure Last Picard iterate is accepted; a warning is printed if not converged
+\Ensure If not converged: roll back to $t^n$, or accept the iterate with \code{nonlinearAcceptUnconverged}
 \end{algorithmic}
 \end{algorithm}
 
@@ -1742,9 +1769,9 @@ For \code{JFNK} and \code{diagonalIion}, if the nonlinear solver reaches the
 maximum number of iterations without convergence, the default behaviour is a
 rollback: $\Vm$, $\Iion$, and the state fields are restored to the beginning of
 the time step. Setting \code{nonlinearAcceptUnconverged=true} disables this
-rollback and accepts the last iterate. Picard is the exception: to preserve the
-legacy manufactured implicit behaviour, an unconverged Picard iteration accepts
-the last Picard iterate with a warning.
+rollback and accepts the last iterate. Picard now follows the same semantics:
+its own branch, which always accepted the last iterate with a warning, was
+removed.
 
 When the line search exhausts \code{jfnkLineSearchMaxIter}, the last trial point is accepted even though it failed the Armijo test.  The rollback freezes the state while time advances anyway, and therefore a single rollback invalidates the convergence rate of that run.
 
@@ -1942,6 +1969,17 @@ to the \emph{translation} of \code{linearSolver}: \code{GMRES}$\to$\code{gmres},
 the PC forced to \code{lu}. If \code{petscUseOptions=true}, PETSc's options
 database can still override solver details through the configured options
 prefix, which is also how a preconditioner outside the list can be tried.
+
+\paragraph{Right preconditioning (2026-10).} In PETSc, GMRES and BiCGStab
+precondition on the left by default, and their tolerance applies to the
+\emph{preconditioned} residual. With \code{ilu} at $\Delta t=2\times10^{-3}$ the
+two differed by $\sim4\times$: the linear solve ``converged'' to $10^{-12}$ leaving
+a true residual of $3.66\times10^{-12}$, and Picard --- already under the common
+test --- repeated that same solve 2000 times per step. \code{PetscKspMatrixSolver}
+now preconditions on the \textbf{right} (as the JFNK shell KSP already did), whose
+monitored norm is the true one; \code{cg} monitors the unpreconditioned norm. It
+is set before \code{KSPSetFromOptions}. Since October both classes live in
+\code{src/monodomainCommon/monodomainPetsc.H}, shared with the electro solver.
 
 \subsection{JFNK preconditioner: \texorpdfstring{\code{diagonalIion}}{diagonalIion} ILU(T)}
 
@@ -2492,6 +2530,13 @@ begin with.
 \label{sec:dist-stencils}
 % ------------------------------------------------------------------ %
 
+\paragraph{Note (2026-10).} Much of what follows came from the case and not from
+the library: the \code{Nn} key was written as a total when it is the number of
+cells added on top of the minimum, and the stencils came out 50\,\% larger than
+the halo (Section~\ref{sec:h-and-nn}). With the correct size, in 2-D, M11 measures
+0 differing stencils and M15 drops to $6.953\times10^{-15}$. The 3-D tetrahedral
+measurements in this subsection predate that fix and were not re-run.
+
 One genuine inconsistency remains. It is independent of the stabilisation --- it
 is present at $\alpha=0$ --- and it lives in the stencil selection of the
 high-order library rather than in this solver.
@@ -2675,8 +2720,144 @@ The cause is the stencil selection in solids4foam's
 \code{CHANGES-cardiacFoam.md}.
 
 
+% ================================================================== %
+\section{October 2026 changes and new results}
+\label{sec:oct2026}
+% ================================================================== %
+
+This section collects what changed in the solver between 2026-09-29 and
+2026-10-18 and what measures it in the suite
+(\path{run/tutorials_electro/mmsTestParallelVerification_2D/}). The earlier sections
+have already been corrected where they had become false. The results of
+Section~\ref{sec:mms-results} \textbf{predate} all of this.
+
+% ------------------------------------------------------------------ %
+\subsection{Code shared with the electro solver}
+% ------------------------------------------------------------------ %
+
+What this solver shares with \code{highOrderElectroActivationFoamImplicitPETScDistributed}
+moved to headers in \code{src/monodomainCommon/}:
+
+\begin{center}
+\begin{tabular}{@{}p{0.40\linewidth}p{0.56\linewidth}@{}}
+\toprule
+Header & Contents \\
+\midrule
+\code{monodomainBase.H} & global row offset, option validation, nonlinear stopping test \\
+\code{monodomainAssembly.H} & assembly of $\Mmass$ and $\Kstif$ (orthogonal and high order) \\
+\code{monodomainPetsc.H} & distributed matrices, \code{PetscKspMatrixSolver}, \code{PetscShellKspSolver}, KSP/PC selection \\
+\code{monodomainKrylov.H} & in-house GMRES and JFNK \\
+\code{monodomainTimeSchemes.H} & $\theta$/BDF coefficients, ESDIRK3 tableau, $\Vm$ driver \\
+\code{monodomainReconstruction.H} & reconstructions to the Gauss points \\
+\code{openMPControls.H}, \code{jfnkPreconditionerControls.H} & OpenMP keys and JFNK preconditioner keys \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+They are not a library: they are included \emph{inside} the anonymous namespace of
+each \code{.C}, so each executable compiles its own copy and a change there changes
+both solvers. What is specific to the MMS stays in the \code{.C}: the manufactured
+solution and its source, the three-state model and its ODEs, and the time loop.
+The code walkthrough (\code{codigo\_*.pdf}, generated by \code{mkcodereport.py})
+looks up each function in the \code{.C} and in those headers.
+
+The shared reconstruction does the K fields in a single pass over the stencil. The
+first shared version did one field per call and left this solver's state
+reconstruction 30\,\% slower (3-D M18: 3.54~s $\to$ 4.61~s); with the single pass
+it is back to the previous cost, bit-identical to reconstructing one field at a
+time. OpenMP now also splits those reconstructions, and \code{Eigen::setNbThreads}
+ties Eigen's products to the same \code{stateODEUseOpenMP} key.
+
+% ------------------------------------------------------------------ %
+\subsection{One stopping test, with a floor exit}
+\label{sec:oct-stop}
+% ------------------------------------------------------------------ %
+
+Picard used to stop on the $\Vm$ and state increments alone, while JFNK and
+\code{diagonalIion} also required the coupled residual: a method comparison (M08)
+partly compared stopping rules. The three methods now call
+\code{nonlinearIterationExit}:
+\begin{enumerate}[nosep]
+  \item unless $k+1\ge$~\code{minNonlinearIterations}, $R_{\Vm}$, $R_{\Iion}$ and
+        (with \code{nonlinearRequireStatesConvergence}) $R_{\mathbf{u}}$ pass:
+        continue;
+  \item if $R_{\mathrm{cpl}}\le$~\code{nonlinearTolerance}: converged;
+  \item if $R_{\mathrm{cpl}}$ did not fall since the previous iteration:
+        \textbf{floor}, stop, count it and report it in the log;
+  \item otherwise continue.
+\end{enumerate}
+The floor exists because the coupled residual can stall above the tolerance ---
+the true residual a preconditioned Krylov solve leaves, or round-off on a large
+stiff system --- and then every iteration repeats the same solve up to the cap. It
+was found here: Picard, \code{ilu}, $\Delta t=2\times10^{-3}$, 2000 identical
+iterations per step with $R_{\mathrm{cpl}}=3.66\times10^{-12}$ against $10^{-12}$.
+The cause of that case was the preconditioning side
+(Section~\ref{sec:linear-backend}), but the floor stays as a safety net. The
+increment tests are never loosened, so the worst case is the old Picard criterion.
+
+% ------------------------------------------------------------------ %
+\subsection{The \texorpdfstring{$\Vm$}{Vm} history at the Gauss points}
+\label{sec:oct-gausshist}
+% ------------------------------------------------------------------ %
+
+With \code{gaussPointODE} the ODE is integrated at every quadrature point and the
+driver was always the two-node ramp, which caps BDF3/BDF4. The
+\code{stateODEGaussPointHistory} key (default \code{false} in the solver,
+\code{True} in the suite harness) gives it the same polynomial as the cell path
+without storing anything between steps: at the start of every step the BDF history
+levels --- or, during startup, the accepted ESDIRK stage values --- are
+reconstructed at the Gauss points with the same operator that gives $\Vm^n$ there
+(\code{reconstructVmLevelAtIionIntegrationPoints}). Within the step $k-1$ temporary
+arrays of Gauss-point size live. It only acts with \code{stateODEDriver history}
+and high-order $\Iion$ in 2-D or 3-D. Its cost, measured in the electro solver
+(E36, BDF4), is $+8.9$\,\% of run time on GP with no measurable memory change.
+
+\paragraph{A stage-step error in the ESDIRK stages, fixed along the way.} On the
+same path, \code{updateIntegrationPointStatesODE} received \code{dt} instead of
+\code{stageDt}: inside an ESDIRK stage the states were integrated over the whole
+step and not over $c_i\,\Delta t$ as on the cell path. It only affected the BDF
+startup with \code{gaussPointODE}.
+
+% ------------------------------------------------------------------ %
+\subsection{New results: M02 with GP}
+\label{sec:oct-results}
+% ------------------------------------------------------------------ %
+
+M02 (2-D hexa $N=40$, triad $p3$, $\alpha=0$, Picard, $t_{\text{end}}=0.512$, ESDIRK3
+startup) now has the GP path next to CC. Judged order of the finest valid pair,
+route A (Cauchy, sines MMS) / route B (error against the analytical solution,
+uniform MMS):
+
+\begin{center}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Scheme & nominal & CC & GP with history & GP without history (B) \\
+\midrule
+\code{backwardEuler}, \code{BDF1} & 1 & 1.000 / 1.000 & 1.000 / 1.000 & --- \\
+\code{crankNicolson} & 2 & 1.998 / 2.000 & 2.000 / 2.000 & --- \\
+\code{BDF2} & 2 & 1.979 / 1.992 & 1.979 / 1.992 & 1.99 \\
+\code{BDF3} & 3 & 2.932 / 2.971 & 2.932 / 2.971 & 2.90 \\
+\code{BDF4} & 4 & 3.891 / 3.908 & 3.891 / 3.908 & floor $\sim2\times10^{-10}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The last column is the contrast without the key (linear driver at the Gauss
+points), with no verdict: the BDF4 pairs give 3.89, 7.51, $-1.59$ and 1.63, i.e.\
+the error stops falling at $\sim2\times10^{-10}$. With the key, GP reaches the same
+order as CC by both routes. M02 is PASS. The CC figures differ slightly from the
+September ones (BDF4 route B $3.941\to3.908$, CN route A $1.994\to1.998$) because
+of the changes in this section; the tables in the time-integration sections have
+already been updated.
+
+% ================================================================== %
 \section{Results}
 \label{sec:mms-results}
+
+\textbf{Note (2026-10).} The tables in this section were generated with the solver
+as it was before the changes of Section~\ref{sec:oct2026} (Picard's own stopping
+rule, left-preconditioned KSP, no history at the Gauss points). They are kept as a
+record and were not re-run.
 
 This section collects the current convergence tables generated from
 \path{/home/pablo/OpenFOAM/pablo-v2312/run/tutorials_electro/highOrderManufacturedFDAImplicitPETSc/results/example0/}.

@@ -21,6 +21,7 @@ sinclude $(SOLIDS4FOAM_DIR)/etc/wmake-options
 
 EXE_INC = \
     -I../../../src/highOrderAdapter \
+    -I../../../src/monodomainCommon \
     -I$(LIB_SRC)/ODE/lnInclude \
     -I$(LIB_SRC)/finiteVolume/lnInclude \
     -I$(LIB_SRC)/meshTools/lnInclude \

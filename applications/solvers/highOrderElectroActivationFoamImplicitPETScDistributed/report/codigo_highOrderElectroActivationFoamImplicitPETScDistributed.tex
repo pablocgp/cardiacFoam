@@ -37,7 +37,7 @@
 
 \author{}
 
-\date{Generado el 2026-08-14 a partir de \texttt{highOrderElectroActivationFoamImplicitPETScDistributed.C} (8145 líneas)}
+\date{Generado el 2026-10-18 a partir de \texttt{highOrderElectroActivationFoamImplicitPETScDistributed.C} (5555 líneas) y de los headers de \texttt{src/monodomainCommon}}
 
 \begin{document}
 
@@ -49,15 +49,14 @@
 
 \newpage
 
-\section{Qué resuelve este solver}
+\section{Qué resuelve este solver, y dónde vive el código}
 
 Resuelve la propagación del potencial de acción cardíaco: la ecuación de
 monodominio acoplada al modelo iónico \textbf{ten Tusscher--Noble--Noble--Panfilov
 (TNNP)}, con el objetivo de reproducir el benchmark de Niederer et al. (2012).
-
-A diferencia del solver MMS, acá \textbf{no hay solución exacta}. La verificación
-es por convergencia, por invariancia frente a la descomposición, y contra
-referencia publicada.
+A diferencia del solver MMS, acá \textbf{no hay solución exacta}: la verificación
+es por convergencia de Cauchy, por invariancia frente a la descomposición y
+contra referencia publicada.
 
 En cada paso de tiempo hay dos trabajos muy distintos:
 %
@@ -67,328 +66,452 @@ En cada paso de tiempo hay dos trabajos muy distintos:
   \item resolver el sistema lineal implícito de la difusión.
 \end{enumerate}
 %
-El primero domina el tiempo: la resolución lineal completa es apenas el 17--44\,\%
-del lazo. Eso explica varias decisiones del archivo, entre ellas que la única
-región OpenMP esté sobre las EDO y no sobre el ensamblado.
+El primero domina el tiempo. \textbf{MPI} reparte la malla entre ranks y toca
+todas las fases; \textbf{OpenMP} reparte, dentro de un rank, el lazo de EDO por
+punto y las reconstrucciones en los puntos de Gauss (de $V_m$ y de los
+estados), además de los productos matriz--vector de Eigen.
 
-\textbf{Dos ejes de paralelismo}, en lugares distintos del archivo: \textbf{MPI}
-reparte la malla entre ranks y toca todas las fases; \textbf{OpenMP} reparte el
-lazo de puntos de integración dentro de un rank y sólo toca las EDO.
+\textbf{Dónde vive el código (2026-10).} Todo lo que el solver comparte con el MMS
+--- álgebra distribuida y PETSc, ensamblado de masa y rigidez, reconstrucciones,
+GMRES/JFNK, esquemas temporales, criterio de parada --- está en
+\texttt{src/monodomainCommon/}, en headers que se incluyen \emph{dentro} del
+espacio de nombres anónimo del \texttt{.C}: no hay biblioteca que enlazar, y un
+cambio ahí cambia los dos solvers. En el \texttt{.C} queda lo propio: el modelo
+TNNP, el estímulo, el modo híbrido, los tiempos de activación y el lazo temporal.
+Cada listado de este recorrido indica de qué archivo sale.
 
 \section{El modelo iónico TNNP}
 
 El modelo vive en una clase dentro del archivo, con sus 19 estados y sus
-variables algebraicas.
+variables algebraicas. \texttt{computeRates} evalúa las derivadas;
+\texttt{computeVariables} las cantidades algebraicas; \texttt{calculateCurrent}
+devuelve $I_{ion}$.
 
-\texttt{computeRates} evalúa las derivadas; \texttt{computeVariables} las
-cantidades algebraicas; \texttt{calculateCurrent} devuelve $I_{ion}$.
+\texttt{protectState} es la protección numérica: acota compuertas a $[0,1]$,
+pone pisos a las concentraciones y a $V_m$. Lleva un contador de correcciones,
+el único estado compartido de todo el camino de las EDO --- por eso su
+incremento va bajo \texttt{omp critical}. \textbf{Está apagada por defecto}, en
+el solver y desde 2026-10-16 también en el harness: encendida, su contador llega
+al tope de $10^6$ y los BDF pierden el orden (E02: con estados CC, BDF2/3/4 dan
+1.74/2.22/3.54 con ella y 1.89/2.96/4.60 sin ella), y ninguna corrida la
+necesitó.
 
-\texttt{protectState} es la protección numérica: acota compuertas y
-concentraciones a rangos físicos. Lleva un contador de correcciones, y ése es el
-único estado compartido de todo el camino de las EDO --- por eso su incremento
-va bajo \texttt{omp critical} y no \texttt{atomic}: el test de cota y el
-incremento tienen que ser un solo paso indivisible.
+El test \textbf{E26} verifica el modelo aislado, en 0-D, contra los valores
+publicados de ten Tusscher 2004 (el pico, contra el propio modelo convergido).
 
-El test \textbf{E01} verifica este modelo aislado, en 0-D, contra los valores
-publicados de ten Tusscher 2004 --- APD90, pico, reposo, dV/dt máximo. Es el
-test más barato de la suite y sostiene todo lo demás: si la corriente iónica
-estuviera mal, ningún test de convergencia lo detectaría, porque todos
-convergerían limpiamente a la respuesta equivocada.
-
-\lstinputlisting[firstnumber=1973, firstline=1973, lastline=2029, caption={La protección numérica y su contador compartido.}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=1973, firstline=1973, lastline=2029, caption={La protección numérica y su contador compartido.}]
-
-
-\lstinputlisting[firstnumber=2512, firstline=2512, lastline=2550, caption={La corriente iónica. Recortada.}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=2512, firstline=2512, lastline=2550, caption={La corriente iónica. Recortada.}]
+\lstinputlisting[firstnumber=849, firstline=849, lastline=905, caption={La protección numérica y su contador compartido. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=849, firstline=849, lastline=905, caption={La protección numérica y su contador compartido. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]
 
 
-\section{Los integradores de EDO, y el único paralelismo por hilos}
-
-El solver trae sus propios steppers en vez de usar el marco \texttt{ODESolver}
-de OpenFOAM: \texttt{eulerStep}, \texttt{rk4Step} y \texttt{rkf45Trial}
-adaptativo. Un nombre desconocido es \texttt{FatalError}, no un fallback
-silencioso.
-
-Euler y RK4 dan \textbf{un} paso del tamaño del paso exterior completo, así que
-su exactitud la controla \texttt{dt}; RKF45 subdivide por su cuenta y la
-controla su tolerancia. El test \textbf{E02} hace converger los tres al mismo
-potencial de acción, que es una afirmación mucho más fuerte que apretar uno
-solo contra sí mismo.
-
-El paso adaptativo \textbf{persiste entre llamadas} en \texttt{stepMs\_}, de modo
-que cada llamada hereda el $h$ de la anterior. Eso hacía que la clave
-\texttt{initialODEStep} fuera inalcanzable --- el constructor siembra
-\texttt{stepMs\_} positivo, así que la rama que la leía sólo podía dispararse con
-\texttt{deltaT == 0}. El test \textbf{E03} lo midió (cero efecto sobre cuatro
-órdenes de magnitud) y la clave se removió.
-
-\texttt{solveODE} contiene la \textbf{única} región OpenMP del archivo. Los
-hilos reparten los puntos de integración, y funciona porque cada punto resuelve
-su propia EDO sin hablar con ningún otro --- por eso el resultado es
-bit-idéntico con cualquier cantidad de hilos, cosa que \textbf{E20} mide dando
-exactamente cero. \textbf{El ensamblado no está paralelizado con hilos.}
-
-\lstinputlisting[firstnumber=2138, firstline=2138, lastline=2175, caption={El paso adaptativo. Recortado.}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=2138, firstline=2138, lastline=2175, caption={El paso adaptativo. Recortado.}]
+\lstinputlisting[firstnumber=1428, firstline=1428, lastline=1466, caption={La corriente iónica. Recortada. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=1428, firstline=1428, lastline=1466, caption={La corriente iónica. Recortada. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]
 
 
-\lstinputlisting[firstnumber=2552, firstline=2552, lastline=2611, caption={El despacho de stepper y la región OpenMP. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=2552, firstline=2552, lastline=2611, caption={El despacho de stepper y la región OpenMP. Recortado. \textit{(recortado; sigue en el fuente.)}}]
+\section{Los integradores de EDO y el driver de Vm}
+
+El solver trae sus propios steppers: \texttt{eulerStep}, \texttt{rk4Step} y
+\texttt{rkf45Trial} adaptativo. Un nombre desconocido es \texttt{FatalError}.
+Cada integración RKF45 arranca desde \texttt{stateODEInitialStep} (el viejo
+\texttt{stepMs\_} que heredaba el paso entre llamadas, y hacía inalcanzable la
+clave, ya no existe). \textbf{E27} hace converger los tres integradores al mismo
+potencial de acción.
+
+Dentro del paso, la EDO no ve un $V_m$ congelado: \texttt{computeRates} lo toma
+del \emph{driver} (\texttt{drivenVmMilliVolt}), un polinomio en el tiempo que
+pasa por $V^n$ y el candidato $V^{n+1}$ --- y, con \texttt{stateODEDriver
+history}, también por los niveles anteriores de la historia BDF o por los valores
+de etapa ESDIRK. Con $V_m$ congelado el TNNP daba orden 1 incluso con
+Crank--Nicolson; con la recta, 2; la historia es la que deja a BDF3 y BDF4 dar su
+orden.
+
+\texttt{solveODE} reparte los puntos con OpenMP; cada punto es una EDO
+independiente, así que el resultado es bit a bit igual con cualquier cantidad de
+hilos (\textbf{E33}).
+
+\lstinputlisting[firstnumber=1051, firstline=1051, lastline=1091, caption={El paso adaptativo. Recortado. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=1051, firstline=1051, lastline=1091, caption={El paso adaptativo. Recortado. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]
+
+
+\lstinputlisting[firstnumber=909, firstline=909, lastline=919, caption={El driver de Vm dentro del paso. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=909, firstline=909, lastline=919, caption={El driver de Vm dentro del paso. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]
+
+
+\lstinputlisting[firstnumber=217, firstline=217, lastline=247, caption={La interpolación de Lagrange del driver (compartida). \texttt{[monodomainTimeSchemes.H]}}]{../../../../src/monodomainCommon/monodomainTimeSchemes.H}%[firstnumber=217, firstline=217, lastline=247, caption={La interpolación de Lagrange del driver (compartida). \texttt{[monodomainTimeSchemes.H]}}]
+
+
+\lstinputlisting[firstnumber=1468, firstline=1468, lastline=1527, caption={El despacho de stepper y la región OpenMP. Recortado. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]} \textit{(recortado; sigue en el fuente.)}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=1468, firstline=1468, lastline=1527, caption={El despacho de stepper y la región OpenMP. Recortado. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]} \textit{(recortado; sigue en el fuente.)}}]
+
+
+\section{Esquemas temporales: theta, BDF1-4 y el arranque ESDIRK3}
+
+\texttt{timeSchemeCoeffs} da los coeficientes de backwardEuler, crankNicolson
+y BDF1--BDF4. Un BDF-$k$ necesita $k-1$ niveles previos: los da un arranque
+\textbf{ESDIRK3(2)4L[2]SA} (\texttt{esdirk3Tableau}), de tercer orden respecto del
+sistema semidiscreto, que es lo que conserva el orden nominal.
+
+La historia se \textbf{reinicia} (y los $k-1$ pasos siguientes vuelven a ser
+ESDIRK3) cuando cambia el estímulo --- un salto en el forzado que un método
+multipaso no puede cruzar --- en un paso revertido, y en un paso de longitud no
+nominal. El estímulo se promedia sobre el paso (\texttt{applyStimulus}), así que
+la carga inyectada es exacta para cualquier $\Delta t$; antes duraba un paso de
+más.
+
+\textbf{E02} mide el orden de los seis esquemas en cuatro caminos de código (bajo
+orden, CC, híbrido y GP). En el par más fino, CN da 2.00 y BDF4 entre 4.6 y 5.6.
+
+\lstinputlisting[firstnumber=117, firstline=117, lastline=176, caption={Coeficientes de los esquemas (compartido). \texttt{[monodomainTimeSchemes.H]} \textit{(recortado; sigue en el fuente.)}}]{../../../../src/monodomainCommon/monodomainTimeSchemes.H}%[firstnumber=117, firstline=117, lastline=176, caption={Coeficientes de los esquemas (compartido). \texttt{[monodomainTimeSchemes.H]} \textit{(recortado; sigue en el fuente.)}}]
+
+
+\lstinputlisting[firstnumber=77, firstline=77, lastline=113, caption={La tabla del arranque ESDIRK3 (compartido). \texttt{[monodomainTimeSchemes.H]}}]{../../../../src/monodomainCommon/monodomainTimeSchemes.H}%[firstnumber=77, firstline=77, lastline=113, caption={La tabla del arranque ESDIRK3 (compartido). \texttt{[monodomainTimeSchemes.H]}}]
+
+
+\lstinputlisting[firstnumber=1776, firstline=1776, lastline=1820, caption={El estímulo promediado sobre el paso. Recortado. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=1776, firstline=1776, lastline=1820, caption={El estímulo promediado sobre el paso. Recortado. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]
+
+
+\section{Reconstrucciones en los puntos de Gauss}
+
+El término fuente es de alto orden porque $I_{ion}$ se evalúa en los puntos de
+Gauss y se integra con cuadratura: hace falta $V_m$ (y, en el modo CC, los
+estados) en esos puntos. \texttt{reconstructCellFieldsAtIntegrationPoints} lo
+hace para \textbf{K campos a la vez}, recorriendo el estencil MLS una sola vez por
+celda: cada vecino se ubica una vez (local o remoto) y los coeficientes de
+gradiente, hessiano y tercera derivada se cargan una vez para todos los campos.
+La primera versión compartida hacía un campo por llamada y dejó la
+reconstrucción de estados del MMS un 30\,\% más lenta; para el TNNP, con 19
+estados, la ganancia fue mayor. El resultado es bit a bit igual a reconstruir
+de a uno.
+
+\texttt{reconstructVmLevelAtIionIntegrationPoints} lleva a los puntos de Gauss
+un nivel guardado de $V_m$ (de la historia BDF o de una etapa ESDIRK). Es lo que
+usa \texttt{stateODEGaussPointHistory}: con ella, los caminos de puntos de Gauss
+(GP y el frente del híbrido) usan el mismo polinomio de la historia que el
+camino por celda, en vez de la recta entre $V^n$ y el candidato. Sin ella BDF3 y
+BDF4 quedaban en $\sim$2.4 en esos caminos; con ella dan su orden (en el MMS, con
+solución exacta, BDF4 3.89/3.91), por un 6--9\,\% de tiempo (\textbf{E36}).
+
+\lstinputlisting[firstnumber=99, firstline=99, lastline=158, caption={El núcleo de K campos (compartido). Recortado. \texttt{[monodomainReconstruction.H]} \textit{(recortado; sigue en el fuente.)}}]{../../../../src/monodomainCommon/monodomainReconstruction.H}%[firstnumber=99, firstline=99, lastline=158, caption={El núcleo de K campos (compartido). Recortado. \texttt{[monodomainReconstruction.H]} \textit{(recortado; sigue en el fuente.)}}]
+
+
+\lstinputlisting[firstnumber=436, firstline=436, lastline=464, caption={Un nivel de la historia en los puntos de Gauss (compartido). \texttt{[monodomainReconstruction.H]}}]{../../../../src/monodomainCommon/monodomainReconstruction.H}%[firstnumber=436, firstline=436, lastline=464, caption={Un nivel de la historia en los puntos de Gauss (compartido). \texttt{[monodomainReconstruction.H]}}]
+
+
+\lstinputlisting[firstnumber=1938, firstline=1938, lastline=1984, caption={Los estados del TNNP, todos en una pasada. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=1938, firstline=1938, lastline=1984, caption={Los estados del TNNP, todos en una pasada. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]
 
 
 \section{El residuo de estados: una colectiva que colgaba}
 
 \texttt{maxStateRelativeL2Difference} da el cambio relativo máximo de los
-estados entre dos iteraciones no lineales, y es parte del criterio de parada.
+estados entre dos iteraciones no lineales. Es \textbf{colectiva}: reduce dos
+veces por estado. La versión anterior devolvía temprano cuando el arreglo de
+estados de un rank venía vacío --- lo que le pasa a un rank sin celdas --- y ese
+rank salía sin participar de las reducciones: la corrida no terminaba. Ahora el
+rank vacío llega igual a los dos \texttt{reduce}, y el conteo de vueltas se
+reduce con \texttt{minOp}. Lo mide \textbf{E32}.
 
-Es una función \textbf{colectiva}: reduce dos veces por estado. Y ahí había un
-cuelgue. La versión anterior devolvía temprano cuando el arreglo de estados de un
-rank venía vacío --- exactamente lo que le pasa a un rank cuya partición no tiene
-celdas --- así que ese rank salía sin participar de las reducciones mientras los
-demás quedaban bloqueados esperando. \textbf{No es un número mal calculado: es
-que la corrida no termina.}
+\lstinputlisting[firstnumber=1827, firstline=1827, lastline=1886, caption={La colectiva, con las dos correcciones. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]} \textit{(recortado; sigue en el fuente.)}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=1827, firstline=1827, lastline=1886, caption={La colectiva, con las dos correcciones. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]} \textit{(recortado; sigue en el fuente.)}}]
 
-Está corregido de dos formas, porque cualquiera de las dos sola dejaba el cuelgue
-vivo: el rank vacío ahora cae hasta los lazos de acumulación (que iteran cero
-veces) y llega igual a los dos \texttt{reduce}, y el conteo de vueltas del lazo
-se reduce con \texttt{minOp}, porque salía de \texttt{current[0].size()}, que es
-rank-local y ni siquiera se puede leer en un rank vacío.
 
-El test \textbf{E19} lo mide sobre una malla de dos celdas: antes moría en el
-timeout de 300 s a np=4 y np=8, ahora corre en 1 s, igual que el control serial.
+\section{El criterio de parada no lineal, común a todos los métodos}
 
-\lstinputlisting[firstnumber=3097, firstline=3097, lastline=3156, caption={La colectiva, con las dos correcciones. \textit{(recortado; sigue en el fuente.)}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=3097, firstline=3097, lastline=3156, caption={La colectiva, con las dos correcciones. \textit{(recortado; sigue en el fuente.)}}]
+Picard, diagonalIion, JFNK y las etapas ESDIRK paran con el mismo test,
+\texttt{nonlinearIterationExit}: residuo acoplado de la ecuación del paso más los
+incrementos de $V_m$, $I_{ion}$ y, si se pide, de los estados. El MMS paraba
+Picard sólo por incrementos; un test para todos hace que una comparación de
+métodos (\textbf{E08}) compare métodos y no reglas de parada.
+
+Tiene una salida por \textbf{piso}: si los incrementos ya pasan y el residuo
+acoplado dejó de bajar, la iteración se corta y se informa. Se agregó cuando, con
+el criterio común, Picard del MMS repetía 2000 veces la misma solución lineal
+con el residuo clavado en $3.66\cdot10^{-12}$ contra $10^{-12}$. La causa era
+otra --- el KSP ensamblado paraba sobre el residuo \emph{precondicionado}, y ahora
+precondiciona por derecha --- pero el piso queda como red de seguridad.
+
+\lstinputlisting[firstnumber=357, firstline=357, lastline=392, caption={El test de parada y la salida por piso (compartido). \texttt{[monodomainBase.H]}}]{../../../../src/monodomainCommon/monodomainBase.H}%[firstnumber=357, firstline=357, lastline=392, caption={El test de parada y la salida por piso (compartido). \texttt{[monodomainBase.H]}}]
+
+
+\lstinputlisting[firstnumber=396, firstline=396, lastline=413, caption={El conteo y el aviso de una salida por piso (compartido). \texttt{[monodomainBase.H]}}]{../../../../src/monodomainCommon/monodomainBase.H}%[firstnumber=396, firstline=396, lastline=413, caption={El conteo y el aviso de una salida por piso (compartido). \texttt{[monodomainBase.H]}}]
 
 
 \section{Bloques de construcción del ensamblado}
 
-Antes de las matrices de rigidez vienen las piezas compartidas.
-
-\texttt{addTripletIfNeeded} es el punto por el que pasa toda entrada de la
-matriz, y descarta las menores que \texttt{SMALL}.
-
-\texttt{addCellGradientDotCoeffs} agrega la fila de gradiente de una celda
-proyectada sobre un vector, usando los stencils MLS. Es donde vive el problema
-abierto más grande: sobre celdas pegadas a un corte de procesador ese stencil
-pierde un miembro, y como el ajuste se rehace sobre el conjunto reducido,
-\textbf{refita toda la fila}. Vive en solids4foam, no acá.
+Las piezas compartidas del ensamblado están en \texttt{monodomainAssembly.H} y
+\texttt{monodomainBase.H}. \texttt{addTripletIfNeeded} es el punto por el que
+pasa toda entrada de la matriz y descarta las menores que \texttt{SMALL}.
 
 \texttt{exchangeCoupledFaceRows} intercambia con el rank vecino las filas que el
 término de estabilización necesita del otro lado del corte. Es \textbf{colectiva}
 y está deliberadamente \emph{fuera} del lazo de chunks: adentro se trabaría en
 cuanto dos ranks tuvieran distinta cantidad de chunks.
 
-\lstinputlisting[firstnumber=3457, firstline=3457, lastline=3469, caption={Por acá pasa toda entrada.}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=3457, firstline=3457, lastline=3469, caption={Por acá pasa toda entrada.}]
+\lstinputlisting[firstnumber=191, firstline=191, lastline=203, caption={Por acá pasa toda entrada (compartido). \texttt{[monodomainBase.H]}}]{../../../../src/monodomainCommon/monodomainBase.H}%[firstnumber=191, firstline=191, lastline=203, caption={Por acá pasa toda entrada (compartido). \texttt{[monodomainBase.H]}}]
 
 
-\lstinputlisting[firstnumber=3986, firstline=3986, lastline=4045, caption={El intercambio a través del corte. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=3986, firstline=3986, lastline=4045, caption={El intercambio a través del corte. Recortado. \textit{(recortado; sigue en el fuente.)}}]
+\lstinputlisting[firstnumber=30, firstline=30, lastline=89, caption={El intercambio a través del corte (compartido). Recortado. \texttt{[monodomainAssembly.H]} \textit{(recortado; sigue en el fuente.)}}]{../../../../src/monodomainCommon/monodomainAssembly.H}%[firstnumber=30, firstline=30, lastline=89, caption={El intercambio a través del corte (compartido). Recortado. \texttt{[monodomainAssembly.H]} \textit{(recortado; sigue en el fuente.)}}]
 
 
 \section{Las dos matrices de rigidez, y el defecto de la conductividad}
 
-Igual que en el MMS hay dos ensamblados y la tríada elige cuál corre: el
-ortogonal de dos puntos y el de alto orden sobre el stencil LRE.
+Hay dos ensamblados y la tríada elige cuál corre: el ortogonal de dos puntos y el
+de alto orden sobre el estencil LRE, los dos compartidos con el MMS.
 
-Acá estuvo el defecto más grande que encontró la verificación. El camino de alto
-orden usaba \texttt{conductivity[own]} \textbf{en las dos filas} de una cara
-interna, en vez del promedio $\tfrac12(D_{own}+D_{nei})$ que ya usaban el camino
-de bajo orden y el término de estabilización.
+El camino de alto orden usaba \texttt{conductivity[own]} en las dos filas de una
+cara interna, en vez del promedio $\tfrac12(D_{own}+D_{nei})$. Con $D$ uniforme
+la diferencia se cancela; con $D$ no uniforme hacía que $K$ cambiara un
+\textbf{21\,\%} al descomponer la malla. El arreglo fueron tres cambios: el
+promedio en la cara interna, el promedio también en la de procesador, y sacar el
+intercambio de conductividad de la condición de estabilización. \textbf{M15} lo
+mide: de 2.108e-01 a 4.736e-15.
 
-Con $D$ uniforme los dos tensores coinciden y la diferencia se cancela
-idénticamente, así que fue invisible durante toda la vida del código: todas las
-corridas usaban el tensor constante del benchmark. Con $D$ \textbf{no uniforme}
---- o sea, en cuanto entren fibras --- hacía que $K$ cambiara un \textbf{21\,\%}
-al descomponer la malla, porque al cortar, cada rank pasa a ser dueño de su lado
-de la cara y ninguno coincide con lo que hizo la corrida serial.
-
-El arreglo son tres cambios, no uno: el promedio en la cara interna, el promedio
-\textbf{también en la cara de procesador} (con el tensor remoto), y sacar el
-intercambio de conductividad de la condición de estabilización, porque ahora hace
-falta con cualquier alpha. Corregir sólo el primero arreglaba el operador serial
-y dejaba el paralelo roto. \textbf{M15} lo mide: de 2.108e-01 a 4.736e-15.
-
-\lstinputlisting[firstnumber=4559, firstline=4559, lastline=4618, caption={El ensamblado de alto orden. Recortado. \textit{(recortado; sigue en el fuente.)}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=4559, firstline=4559, lastline=4618, caption={El ensamblado de alto orden. Recortado. \textit{(recortado; sigue en el fuente.)}}]
+\lstinputlisting[firstnumber=1400, firstline=1400, lastline=1459, caption={El ensamblado de alto orden (compartido). Recortado. \texttt{[monodomainAssembly.H]} \textit{(recortado; sigue en el fuente.)}}]{../../../../src/monodomainCommon/monodomainAssembly.H}%[firstnumber=1400, firstline=1400, lastline=1459, caption={El ensamblado de alto orden (compartido). Recortado. \texttt{[monodomainAssembly.H]} \textit{(recortado; sigue en el fuente.)}}]
 
 
-\section{Modo híbrido: EDO donde el frente lo pide}
+\section{La solución lineal: PETSc con precondicionado por derecha}
 
-Resolver la EDO en cada punto de Gauss es lo más directo y lo más caro;
-resolverla en el centro de celda y reconstruir a los puntos es mucho más barato
-pero falla donde el frente es abrupto, porque los estados del TNNP son rígidos.
+\texttt{PetscKspMatrixSolver} guarda la matriz, el KSP y la factorización entre
+pasos, y decide en cada solve si reconstruir, refrescar valores o reusar. En
+paralelo, \texttt{ilu}/\texttt{lu} se vuelven block-Jacobi con esa factorización
+por bloque. Desde 2026-10, GMRES y BiCGStab precondicionan \textbf{por derecha}
+(y cg monitorea la norma sin precondicionar): así la tolerancia lineal mide el
+mismo residuo verdadero que el criterio no lineal.
 
-\texttt{flagFrontCells} clasifica las celdas del frente por el rango de $V_m$
-entre sus puntos de Gauss, y \texttt{dilateFrontCells} agranda esa banda unas
-capas. El modo híbrido resuelve la EDO en los puntos de Gauss ahí y en el centro
-de celda en el resto.
-
-El detalle de implementación que importa: la clasificación se calcula
-\textbf{una vez por paso} y se congela para todo el solve no lineal. Recalcularla
-por iteración hace que el interruptor frente/suave oscile entre iteraciones y
-convierte el punto fijo de Picard en un ciclo límite que nunca converge.
-
-\lstinputlisting[firstnumber=5603, firstline=5603, lastline=5629, caption={La clasificación del frente. Recortada.}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=5603, firstline=5603, lastline=5629, caption={La clasificación del frente. Recortada.}]
+\lstinputlisting[firstnumber=655, firstline=655, lastline=676, caption={El lado del precondicionador en PetscKspMatrixSolver::reset (compartido). \texttt{[monodomainPetsc.H]}}]{../../../../src/monodomainCommon/monodomainPetsc.H}%[firstnumber=655, firstline=655, lastline=676, caption={El lado del precondicionador en PetscKspMatrixSolver::reset (compartido). \texttt{[monodomainPetsc.H]}}]
 
 
-\lstinputlisting[firstnumber=5640, firstline=5640, lastline=5699, caption={La dilatación de la banda. Recortada. \textit{(recortado; sigue en el fuente.)}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=5640, firstline=5640, lastline=5699, caption={La dilatación de la banda. Recortada. \textit{(recortado; sigue en el fuente.)}}]
+\section{Modo híbrido: GP en el frente, CC en el resto}
+
+\texttt{flagFrontCells} marca como frente las celdas cuyo $V_m$ varía más de
+\texttt{hybridFrontVmRange} entre sus puntos de Gauss (o que están estimuladas),
+y \texttt{dilateFrontCells} agranda la banda unas capas. La clasificación se
+calcula \textbf{una vez por paso} y se congela para todo el solve no lineal:
+recalcularla por iteración convierte el punto fijo en un ciclo límite.
+
+En las celdas del frente la EDO se integra en cada punto de Gauss; en el resto,
+una vez en el centro, como en CC puro. \textbf{Desde 2026-10-16 las celdas suaves
+guardan su propio estado en el centro} (\texttt{hybridCellStates}) y sólo el
+frente vive en los puntos de Gauss. Antes, cada paso rehacían su estado como el
+promedio de su reconstrucción en Gauss --- que no es la identidad: agrega
+$(h^2/24)\,\Delta s$ --- y eso era una difusión de los estados aplicada una vez por
+paso, más fuerte cuanto más chico $\Delta t$: un piso de $2.2\cdot10^{-3}$ en la
+convergencia temporal que ningún esquema podía bajar. Con el arreglo el híbrido
+da lo mismo que GP con historia (CN orden 2.00, BDF4 5.8e-6 en el par fino) a la
+mitad del costo, sin limitador.
+
+Al final de cada corrida con híbrido el log informa cuántas veces cambiaron de
+modo las celdas.
+
+\lstinputlisting[firstnumber=2084, firstline=2084, lastline=2110, caption={La clasificación del frente. Recortada. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=2084, firstline=2084, lastline=2110, caption={La clasificación del frente. Recortada. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]
+
+
+\lstinputlisting[firstnumber=2121, firstline=2121, lastline=2180, caption={La dilatación de la banda. Recortada. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]} \textit{(recortado; sigue en el fuente.)}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=2121, firstline=2121, lastline=2180, caption={La dilatación de la banda. Recortada. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]} \textit{(recortado; sigue en el fuente.)}}]
+
+
+\lstinputlisting[firstnumber=2029, firstline=2029, lastline=2075, caption={El promedio de Gauss a celda, que ahora se usa una sola vez por celda. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=2029, firstline=2029, lastline=2075, caption={El promedio de Gauss a celda, que ahora se usa una sola vez por celda. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]
 
 
 \section{Tiempos de activación y muestreo del benchmark}
 
-Lo que el benchmark reporta son \textbf{tiempos de activación}, no campos.
-
+Lo que el benchmark reporta son \textbf{tiempos de activación}.
 \texttt{updateActivationTimes} los interpola \emph{dentro} del paso ---
-$t_n + w\,\Delta t$ con $w$ el cruce lineal del umbral --- así que no quedan
-cuantizados a múltiplos de $\Delta t$, lo cual importa para cualquier estudio de
-refinamiento.
+$t_n + w\,\Delta t$ con $w$ el cruce lineal del umbral ---, así que no quedan
+cuantizados a múltiplos de $\Delta t$; esa interpolación tiene su propio error
+$O(\Delta t^2)$, y por eso E02 mide órdenes sobre el campo $V_m$ y no sobre los
+tiempos.
 
-\texttt{writeActivationSamples} escribe el valor en el punto P8 y un perfil a lo
-largo de la diagonal. El muestreo es en puntos \textbf{físicos fijos},
-independientes de la malla, y eso es lo que permite restar dos perfiles índice a
-índice sin interpolar entre discretizaciones --- la base de E11 y de los estudios
-de convergencia.
+\texttt{writeActivationSamples} escribe el valor en P8 y un perfil sobre la
+diagonal, en puntos físicos fijos muestreados por distancia inversa.
+\texttt{nearestCellToPoint} devuelve el índice en \textbf{exactamente un} rank y
+$-1$ en el resto; el banner que imprimía el punto de parada no estaba guardado
+contra ese $-1$ y daba un SIGFPE aparentemente arbitrario. \textbf{E28} verifica
+que el frente cruce los cortes de procesador sin déficit.
 
-\texttt{nearestCellToPoint} merece atención: devuelve el índice en \textbf{exactamente
-un} rank y $-1$ en todos los demás, resuelto con una reducción para que la
-elección sea determinista. El consumidor está guardado contra ese $-1$; el
-\emph{banner} que imprime el punto de parada no lo estaba, y evaluaba
-\texttt{mesh.C()[-1]} en todos los ranks perdedores. En build optimizado eso es
-lectura fuera de rango, o sea comportamiento indefinido, y se manifestaba como
-\textbf{SIGFPE} de forma reproducible pero aparentemente arbitraria: a dx=0.125
-mm fallaba con 4 ranks y no con 1, 2 ni 8.
-
-\lstinputlisting[firstnumber=5766, firstline=5766, lastline=5803, caption={La interpolación dentro del paso. Recortada.}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=5766, firstline=5766, lastline=5803, caption={La interpolación dentro del paso. Recortada.}]
+\lstinputlisting[firstnumber=2247, firstline=2247, lastline=2284, caption={La interpolación dentro del paso. Recortada. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=2247, firstline=2247, lastline=2284, caption={La interpolación dentro del paso. Recortada. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]
 
 
-\lstinputlisting[firstnumber=5807, firstline=5807, lastline=5866, caption={Exactamente un rank gana; el resto devuelve -1. \textit{(recortado; sigue en el fuente.)}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=5807, firstline=5807, lastline=5866, caption={Exactamente un rank gana; el resto devuelve -1. \textit{(recortado; sigue en el fuente.)}}]
+\lstinputlisting[firstnumber=2288, firstline=2288, lastline=2347, caption={Exactamente un rank gana; el resto devuelve -1. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]} \textit{(recortado; sigue en el fuente.)}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=2288, firstline=2288, lastline=2347, caption={Exactamente un rank gana; el resto devuelve -1. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]} \textit{(recortado; sigue en el fuente.)}}]
 
 
 \section{main(): montaje y lazo temporal}
 
 \texttt{main()} lee malla y diccionarios, construye los operadores LRE, ensambla
-$M$ y $K$ \textbf{una sola vez} --- la no linealidad está en el término iónico,
-no en la difusión --- y entra al lazo temporal.
+$M$ y $K$ una sola vez y entra al lazo temporal. Cada paso resuelve un sistema no
+lineal con Picard, JFNK o diagonalIion; \textbf{E08} verifica que los tres lleguen
+al mismo lugar, y un nombre inválido es \texttt{FatalError} (\textbf{E31}).
 
-Cada paso resuelve un sistema no lineal con Picard, JFNK o diagonalIion, y
-\textbf{E10} verifica que los tres lleguen al mismo lugar. Un nombre de método
-inválido es \texttt{FatalError} y no un fallback silencioso a Picard, cosa que
-\textbf{E18} comprueba.
+Al agotar las iteraciones sin converger, los tres métodos --- en los dos solvers
+--- comparten la semántica: por defecto se descarta el paso y se vuelve a los
+valores del inicio (y se reinicia la historia BDF), y con
+\texttt{nonlinearAcceptUnconverged} se acepta el iterado. Lo verifica
+\textbf{E34}. Los valores por defecto del harness desde 2026-10-16: sin
+protección del TNNP, sin limitador de estados, con
+\texttt{stateODEGaussPointHistory}.
 
-Al agotar las iteraciones sin converger, la rama está \textbf{una sola vez},
-después del despacho de método, así que los tres comparten la semántica: por
-defecto se descarta el paso y se vuelve a los valores del inicio, y con
-\texttt{nonlinearAcceptUnconverged} se acepta el iterado. \textbf{E24} lo
-verifica en las dos configuraciones. El solver MMS tiene el corte adentro del
-despacho y por eso allá Picard acepta mientras los otros dos descartan --- dos
-semánticas en la misma matriz de métodos, y sigue abierto.
-
-\lstinputlisting[firstnumber=2767, firstline=2767, lastline=2791, caption={El paso estable de referencia.}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=2767, firstline=2767, lastline=2791, caption={El paso estable de referencia.}]
-
-
-\lstinputlisting[firstnumber=2823, firstline=2823, lastline=2852, caption={El estímulo a nivel tejido. Recortado.}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=2823, firstline=2823, lastline=2852, caption={El estímulo a nivel tejido. Recortado.}]
+\lstinputlisting[firstnumber=1729, firstline=1729, lastline=1753, caption={El paso estable de referencia. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]{../highOrderElectroActivationFoamImplicitPETScDistributed.C}%[firstnumber=1729, firstline=1729, lastline=1753, caption={El paso estable de referencia. \texttt{[highOrderElectroActivationFoamImplicitPETScDistributed.C]}}]
 
 
 \section{Índice de funciones}
-Todas las funciones del espacio de nombres anónimo, en orden de aparición. Las secciones anteriores recorren las principales; ésta es el mapa completo para ubicarse en el archivo.
+Todas las funciones, archivo por archivo y en orden de aparición: primero las del solver, después las de los headers compartidos de \texttt{src/monodomainCommon}. Las secciones anteriores recorren las principales; ésta es el mapa completo.
+\subsection*{\texttt{highOrderElectroActivationFoamImplicitPETScDistributed.C}}
 \begin{longtable}{rll}
 \toprule
 línea & función & líneas \\
 \midrule
 \endhead
-94 & \texttt{gCol} & 4 \\
-100 & \texttt{gNCols} & 4 \\
-148 & \texttt{checkPetscError} & 10 \\
-170 & \texttt{buildDistributedMat} & 85 \\
-287 & \texttt{clear} & 15 \\
-303 & \texttt{reset} & 19 \\
-370 & \texttt{gSquaredNorm} & 6 \\
-379 & \texttt{gNorm} & 4 \\
-387 & \texttt{gDot} & 6 \\
-396 & \texttt{lowerWord} & 12 \\
-411 & \texttt{usesPetscBackend} & 5 \\
-422 & \texttt{petscKspTypeName} & 25 \\
-452 & \texttt{petscPcTypeName} & 43 \\
-506 & \texttt{petscParallelPcTypeName} & 13 \\
-522 & \texttt{isGmresType} & 4 \\
-581 & \texttt{copyEigVecToPetscVec} & 12 \\
-595 & \texttt{copyPetscVecToEigVec} & 16 \\
-615 & \texttt{setPetscOptionsPrefix} & 11 \\
-808 & \texttt{updateValues} & 62 \\
-871 & \texttt{solve} & 42 \\
-926 & \texttt{petscShellMatMult} & 17 \\
-955 & \texttt{petscShellPCApply} & 17 \\
-1037 & \texttt{initialise} & 112 \\
-1499 & \texttt{embeddedComputeStimulus} & 43 \\
-1543 & \texttt{computeIstim} & 14 \\
-1911 & \texttt{tissueFlag} & 14 \\
-1926 & \texttt{stateIndex} & 8 \\
-1935 & \texttt{algebraicIndex} & 8 \\
-1944 & \texttt{loadStimulusProtocol} & 10 \\
-1960 & \texttt{recordCorrection} & 12 \\
-1973 & \texttt{protectState} & 57 \\
-2031 & \texttt{computeRates} & 40 \\
-2072 & \texttt{computeVariables} & 19 \\
-2092 & \texttt{eulerStep} & 16 \\
-2109 & \texttt{rk4Step} & 28 \\
-2138 & \texttt{rkf45Trial} & 38 \\
-2177 & \texttt{advancePoint} & 133 \\
-2316 & \texttt{emptyScratchIDs} & 5 \\
-2469 & \texttt{initialiseStates} & 32 \\
-2502 & \texttt{updateStatesOld} & 4 \\
-2507 & \texttt{resetStatesToStatesOld} & 4 \\
-2512 & \texttt{calculateCurrent} & 39 \\
-2552 & \texttt{solveODE} & 108 \\
-2661 & \texttt{exportStates} & 31 \\
-2680 & \texttt{if} & 4 \\
-2693 & \texttt{exportStatesIntegrationPoints} & 38 \\
-2738 & \texttt{characteristicDx} & 24 \\
-2767 & \texttt{computeStableDeltaT} & 25 \\
-2795 & \texttt{currentPeakRSSMB} & 14 \\
-2813 & \texttt{logMemoryCheckpoint} & 5 \\
-2823 & \texttt{applyStimulus} & 30 \\
-2863 & \texttt{computeHighOrderLaplacian} & 80 \\
-2946 & \texttt{quadraticForm} & 10 \\
-2964 & \texttt{reconstructFromTaylor} & 24 \\
-2992 & \texttt{thetaFromScheme} & 18 \\
-3013 & \texttt{normalizedMassMatrixType} & 18 \\
-3035 & \texttt{fieldToEigVec} & 12 \\
-3051 & \texttt{eigVecToField} & 9 \\
-3063 & \texttt{relativeL2Difference} & 21 \\
-3087 & \texttt{relativeL2Norm} & 5 \\
-3097 & \texttt{maxStateRelativeL2Difference} & 66 \\
-3176 & \texttt{diagonalBlock} & 23 \\
-3203 & \texttt{addDiagonalToMatrix} & 18 \\
-3235 & \texttt{solveGMRES} & 142 \\
-3390 & \texttt{postProcessingDir} & 11 \\
-3416 & \texttt{reportOperatorFingerprint} & 35 \\
-3457 & \texttt{addTripletIfNeeded} & 13 \\
-3473 & \texttt{assembleDiagonalMassMatrix} & 31 \\
-3517 & \texttt{assembleConsistentMassMatrixHO} & 141 \\
-3663 & \texttt{orthogonalDiffusionCoeff} & 14 \\
-3680 & \texttt{normalDiffusivity} & 4 \\
-3690 & \texttt{stabilisationFaceCoeff} & 17 \\
-3711 & \texttt{addCellGradientDotCoeffs} & 58 \\
-3786 & \texttt{cellTaylorEntryCoeff} & 32 \\
-3827 & \texttt{addCellTaylorExtrapolationCoeffs} & 57 \\
-3888 & \texttt{buildCellTaylorExtrapolationRow} & 29 \\
-3921 & \texttt{buildCellGradientDotRow} & 26 \\
-3951 & \texttt{addRemoteRowCoeffs} & 19 \\
-3986 & \texttt{exchangeCoupledFaceRows} & 78 \\
-4077 & \texttt{addRhieChowInternalJumpCoeffs} & 34 \\
-4118 & \texttt{addRhieChowCoupledJumpCoeffs} & 38 \\
-4161 & \texttt{addRhieChowBoundaryJumpCoeffs} & 21 \\
-4194 & \texttt{assembleStandardOrthogonalStiffnessMatrix} & 345 \\
-4559 & \texttt{assembleHighOrderStiffnessMatrix} & 478 \\
-5046 & \texttt{solveSparseSystemEigen} & 94 \\
-5149 & \texttt{solveSparseSystem} & 91 \\
-5250 & \texttt{reconstructVmAtIionIntegrationPoints} & 80 \\
-5340 & \texttt{reconstructStatesAtIionIntegrationPoints} & 138 \\
-5492 & \texttt{clampPhysical} & 13 \\
-5509 & \texttt{averageIionIntegrationPointsToCells} & 34 \\
-5548 & \texttt{averageStatesIntegrationPointsToCells} & 47 \\
-5603 & \texttt{flagFrontCells} & 27 \\
-5640 & \texttt{dilateFrontCells} & 116 \\
-5766 & \texttt{updateActivationTimes} & 38 \\
-5807 & \texttt{nearestCellToPoint} & 62 \\
-5875 & \texttt{sampleIDW} & 146 \\
-6025 & \texttt{writeActivationSamples} & 63 \\
-6090 & \texttt{main} & 2055 \\
+374 & \texttt{embeddedComputeStimulus} & 43 \\
+418 & \texttt{computeIstim} & 14 \\
+787 & \texttt{tissueFlag} & 14 \\
+802 & \texttt{stateIndex} & 8 \\
+811 & \texttt{algebraicIndex} & 8 \\
+820 & \texttt{loadStimulusProtocol} & 10 \\
+836 & \texttt{recordCorrection} & 12 \\
+849 & \texttt{protectState} & 57 \\
+909 & \texttt{drivenVmMilliVolt} & 11 \\
+927 & \texttt{computeRates} & 51 \\
+979 & \texttt{computeVariables} & 19 \\
+999 & \texttt{eulerStep} & 19 \\
+1019 & \texttt{rk4Step} & 31 \\
+1051 & \texttt{rkf45Trial} & 41 \\
+1098 & \texttt{advancePoint} & 114 \\
+1218 & \texttt{emptyScratchIDs} & 5 \\
+1226 & \texttt{setOpenMP} & 5 \\
+1385 & \texttt{initialiseStates} & 32 \\
+1418 & \texttt{updateStatesOld} & 4 \\
+1423 & \texttt{resetStatesToStatesOld} & 4 \\
+1428 & \texttt{calculateCurrent} & 39 \\
+1468 & \texttt{solveODE} & 154 \\
+1623 & \texttt{exportStates} & 31 \\
+1655 & \texttt{exportStatesIntegrationPoints} & 38 \\
+1700 & \texttt{characteristicDx} & 24 \\
+1729 & \texttt{computeStableDeltaT} & 25 \\
+1776 & \texttt{applyStimulus} & 45 \\
+1827 & \texttt{maxStateRelativeL2Difference} & 66 \\
+1906 & \texttt{postProcessingDir} & 11 \\
+1938 & \texttt{reconstructStatesAtIionIntegrationPoints} & 47 \\
+1990 & \texttt{averageIionIntegrationPointsToCells} & 34 \\
+2029 & \texttt{averageStatesIntegrationPointsToCells} & 47 \\
+2084 & \texttt{flagFrontCells} & 27 \\
+2121 & \texttt{dilateFrontCells} & 116 \\
+2247 & \texttt{updateActivationTimes} & 38 \\
+2288 & \texttt{nearestCellToPoint} & 62 \\
+2356 & \texttt{sampleIDW} & 146 \\
+2506 & \texttt{writeActivationSamples} & 63 \\
+2571 & \texttt{main} & 2984 \\
+\bottomrule
+\end{longtable}
+\subsection*{\texttt{monodomainAssembly.H}}
+\begin{longtable}{rll}
+\toprule
+línea & función & líneas \\
+\midrule
+\endhead
+30 & \texttt{exchangeCoupledFaceRows} & 78 \\
+113 & \texttt{orthogonalDiffusionCoeff} & 14 \\
+130 & \texttt{normalDiffusivity} & 4 \\
+140 & \texttt{stabilisationFaceCoeff} & 17 \\
+193 & \texttt{nonOrthFluxVector} & 30 \\
+233 & \texttt{computeHighOrderLaplacian} & 80 \\
+317 & \texttt{addDiagonalToMatrix} & 18 \\
+338 & \texttt{assembleDiagonalMassMatrix} & 31 \\
+373 & \texttt{addCellGradientDotCoeffs} & 58 \\
+434 & \texttt{buildCellGradientDotRow} & 26 \\
+477 & \texttt{cellTaylorEntryCoeff} & 32 \\
+513 & \texttt{buildCellTaylorExtrapolationRow} & 29 \\
+550 & \texttt{addCellTaylorExtrapolationCoeffs} & 57 \\
+619 & \texttt{addRhieChowInternalJumpCoeffs} & 34 \\
+660 & \texttt{addRhieChowCoupledJumpCoeffs} & 38 \\
+706 & \texttt{assembleConsistentMassMatrixHO} & 237 \\
+968 & \texttt{assembleStandardOrthogonalStiffnessMatrix} & 412 \\
+1400 & \texttt{assembleHighOrderStiffnessMatrix} & 445 \\
+\bottomrule
+\end{longtable}
+\subsection*{\texttt{monodomainBase.H}}
+\begin{longtable}{rll}
+\toprule
+línea & función & líneas \\
+\midrule
+\endhead
+33 & \texttt{globalRowStart} & 14 \\
+55 & \texttt{gCol} & 4 \\
+61 & \texttt{gNCols} & 4 \\
+70 & \texttt{initialiseGlobalCells} & 6 \\
+87 & \texttt{requireOneOf} & 31 \\
+126 & \texttt{gSquaredNorm} & 6 \\
+135 & \texttt{gNorm} & 4 \\
+143 & \texttt{gDot} & 6 \\
+153 & \texttt{fieldToEigVec} & 12 \\
+169 & \texttt{eigVecToField} & 9 \\
+181 & \texttt{relativeL2Norm} & 5 \\
+191 & \texttt{addTripletIfNeeded} & 13 \\
+207 & \texttt{addRemoteRowCoeffs} & 19 \\
+239 & \texttt{clampPhysical} & 13 \\
+258 & \texttt{relativeL2Difference} & 29 \\
+301 & \texttt{reportOperatorFingerprint} & 35 \\
+357 & \texttt{nonlinearIterationExit} & 36 \\
+396 & \texttt{nonlinearIterationStops} & 18 \\
+468 & \texttt{currentPeakRSSMB} & 14 \\
+486 & \texttt{logMemoryCheckpoint} & 5 \\
+494 & \texttt{normalizedMassMatrixType} & 5 \\
+505 & \texttt{memoryOptimizationIsEffective} & 22 \\
+\bottomrule
+\end{longtable}
+\subsection*{\texttt{monodomainKrylov.H}}
+\begin{longtable}{rll}
+\toprule
+línea & función & líneas \\
+\midrule
+\endhead
+29 & \texttt{diagonalBlock} & 23 \\
+66 & \texttt{solveGMRES} & 142 \\
+315 & \texttt{beginStep} & 4 \\
+329 & \texttt{update} & 92 \\
+423 & \texttt{apply} & 25 \\
+483 & \texttt{solveJfnkLinearSystem} & 44 \\
+569 & \texttt{solveSparseSystemEigen} & 94 \\
+672 & \texttt{solveSparseSystem} & 101 \\
+\bottomrule
+\end{longtable}
+\subsection*{\texttt{monodomainPetsc.H}}
+\begin{longtable}{rll}
+\toprule
+línea & función & líneas \\
+\midrule
+\endhead
+20 & \texttt{checkPetscError} & 10 \\
+32 & \texttt{copyPetscVecToEigVec} & 16 \\
+60 & \texttt{buildDistributedMat} & 85 \\
+177 & \texttt{clear} & 15 \\
+193 & \texttt{reset} & 19 \\
+306 & \texttt{setPetscOptionsPrefix} & 11 \\
+327 & \texttt{usesPetscBackend} & 5 \\
+344 & \texttt{resolvePetscKspPc} & 18 \\
+373 & \texttt{petscKspTypeForLinearSolver} & 12 \\
+395 & \texttt{petscParallelPcTypeName} & 13 \\
+411 & \texttt{isGmresType} & 4 \\
+428 & \texttt{copyEigVecToPetscVec} & 12 \\
+706 & \texttt{updateValues} & 69 \\
+776 & \texttt{solve} & 57 \\
+846 & \texttt{petscShellMatMult} & 17 \\
+866 & \texttt{petscShellPCApply} & 17 \\
+954 & \texttt{initialise} & 172 \\
+\bottomrule
+\end{longtable}
+\subsection*{\texttt{monodomainReconstruction.H}}
+\begin{longtable}{rll}
+\toprule
+línea & función & líneas \\
+\midrule
+\endhead
+17 & \texttt{quadraticForm} & 10 \\
+35 & \texttt{reconstructFromTaylor} & 24 \\
+99 & \texttt{reconstructCellFieldsAtIntegrationPoints} & 249 \\
+355 & \texttt{reconstructVmAtIionIntegrationPoints} & 73 \\
+436 & \texttt{reconstructVmLevelAtIionIntegrationPoints} & 29 \\
+\bottomrule
+\end{longtable}
+\subsection*{\texttt{monodomainTimeSchemes.H}}
+\begin{longtable}{rll}
+\toprule
+línea & función & líneas \\
+\midrule
+\endhead
+77 & \texttt{esdirk3Tableau} & 37 \\
+117 & \texttt{timeSchemeCoeffs} & 71 \\
+217 & \texttt{interpolateVmDriver} & 31 \\
 \bottomrule
 \end{longtable}
 

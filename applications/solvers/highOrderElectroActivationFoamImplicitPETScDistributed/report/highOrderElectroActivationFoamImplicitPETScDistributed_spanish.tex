@@ -87,10 +87,13 @@ celda o en los puntos de cuadratura de la celda (necesario para alto orden);
 \item[(ii)] únicamente en los centros y luego reconstruirlos donde sea necesario evaluar la fuente iónica;
 \item[(iii)] un híbrido consciente del frente (\emph{front-aware}) que hace (i) solo en el frente propagante y (ii) en el resto (Sección~\ref{sec:stateint});
 \end{itemize}
-\item La integración temporal sigue un esquema $\theta$ (backward Euler o Crank--Nicolson);
+\item La integración temporal sigue un esquema $\theta$ (backward Euler o
+Crank--Nicolson) o un BDF1--4 con arranque ESDIRK3 (desde 2026-10,
+Sección~\ref{sec:oct2026});
 \item el ODE iónico
-por celda usa el integrador adaptativo RKF45 de OpenFOAM con tolerancias
-configurables;
+por celda usa un integrador propio (\code{RKF45} adaptativo por defecto,
+\code{RK4} o \code{Euler}) con tolerancias configurables, manejado por un
+polinomio en el tiempo de $\Vm$ a lo largo del paso;
 \item El operador de masa puede ser \code{lumped} o de alto orden \code{consistent};
 \item el sistema no lineal acoplado resultante puede resolverse por iteración de punto
 fijo de Picard, una linealización diagonal de $\Iion$, o un método Jacobian-Free
@@ -128,9 +131,17 @@ se ensamblan con filas locales y columnas globales y se convierten en matrices
 matriz--vector pasa por \code{MatMult} en lugar de Eigen. Los algoritmos de las
 Secciones~\ref{sec:stateint}--\ref{sec:linalg} no cambian; la
 Sección~\ref{sec:distributed} describe qué exige la descomposición, cómo se
-verifica un operador paralelo, y la única inconsistencia que queda --- una
-selección de stencils en la librería de alto orden que no es invariante ante la
-partición (Sección~\ref{sec:dist-stencils}).
+verifica un operador paralelo, y la inconsistencia que se medía en la selección
+de stencils de la librería de alto orden (Sección~\ref{sec:dist-stencils}).
+
+\textbf{Estado a 2026-10-18.} Desde octubre el código que este solver comparte
+con el solver MMS vive en \code{src/monodomainCommon/}, y entraron los BDF, el
+driver de $\Vm$ por historia, un criterio de parada no lineal común, el
+precondicionado por derecha del KSP, la historia de $\Vm$ en los puntos de Gauss y
+el arreglo del piso temporal del híbrido. La Sección~\ref{sec:oct2026} reúne esos
+cambios y los resultados nuevos (E02, E35, E36 y M02); las secciones anteriores
+están corregidas donde quedaban falsas. Las tablas de resultados de la
+Sección~\ref{sec:results} son \textbf{anteriores} a esos cambios.
 \end{abstract}
 
 \tableofcontents
@@ -342,6 +353,15 @@ $\theta = 1$ (BE) la mitad explícita de la difusión se anula y
 $\Bimp = \Mmass/\Delta t$. La difusión escalada es
 $\Lop = \Kstif / (\chi C_{m})$.
 
+\paragraph{BDF1--4 (2026-10).} \code{implicitScheme} acepta además \code{BDF1}
+(idéntico a \code{backwardEuler} bit a bit), \code{BDF2}, \code{BDF3} y
+\code{BDF4}. Terminan en el mismo par de operadores, con $a_0/\Delta t$ en lugar
+de $1/\Delta t$ delante de $\Mmass$ y la historia sumada como un solo campo; los
+pasos que un BDF-$k$ no puede dar solo se toman con ESDIRK3. Ver
+Sección~\ref{sec:oct-bdf}. A diferencia de lo dicho arriba, $\Aimp$ ya no se
+reconstruye en cada paso: se reutiliza mientras $\Delta t$ y el esquema no
+cambian (Sección~\ref{sec:optim-B}).
+
 % ================================================================== %
 \section{Discretización espacial}
 % ================================================================== %
@@ -508,12 +528,17 @@ estimulada,
   \;\;\vee\;\; (\Iext)_i\neq 0 .
   \label{eq:frontflag}
 \end{equation}
-Los states persistentes se llevan en los puntos de Gauss (como en
-\code{gaussPointODE}); la reconstrucción de celdas suaves deriva sus valores de
-celda promediando por cuadratura ese portador. Por evaluación no lineal la rama es:
+Los states del frente se llevan en los puntos de Gauss (como en
+\code{gaussPointODE}); \textbf{desde 2026-10-16 las celdas suaves llevan su propio
+state de celda}, \code{hybridCellStates}, como en CC puro. Antes ese state de celda
+se rehacía en cada paso como el promedio por cuadratura de los states de Gauss, y
+eso introducía un piso en la convergencia temporal
+(Sección~\ref{sec:oct-hybrid}). Por evaluación no lineal la rama es:
 \begin{enumerate}[topsep=2pt,itemsep=1pt,label=(\alph*)]
   \item celdas de frente: un ODE por punto de Gauss, $\Vm$ local (como~\eqref{eq:gpode});
-  \item celdas suaves: un ODE en el centro de celda desde el state promedio de celda;
+  \item celdas suaves: un ODE en el centro de celda desde su state de celda del
+        inicio del paso (el promedio de Gauss sólo se usa una vez, cuando una celda
+        sale del frente);
   \item reconstruir los states de las celdas suaves a sus puntos de Gauss, dejando
         intactos los states de Gauss del frente;
   \item evaluar $\Iion$ en todos los puntos de Gauss y promediar a la celda.
@@ -544,8 +569,9 @@ La reconstrucción de alto orden ($p3$) de los states rígidos del TNNP a travé
 un frente sub-resuelto sobre-dispara (Gibbs), y un state llevado muy fuera de su
 rango físico puede desbordar (overflow) el álgebra iónica (observado como un
 \code{SIGFPE} de PETSc). \dictkey{stateReconstructLimiter} (por defecto
-\code{true}, activo para \code{cellCentredReconstruct} y las celdas suaves del
-híbrido, independiente de \dictkey{frontAwareHybrid}) aplica una cota tipo
+\code{false} desde 2026-10-06, en el solver y en el harness; activo, cuando se
+pide, para \code{cellCentredReconstruct} y las celdas suaves del híbrido,
+independiente de \dictkey{frontAwareHybrid}) aplica una cota tipo
 Barth--Jespersen: cada valor reconstruido se recorta al rango de la celda y sus
 vecinas de cara,
 \begin{equation}
@@ -561,6 +587,13 @@ del rango físicamente realizado (evolucionado por el ODE) y el álgebra iónica
 ve una entrada patológica; en regiones suaves la reconstrucción ya cae dentro del
 rango y el limitador queda inactivo, preservando el orden ahí.
 
+\paragraph{Por qué está apagado.} En el frente el recorte al rango de los vecinos
+baja la reconstrucción a primer orden justamente donde importa, y ninguna corrida
+de la suite actual lo necesita para terminar. Queda como recurso si un caso
+desborda; sin él, el híbrido puede caer en \code{SIGFPE} en configuraciones
+extremas (se vio al probar una histéresis en la clasificación del frente, que se
+descartó).
+
 % ------------------------------------------------------------------ %
 \subsection{Claves de diccionario}
 % ------------------------------------------------------------------ %
@@ -574,7 +607,9 @@ Clave (en \code{implicitHOCoeffs}) & Significado & Por defecto \\
 \code{frontAwareHybrid} & ODEs en Gauss en el frente, reconstrucción en el resto & \code{false} \\
 \code{hybridFrontVmRange} & rango sub-celda de $\Vm$ que marca celda de frente [V] & $5\times10^{-3}$ \\
 \code{hybridFrontDilation} & capas de celda agregadas alrededor de la banda de frente & $2$ \\
-\code{stateReconstructLimiter} & limitador Barth--Jespersen en la reconstrucción & \code{true} \\
+\code{stateReconstructLimiter} & limitador Barth--Jespersen en la reconstrucción & \code{false} \\
+\code{stateODEDriver} & polinomio de $\Vm$ que maneja los ODEs: \code{history} / \code{linear} & \code{history} \\
+\code{stateODEGaussPointHistory} & la historia también en los caminos de Gauss & \code{false} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -639,6 +674,15 @@ requiere \code{nonlinearTolerance}, \code{nonlinearVmTolerance} y
 \code{nonlinearIionTolerance}. El criterio de states
 \code{nonlinearStatesTolerance} se incluye solo cuando
 \code{nonlinearRequireStatesConvergence=true}.
+
+\paragraph{Un solo test, con salida por piso (2026-10).} Los tres métodos y las
+etapas ESDIRK paran con la misma función compartida,
+\code{nonlinearIterationExit}: primero tienen que pasar los incrementos; después,
+si $R_{\mathrm{cpl}}\le$~\code{nonlinearTolerance} la iteración convergió, y si
+$R_{\mathrm{cpl}}$ no bajó respecto de la iteración anterior se corta por
+\emph{piso}: el iterado está tan convergido como el operador permite (el residuo
+verdadero que deja un Krylov precondicionado, o redondeo). Las salidas por piso se
+cuentan y se informan en el log. Los incrementos nunca se aflojan.
 
 \subsection{Método de punto fijo de Picard}
 
@@ -861,6 +905,15 @@ tipo de KSP/PC se toma de \code{petscLinearKspType} / \code{petscLinearPcType}
 (este último acepta \code{ilu}, \code{lu}, \code{jacobi}, \code{gamg}, \code{hypre},
 \dots). Todos comparten \code{tolerance} y \code{maxIterations}.
 
+\paragraph{Precondicionado por derecha (2026-10).} GMRES y BiCGStab
+precondicionan por izquierda por defecto en PETSc, y entonces \code{tolerance} se
+aplica al residuo \emph{precondicionado}. Con \code{ilu} y $\Delta t$ grande los
+dos difieren en un factor $\sim4$, y el criterio no lineal, que mide el residuo
+verdadero, nunca se alcanzaba. El KSP ensamblado precondiciona ahora por
+\textbf{derecha} (como ya hacía el KSP shell de JFNK), y \code{cg} monitorea la
+norma sin precondicionar. Se fija antes de \code{KSPSetFromOptions}, así que una
+opción de PETSc todavía puede cambiarlo.
+
 \paragraph{Reutilización de la factorización.}
 Como $\Aimp=\Mmass/\Delta t-\theta\Lop$ es constante mientras $\Delta t$ no cambia,
 la matriz se ensambla una sola vez y el solver (KSP de PETSc o factorización de
@@ -878,8 +931,12 @@ diferencias finitas, con back-end \code{jfnkLinearSolverBackend} (Eigen o PETSc)
 % ================================================================== %
 
 Para cada celda o punto de cuadratura de celda, el ODE del TNNP~\eqref{eq:tnnp} se
-avanza con el integrador adaptativo de OpenFOAM seleccionado vía la clave
-\code{solver}. Por defecto \code{RKF45}~\cite{hairer2}. Claves leídas de
+avanza con un integrador propio del solver seleccionado vía la clave
+\code{solver}: \code{RKF45} adaptativo por defecto~\cite{hairer2}, \code{RK4} o
+\code{Euler}; cualquier otro nombre es \code{FatalError}. Cada integración RKF45
+arranca desde \code{initialODEStep} (antes heredaba el último sub-paso de la
+llamada anterior y la clave no tenía efecto). Dentro del paso, $\Vm$ no está
+congelado: lo da el driver de la Sección~\ref{sec:oct-driver}. Claves leídas de
 \code{constant/timeIntegrationProperties}:
 
 \begin{center}
@@ -949,6 +1006,12 @@ Cuando la protección está habilitada, las guardas aplicadas en orden son:
 La implementación embebida almacena un conteo de correcciones acotado y emite un
 archivo de resumen compacto al salir; no depende de utilidades externas de logging
 del modelo iónico.
+
+\paragraph{Por qué queda apagada (2026-10).} Encendida, en el estudio temporal E02
+el contador llega a su tope de $10^6$ y los BDF pierden el orden: con states CC,
+BDF2/3/4 dan 1.74/2.22/3.54 con la protección y 1.89/2.96/4.60 sin ella, y ninguna
+corrida la necesitó para terminar. Desde 2026-10-16 el harness de la suite tampoco
+la enciende (\code{TNNP\_NUMERICAL\_PROTECTION = False}).
 
 % ================================================================== %
 \section{Seguimiento de la activación y benchmarks}
@@ -1352,9 +1415,276 @@ PDE/ODE en sí; afectan solo la parada y el post-procesamiento de los tiempos de
 activación.
 
 % ================================================================== %
+\section{Cambios de octubre de 2026 y resultados nuevos}
+\label{sec:oct2026}
+% ================================================================== %
+
+Esta sección reúne lo que cambió en el solver entre agosto y el 2026-10-18, y los
+tests de la suite de verificación que lo miden
+(\path{run/tutorials_electro/electroTestParallelVerification_2D/} y, para el
+MMS, \path{mmsTestParallelVerification_2D/}). Las secciones anteriores ya están
+corregidas donde quedaban falsas; acá está el detalle. Los resultados de la
+Sección~\ref{sec:results} son \textbf{anteriores} a todo esto.
+
+% ------------------------------------------------------------------ %
+\subsection{Código común con el solver MMS}
+% ------------------------------------------------------------------ %
+
+Lo que este solver comparte con \code{highOrderManufacturedFDAImplicitPETScDistributed}
+se mudó a headers de \code{src/monodomainCommon/}:
+
+\begin{center}
+\begin{tabular}{@{}p{0.40\linewidth}p{0.56\linewidth}@{}}
+\toprule
+Header & Contenido \\
+\midrule
+\code{monodomainBase.H} & offset global de fila, validación de opciones, criterio de parada no lineal \\
+\code{monodomainAssembly.H} & ensamblado de $\Mmass$ y $\Kstif$ (ortogonal y de alto orden) \\
+\code{monodomainPetsc.H} & matrices distribuidas, KSP cacheado, selección de KSP/PC \\
+\code{monodomainKrylov.H} & GMRES propio y JFNK \\
+\code{monodomainTimeSchemes.H} & coeficientes $\theta$/BDF, tabla ESDIRK3, driver de $\Vm$ \\
+\code{monodomainReconstruction.H} & reconstrucciones a los puntos de Gauss \\
+\code{openMPControls.H}, \code{jfnkPreconditionerControls.H} & claves de OpenMP y del precondicionador de JFNK \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+No son una biblioteca: se incluyen \emph{dentro} del espacio de nombres anónimo de
+cada \code{.C}, así que cada ejecutable compila su copia y un cambio ahí cambia los
+dos solvers. El reporte de código (\code{codigo\_*.pdf}, generado por
+\code{mkcodereport.py}) busca cada función en el \code{.C} y en esos headers.
+
+% ------------------------------------------------------------------ %
+\subsection{BDF1--4 con arranque ESDIRK3}
+\label{sec:oct-bdf}
+% ------------------------------------------------------------------ %
+
+Portados del MMS. Un BDF-$k$ escribe el paso como
+\begin{equation}
+  \Bigl(\frac{a_0}{\Delta t}\Mmass - \Lop\Bigr)\mathsf{V}^{n+1}
+  \;=\; \frac{1}{\Delta t}\Mmass\,\mathsf{H}^{n} + \mathbf{s}^{n+1},
+  \qquad
+  \mathsf{H}^{n} = -\sum_{j=1}^{k} a_j\,\mathsf{V}^{n+1-j},
+\end{equation}
+es decir, el mismo par de operadores que el esquema $\theta$ con $\theta=1$ y otro
+escalar delante de $\Mmass$: el ensamblado, la esparsidad y la factorización
+cacheada no cambian, y la historia entra con un único producto por $\Mmass$.
+BDF3 y BDF4 son $A(86^\circ)$ y $A(73^\circ)$-estables; BDF5 y BDF6 no se ofrecen
+($52^\circ$ y $18^\circ$, que el jacobiano de reacción de un frente no respeta).
+
+Los pasos que un BDF-$k$ no puede dar solo --- los $k-1$ primeros, los $k-1$
+siguientes a un reinicio de la historia y un paso de longitud no nominal (el
+último recortado, el punto de parada) --- se toman con \textbf{ESDIRK3(2)4L[2]SA},
+de un paso, L-estable y de tercer orden respecto del sistema semi-discreto, que es
+lo que conserva el orden nominal (\code{bdfStartup ESDIRK3}, único valor).
+
+La historia se \textbf{reinicia} cuando cambia el estímulo (un salto en el forzado
+que un multipaso no puede cruzar), tras un paso revertido y en un paso de
+longitud no nominal. El estímulo, además, se \textbf{promedia sobre el paso}:
+la carga inyectada es exacta para cualquier $\Delta t$, cuando antes el estímulo
+duraba un paso de más.
+
+% ------------------------------------------------------------------ %
+\subsection{El driver de \texorpdfstring{$\Vm$}{Vm} de los ODEs}
+\label{sec:oct-driver}
+% ------------------------------------------------------------------ %
+
+Los states se integran con sub-pasos dentro del paso del PDE, y cada sub-paso
+necesita $\Vm$ en un instante intermedio. Con $\Vm$ congelado en el candidato el
+TNNP daba orden 1 incluso con Crank--Nicolson. Ahora la EDO lo toma de un
+polinomio de Lagrange en el tiempo (\code{interpolateVmDriver}):
+\begin{itemize}[nosep]
+  \item \code{stateODEDriver linear}: la recta entre $\mathsf{V}^{n}$ y el
+        candidato; de segundo orden, topea a todo BDF en 2 (MMS M21: BDF4 2.04).
+  \item \code{stateODEDriver history} (por defecto): pasa además por los niveles
+        de la historia BDF o los valores de etapa ESDIRK, que el esquema ya
+        guarda; no cuesta evaluaciones extra (M21: BDF4 3.89).
+\end{itemize}
+\code{backwardEuler}, \code{crankNicolson} y \code{BDF1} no guardan niveles
+anteriores a $\mathsf{V}^n$ y usan la recta con cualquiera de los dos valores.
+
+% ------------------------------------------------------------------ %
+\subsection{La historia de \texorpdfstring{$\Vm$}{Vm} en los puntos de Gauss}
+\label{sec:oct-gausshist}
+% ------------------------------------------------------------------ %
+
+En los caminos de puntos de Gauss (\code{gaussPointODE} y el frente del híbrido)
+el driver era siempre la recta, porque subirlo parecía exigir guardar cada nivel
+en cada punto. Con \dictkey{stateODEGaussPointHistory true} esos caminos usan el
+mismo polinomio que el camino por celda \emph{sin guardar nada entre pasos}: cada
+nivel de la historia (o cada valor de etapa ESDIRK aceptado) se reconstruye en los
+puntos de Gauss al principio del paso, con el mismo operador que da $\mathsf{V}^n$
+ahí (\code{reconstructVmLevelAtIionIntegrationPoints}). Dentro del paso viven
+$k-1$ arreglos temporales del tamaño de los puntos de Gauss. Sólo actúa con
+\code{stateODEDriver history}; el solver lo tiene apagado por defecto y el
+harness lo enciende.
+
+Sin la clave, BDF3 y BDF4 quedaban en $\sim$2.4--2.5 en GP (E02); con ella dan su
+orden (Sección~\ref{sec:oct-results}). El costo lo mide E36, BDF4 a 0.25~mm,
+$\Delta t=2.5\times10^{-5}$~s, 4 ranks, dos repeticiones alternadas:
+
+\begin{center}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Modo & lazo sin la clave [s] & lazo con la clave [s] & costo \\
+\midrule
+GP           & 51.8 & 56.4 & +8.9\,\% \\
+CC + híbrido & 12.6 & 13.2 & +5.1\,\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+El pico de memoria no cambia de forma medible (173~MB); la memoria temporal
+teórica es de 24 bytes por punto de Gauss con BDF4, contra 152 de los 19 states
+del TNNP en ese mismo punto.
+
+% ------------------------------------------------------------------ %
+\subsection{El piso temporal del híbrido, y su arreglo}
+\label{sec:oct-hybrid}
+% ------------------------------------------------------------------ %
+
+Con las correcciones anteriores, CC puro y GP convergían en $\Delta t$, pero el
+híbrido quedaba en un \textbf{piso} de $\sim2.2\times10^{-3}$ en la diferencia de
+Cauchy que ningún esquema bajaba (todos iguales en el par fino).
+
+\paragraph{Lo que no era.} La primera hipótesis fue que las celdas cerca del
+umbral de \dictkey{hybridFrontVmRange} entraran y salieran de la banda. El
+diagnóstico de cambios de modo la descartó: $\sim250$ cambios por corrida,
+constantes al achicar $\Delta t$. Una histéresis en la clasificación
+(\code{hybridFrontVmRangeExit}) tampoco ayudó, sin limitador las corridas caían en
+\code{SIGFPE}, y se eliminó del solver. Agrandar la banda tampoco.
+
+\paragraph{Lo que era.} Las celdas suaves rehacían su state de celda en cada paso
+como el promedio de su reconstrucción en los puntos de Gauss. El promedio de una
+reconstrucción no es la identidad: para una reconstrucción cuadrática en una celda
+cuadrada de lado $h$,
+\begin{equation}
+  \frac{1}{|\Omega_i|}\int_{\Omega_i}\widehat{s}\,\mathrm{d}\mathbf{x}
+  \;=\; s_i + \frac{h^2}{24}\,\Delta s + O(h^4),
+\end{equation}
+una difusión de los states aplicada \emph{una vez por paso}, y por lo tanto con
+coeficiente efectivo $\propto h^2/(24\,\Delta t)$: más fuerte cuanto más chico
+$\Delta t$, que es exactamente un piso en la convergencia temporal.
+
+\paragraph{El arreglo.} Las celdas suaves guardan su state de celda,
+\code{hybridCellStates}, entre pasos, como CC puro, y sólo el frente vive en los
+puntos de Gauss; el promedio de Gauss se usa una sola vez, cuando una celda sale
+de la banda. Sin limitador, CN pasó de $1.49\times10^{-3}$ a
+$3.72\times10^{-4}$ (orden 2.00) y BDF4 de $2.80\times10^{-4}$ a
+$5.8\times10^{-6}$ en el par fino: lo mismo que GP con historia, a la mitad del
+costo.
+
+\paragraph{Diagnóstico en el log.} Al final de cada corrida con híbrido el solver
+imprime \code{Hybrid front band: N mode switches; M cells switched more than twice
+(max K)}. Sin híbrido no imprime nada.
+
+% ------------------------------------------------------------------ %
+\subsection{Otros cambios}
+% ------------------------------------------------------------------ %
+
+\begin{itemize}
+  \item \textbf{Criterio de parada común y salida por piso}
+        (Sección~\ref{sec:linalg} y el párrafo de tests de parada): los tres
+        métodos y las etapas ESDIRK usan \code{nonlinearIterationExit}.
+  \item \textbf{Precondicionado por derecha} del KSP ensamblado, para que la
+        tolerancia lineal mida el residuo verdadero.
+  \item \textbf{Reconstrucción de K campos a la vez}
+        (\code{reconstructCellFieldsAtIntegrationPoints}): el stencil MLS se
+        recorre una vez por celda para los 19 states; bit a bit igual a
+        reconstruirlos de a uno.
+  \item \textbf{Dirichlet rechazado.} \code{fixedValue} y \code{fixedVoltage}
+        se rechazan al arrancar: el operador ensamblaba el término diagonal pero
+        el levantamiento del lado derecho nunca se formaba, así que el borde
+        quedaba fijado a cero. Medido con paredes a $-40$~mV en bajo orden:
+        47~mV de error y creciendo, exit 0, sin aviso. Las condiciones aceptadas
+        son \code{zeroGradient}, \code{empty} y las de procesador.
+  \item \textbf{OpenMP}: las reconstrucciones a los puntos de Gauss tienen hilos,
+        y \code{Eigen::setNbThreads} ata los productos de Eigen a la misma clave.
+\end{itemize}
+
+% ------------------------------------------------------------------ %
+\subsection{Valores por defecto: solver y harness}
+% ------------------------------------------------------------------ %
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Clave & solver & harness de la suite (desde 2026-10-16) \\
+\midrule
+\code{TNNPNumericalProtection} & \code{false} & \code{False} \\
+\code{stateReconstructLimiter} & \code{false} & \code{False} \\
+\code{stateODEGaussPointHistory} & \code{false} & \code{True} \\
+\code{stateODEDriver} & \code{history} & \code{history} \\
+\code{bdfStartup} & \code{ESDIRK3} & \code{ESDIRK3} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ------------------------------------------------------------------ %
+\subsection{Resultados nuevos}
+\label{sec:oct-results}
+% ------------------------------------------------------------------ %
+
+\paragraph{E02: convergencia temporal por esquema y modo de states.} 2-D,
+0.5~mm, $\Vm$ a $t=10$~ms, Cauchy en $\Delta t=10^{-4}\dots6.25\times10^{-6}$~s,
+seis esquemas y cuatro modos, historia en Gauss encendida, sin protección ni
+limitador (120 corridas). Orden observado con el par más fino:
+
+\begin{center}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Esquema & nominal & bajo orden & CC puro & CC + híbrido & GP puro \\
+        &         & (NO,NO,NO) & (p3,p3,p3) & (p3,p3,p3) & (p3,NO,p3) \\
+\midrule
+\code{backwardEuler}, \code{BDF1} & 1 & 0.59 & 0.82 & 0.97 & 0.97 \\
+\code{crankNicolson} & 2 & 1.95 & 2.00 & 2.00 & 2.00 \\
+\code{BDF2} & 2 & 1.75 & 1.89 & 1.59 & 1.59 \\
+\code{BDF3} & 3 & 2.77 & 2.96 & 2.93 & 2.93 \\
+\code{BDF4} & 4 & 4.60 & 4.60 & 5.59 & 5.47 \\
+\midrule
+tiempo medio por corrida [s] & & 148 & 185 & 568 & 1135 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\code{BDF1} da el mismo $\Vm$ que \code{backwardEuler} en todos los casos. El
+veredicto es FAIL (12/13) por una sola verificación: en CC puro, backwardEuler y
+BDF1 no achican la diferencia en el par más grueso ($2.23\times10^{-2}$ y luego
+$2.47\times10^{-2}$), saturación de una medida L2 de un frente corrido más que su
+ancho. Quedan abiertos BDF2 en $\sim$1.59 en los caminos de Gauss y
+backwardEuler en 0.59 en bajo orden.
+
+\paragraph{E35: convergencia espacial (Cauchy) del tiempo de activación en P8.}
+Con alto orden $T_{P8}$ tiene que subir al refinar. GP y CC + híbrido lo hacen
+(33.68, 41.49, 44.11, 44.87~ms en 0.5, 0.25, 0.125 y 0.0625~mm, iguales entre sí,
+el híbrido 3--6 veces más barato); CC puro no es monótono (47.39, 50.82, 48.61,
+45.56~ms): reconstruye los states, casi discontinuos en el frente, y pierde el
+alto orden ahí. Bajo orden baja (156.7, 66.3, 49.5, 45.8, 45.0~ms). Esta campaña es
+\textbf{anterior} al arreglo del híbrido y a los valores por defecto actuales del
+harness, y quedó con 8 corridas pendientes en 0.03125~mm.
+
+\paragraph{E36: costo de la historia en Gauss.} PASS, ver
+Sección~\ref{sec:oct-gausshist}.
+
+\paragraph{M02 (MMS, solución exacta): GP con historia.} 2-D hexa $N=40$, p3.
+Con la clave de la historia en Gauss, el camino GP da, por la vía A (Cauchy) y la B
+(error contra la solución analítica): CN 2.000/2.000, BDF2 1.979/1.992, BDF3
+2.932/2.971, BDF4 3.891/3.908. Sin la clave, por la vía B, BDF4 se estanca en un
+error de $\sim2\times10^{-10}$. Es la verificación con solución exacta de que la
+clave lleva el camino de Gauss al orden nominal.
+
+% ================================================================== %
 \section{Resultados}
 \label{sec:results}
 % ================================================================== %
+
+\textbf{Nota (2026-10).} Las tablas de esta sección se corrieron con el solver de
+julio--agosto, \textbf{anterior} a todos los cambios de la
+Sección~\ref{sec:oct2026} (entre otros: sólo esquema $\theta$, limitador de states
+encendido por defecto y el híbrido con el piso temporal de la
+Sección~\ref{sec:oct-hybrid}). Se conservan como registro y no se volvieron a
+correr; los resultados con el solver actual están en la
+Sección~\ref{sec:oct-results}.
 
 Esta sección reúne los resultados actuales para los benchmarks 2D y 3D
 estilo Niederer. El benchmark 2D (Sección~\ref{sec:results:2D}) se volvió a correr
@@ -2373,6 +2703,14 @@ tiempo.
 \subsection{Dependencia de la partición en los stencils MLS}
 \label{sec:dist-stencils}
 % ------------------------------------------------------------------ %
+
+\paragraph{Nota (2026-10).} En el solver MMS se encontró después que buena parte de
+esta discrepancia venía del caso y no de la librería: la clave \code{Nn} son las
+celdas que se \emph{agregan} sobre el mínimo del grado, y los barridos la
+escribían como si fuera el total, así que los stencils eran un 50\,\% más grandes
+de lo pretendido y el halo no alcanzaba a cubrirlos. Con el tamaño correcto, en
+2-D, M11 mide 0 stencils distintos entre np=1 y np=2 y M15 baja a $7\times10^{-15}$.
+Las mediciones 3-D de abajo son anteriores a ese arreglo y no se volvieron a correr.
 
 Queda una inconsistencia paralela genuina, y vive en la selección de stencils de
 la librería de alto orden, no en ningún solver.

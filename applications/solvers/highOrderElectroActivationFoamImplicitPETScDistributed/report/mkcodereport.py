@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
-"""Genera `codigo_highOrderManufacturedFDAImplicitPETScDistributed.tex`:
-un recorrido del solver, en el orden del archivo, con el codigo a la vista.
+"""Genera `codigo_<solver>.tex`: un recorrido del solver con el codigo a la vista.
+
+Desde 2026-10 buena parte del codigo vive en `src/monodomainCommon/` (headers
+compartidos con el solver MMS, incluidos dentro del espacio de nombres anonimo
+del .C). El script busca cada funcion primero en el .C y despues en esos
+headers, y cada listado apunta al archivo donde la funcion vive.
 
 Por que el codigo se INCLUYE y no se copia
 ------------------------------------------
@@ -36,6 +40,7 @@ NAME = SOLVER.name
 SOURCE = NAME + ".C"
 FIELDS = "createFields.H"
 OUT = HERE / f"codigo_{NAME}.tex"
+COMMON = SOLVER.parent.parent.parent / "src" / "monodomainCommon"
 
 MAX_LISTING = 60          # lineas por listado antes de recortar
 
@@ -76,7 +81,7 @@ def literate_clause(text: str) -> str:
 # localizar funciones en el fuente
 # ---------------------------------------------------------------------------
 
-def find_functions(path: Path) -> dict:
+def find_functions(path: Path, start: int = 0) -> dict:
     """{nombre: (primera_linea, ultima_linea)} contando llaves.
 
     Acepta las dos formas que el archivo usa: `tipo nombre(args)` en una linea y
@@ -84,7 +89,7 @@ def find_functions(path: Path) -> dict:
     """
     lines = path.read_text().split("\n")
     out = {}
-    for i in range(len(lines) - 1):
+    for i in range(start, len(lines) - 1):
         line = lines[i]
         if line.strip().startswith("//"):
             continue
@@ -131,14 +136,13 @@ def span(funcs, name, limit=MAX_LISTING):
 # (titulo, prosa, [(nombre_funcion | (primera,ultima), pie)])
 
 SECTIONS = [
- ("Qué resuelve este solver", r"""
+ ("Qué resuelve este solver, y dónde vive el código", r"""
 Resuelve la propagación del potencial de acción cardíaco: la ecuación de
 monodominio acoplada al modelo iónico \textbf{ten Tusscher--Noble--Noble--Panfilov
 (TNNP)}, con el objetivo de reproducir el benchmark de Niederer et al. (2012).
-
-A diferencia del solver MMS, acá \textbf{no hay solución exacta}. La verificación
-es por convergencia, por invariancia frente a la descomposición, y contra
-referencia publicada.
+A diferencia del solver MMS, acá \textbf{no hay solución exacta}: la verificación
+es por convergencia de Cauchy, por invariancia frente a la descomposición y
+contra referencia publicada.
 
 En cada paso de tiempo hay dos trabajos muy distintos:
 %
@@ -148,187 +152,222 @@ En cada paso de tiempo hay dos trabajos muy distintos:
   \item resolver el sistema lineal implícito de la difusión.
 \end{enumerate}
 %
-El primero domina el tiempo: la resolución lineal completa es apenas el 17--44\,\%
-del lazo. Eso explica varias decisiones del archivo, entre ellas que la única
-región OpenMP esté sobre las EDO y no sobre el ensamblado.
+El primero domina el tiempo. \textbf{MPI} reparte la malla entre ranks y toca
+todas las fases; \textbf{OpenMP} reparte, dentro de un rank, el lazo de EDO por
+punto y las reconstrucciones en los puntos de Gauss (de $V_m$ y de los
+estados), además de los productos matriz--vector de Eigen.
 
-\textbf{Dos ejes de paralelismo}, en lugares distintos del archivo: \textbf{MPI}
-reparte la malla entre ranks y toca todas las fases; \textbf{OpenMP} reparte el
-lazo de puntos de integración dentro de un rank y sólo toca las EDO.
+\textbf{Dónde vive el código (2026-10).} Todo lo que el solver comparte con el MMS
+--- álgebra distribuida y PETSc, ensamblado de masa y rigidez, reconstrucciones,
+GMRES/JFNK, esquemas temporales, criterio de parada --- está en
+\texttt{src/monodomainCommon/}, en headers que se incluyen \emph{dentro} del
+espacio de nombres anónimo del \texttt{.C}: no hay biblioteca que enlazar, y un
+cambio ahí cambia los dos solvers. En el \texttt{.C} queda lo propio: el modelo
+TNNP, el estímulo, el modo híbrido, los tiempos de activación y el lazo temporal.
+Cada listado de este recorrido indica de qué archivo sale.
 """, []),
 
  ("El modelo iónico TNNP", r"""
 El modelo vive en una clase dentro del archivo, con sus 19 estados y sus
-variables algebraicas.
+variables algebraicas. \texttt{computeRates} evalúa las derivadas;
+\texttt{computeVariables} las cantidades algebraicas; \texttt{calculateCurrent}
+devuelve $I_{ion}$.
 
-\texttt{computeRates} evalúa las derivadas; \texttt{computeVariables} las
-cantidades algebraicas; \texttt{calculateCurrent} devuelve $I_{ion}$.
+\texttt{protectState} es la protección numérica: acota compuertas a $[0,1]$,
+pone pisos a las concentraciones y a $V_m$. Lleva un contador de correcciones,
+el único estado compartido de todo el camino de las EDO --- por eso su
+incremento va bajo \texttt{omp critical}. \textbf{Está apagada por defecto}, en
+el solver y desde 2026-10-16 también en el harness: encendida, su contador llega
+al tope de $10^6$ y los BDF pierden el orden (E02: con estados CC, BDF2/3/4 dan
+1.74/2.22/3.54 con ella y 1.89/2.96/4.60 sin ella), y ninguna corrida la
+necesitó.
 
-\texttt{protectState} es la protección numérica: acota compuertas y
-concentraciones a rangos físicos. Lleva un contador de correcciones, y ése es el
-único estado compartido de todo el camino de las EDO --- por eso su incremento
-va bajo \texttt{omp critical} y no \texttt{atomic}: el test de cota y el
-incremento tienen que ser un solo paso indivisible.
-
-El test \textbf{E01} verifica este modelo aislado, en 0-D, contra los valores
-publicados de ten Tusscher 2004 --- APD90, pico, reposo, dV/dt máximo. Es el
-test más barato de la suite y sostiene todo lo demás: si la corriente iónica
-estuviera mal, ningún test de convergencia lo detectaría, porque todos
-convergerían limpiamente a la respuesta equivocada.
+El test \textbf{E26} verifica el modelo aislado, en 0-D, contra los valores
+publicados de ten Tusscher 2004 (el pico, contra el propio modelo convergido).
 """, [("protectState", "La protección numérica y su contador compartido."),
       ("calculateCurrent", "La corriente iónica. Recortada.")]),
 
- ("Los integradores de EDO, y el único paralelismo por hilos", r"""
-El solver trae sus propios steppers en vez de usar el marco \texttt{ODESolver}
-de OpenFOAM: \texttt{eulerStep}, \texttt{rk4Step} y \texttt{rkf45Trial}
-adaptativo. Un nombre desconocido es \texttt{FatalError}, no un fallback
-silencioso.
+ ("Los integradores de EDO y el driver de Vm", r"""
+El solver trae sus propios steppers: \texttt{eulerStep}, \texttt{rk4Step} y
+\texttt{rkf45Trial} adaptativo. Un nombre desconocido es \texttt{FatalError}.
+Cada integración RKF45 arranca desde \texttt{stateODEInitialStep} (el viejo
+\texttt{stepMs\_} que heredaba el paso entre llamadas, y hacía inalcanzable la
+clave, ya no existe). \textbf{E27} hace converger los tres integradores al mismo
+potencial de acción.
 
-Euler y RK4 dan \textbf{un} paso del tamaño del paso exterior completo, así que
-su exactitud la controla \texttt{dt}; RKF45 subdivide por su cuenta y la
-controla su tolerancia. El test \textbf{E02} hace converger los tres al mismo
-potencial de acción, que es una afirmación mucho más fuerte que apretar uno
-solo contra sí mismo.
+Dentro del paso, la EDO no ve un $V_m$ congelado: \texttt{computeRates} lo toma
+del \emph{driver} (\texttt{drivenVmMilliVolt}), un polinomio en el tiempo que
+pasa por $V^n$ y el candidato $V^{n+1}$ --- y, con \texttt{stateODEDriver
+history}, también por los niveles anteriores de la historia BDF o por los valores
+de etapa ESDIRK. Con $V_m$ congelado el TNNP daba orden 1 incluso con
+Crank--Nicolson; con la recta, 2; la historia es la que deja a BDF3 y BDF4 dar su
+orden.
 
-El paso adaptativo \textbf{persiste entre llamadas} en \texttt{stepMs\_}, de modo
-que cada llamada hereda el $h$ de la anterior. Eso hacía que la clave
-\texttt{initialODEStep} fuera inalcanzable --- el constructor siembra
-\texttt{stepMs\_} positivo, así que la rama que la leía sólo podía dispararse con
-\texttt{deltaT == 0}. El test \textbf{E03} lo midió (cero efecto sobre cuatro
-órdenes de magnitud) y la clave se removió.
-
-\texttt{solveODE} contiene la \textbf{única} región OpenMP del archivo. Los
-hilos reparten los puntos de integración, y funciona porque cada punto resuelve
-su propia EDO sin hablar con ningún otro --- por eso el resultado es
-bit-idéntico con cualquier cantidad de hilos, cosa que \textbf{E20} mide dando
-exactamente cero. \textbf{El ensamblado no está paralelizado con hilos.}
+\texttt{solveODE} reparte los puntos con OpenMP; cada punto es una EDO
+independiente, así que el resultado es bit a bit igual con cualquier cantidad de
+hilos (\textbf{E33}).
 """, [("rkf45Trial", "El paso adaptativo. Recortado."),
+      ("drivenVmMilliVolt", "El driver de Vm dentro del paso."),
+      ("interpolateVmDriver", "La interpolación de Lagrange del driver (compartida)."),
       ("solveODE", "El despacho de stepper y la región OpenMP. Recortado.")]),
+
+ ("Esquemas temporales: theta, BDF1-4 y el arranque ESDIRK3", r"""
+\texttt{timeSchemeCoeffs} da los coeficientes de backwardEuler, crankNicolson
+y BDF1--BDF4. Un BDF-$k$ necesita $k-1$ niveles previos: los da un arranque
+\textbf{ESDIRK3(2)4L[2]SA} (\texttt{esdirk3Tableau}), de tercer orden respecto del
+sistema semidiscreto, que es lo que conserva el orden nominal.
+
+La historia se \textbf{reinicia} (y los $k-1$ pasos siguientes vuelven a ser
+ESDIRK3) cuando cambia el estímulo --- un salto en el forzado que un método
+multipaso no puede cruzar --- en un paso revertido, y en un paso de longitud no
+nominal. El estímulo se promedia sobre el paso (\texttt{applyStimulus}), así que
+la carga inyectada es exacta para cualquier $\Delta t$; antes duraba un paso de
+más.
+
+\textbf{E02} mide el orden de los seis esquemas en cuatro caminos de código (bajo
+orden, CC, híbrido y GP). En el par más fino, CN da 2.00 y BDF4 entre 4.6 y 5.6.
+""", [("timeSchemeCoeffs", "Coeficientes de los esquemas (compartido)."),
+      ("esdirk3Tableau", "La tabla del arranque ESDIRK3 (compartido)."),
+      ("applyStimulus", "El estímulo promediado sobre el paso. Recortado.")]),
+
+ ("Reconstrucciones en los puntos de Gauss", r"""
+El término fuente es de alto orden porque $I_{ion}$ se evalúa en los puntos de
+Gauss y se integra con cuadratura: hace falta $V_m$ (y, en el modo CC, los
+estados) en esos puntos. \texttt{reconstructCellFieldsAtIntegrationPoints} lo
+hace para \textbf{K campos a la vez}, recorriendo el estencil MLS una sola vez por
+celda: cada vecino se ubica una vez (local o remoto) y los coeficientes de
+gradiente, hessiano y tercera derivada se cargan una vez para todos los campos.
+La primera versión compartida hacía un campo por llamada y dejó la
+reconstrucción de estados del MMS un 30\,\% más lenta; para el TNNP, con 19
+estados, la ganancia fue mayor. El resultado es bit a bit igual a reconstruir
+de a uno.
+
+\texttt{reconstructVmLevelAtIionIntegrationPoints} lleva a los puntos de Gauss
+un nivel guardado de $V_m$ (de la historia BDF o de una etapa ESDIRK). Es lo que
+usa \texttt{stateODEGaussPointHistory}: con ella, los caminos de puntos de Gauss
+(GP y el frente del híbrido) usan el mismo polinomio de la historia que el
+camino por celda, en vez de la recta entre $V^n$ y el candidato. Sin ella BDF3 y
+BDF4 quedaban en $\sim$2.4 en esos caminos; con ella dan su orden (en el MMS, con
+solución exacta, BDF4 3.89/3.91), por un 6--9\,\% de tiempo (\textbf{E36}).
+""", [("reconstructCellFieldsAtIntegrationPoints", "El núcleo de K campos (compartido). Recortado."),
+      ("reconstructVmLevelAtIionIntegrationPoints", "Un nivel de la historia en los puntos de Gauss (compartido)."),
+      ("reconstructStatesAtIionIntegrationPoints", "Los estados del TNNP, todos en una pasada.")]),
 
  ("El residuo de estados: una colectiva que colgaba", r"""
 \texttt{maxStateRelativeL2Difference} da el cambio relativo máximo de los
-estados entre dos iteraciones no lineales, y es parte del criterio de parada.
-
-Es una función \textbf{colectiva}: reduce dos veces por estado. Y ahí había un
-cuelgue. La versión anterior devolvía temprano cuando el arreglo de estados de un
-rank venía vacío --- exactamente lo que le pasa a un rank cuya partición no tiene
-celdas --- así que ese rank salía sin participar de las reducciones mientras los
-demás quedaban bloqueados esperando. \textbf{No es un número mal calculado: es
-que la corrida no termina.}
-
-Está corregido de dos formas, porque cualquiera de las dos sola dejaba el cuelgue
-vivo: el rank vacío ahora cae hasta los lazos de acumulación (que iteran cero
-veces) y llega igual a los dos \texttt{reduce}, y el conteo de vueltas del lazo
-se reduce con \texttt{minOp}, porque salía de \texttt{current[0].size()}, que es
-rank-local y ni siquiera se puede leer en un rank vacío.
-
-El test \textbf{E19} lo mide sobre una malla de dos celdas: antes moría en el
-timeout de 300 s a np=4 y np=8, ahora corre en 1 s, igual que el control serial.
+estados entre dos iteraciones no lineales. Es \textbf{colectiva}: reduce dos
+veces por estado. La versión anterior devolvía temprano cuando el arreglo de
+estados de un rank venía vacío --- lo que le pasa a un rank sin celdas --- y ese
+rank salía sin participar de las reducciones: la corrida no terminaba. Ahora el
+rank vacío llega igual a los dos \texttt{reduce}, y el conteo de vueltas se
+reduce con \texttt{minOp}. Lo mide \textbf{E32}.
 """, [("maxStateRelativeL2Difference", "La colectiva, con las dos correcciones.")]),
 
+ ("El criterio de parada no lineal, común a todos los métodos", r"""
+Picard, diagonalIion, JFNK y las etapas ESDIRK paran con el mismo test,
+\texttt{nonlinearIterationExit}: residuo acoplado de la ecuación del paso más los
+incrementos de $V_m$, $I_{ion}$ y, si se pide, de los estados. El MMS paraba
+Picard sólo por incrementos; un test para todos hace que una comparación de
+métodos (\textbf{E08}) compare métodos y no reglas de parada.
+
+Tiene una salida por \textbf{piso}: si los incrementos ya pasan y el residuo
+acoplado dejó de bajar, la iteración se corta y se informa. Se agregó cuando, con
+el criterio común, Picard del MMS repetía 2000 veces la misma solución lineal
+con el residuo clavado en $3.66\cdot10^{-12}$ contra $10^{-12}$. La causa era
+otra --- el KSP ensamblado paraba sobre el residuo \emph{precondicionado}, y ahora
+precondiciona por derecha --- pero el piso queda como red de seguridad.
+""", [("nonlinearIterationExit", "El test de parada y la salida por piso (compartido)."),
+      ("nonlinearIterationStops", "El conteo y el aviso de una salida por piso (compartido).")]),
+
  ("Bloques de construcción del ensamblado", r"""
-Antes de las matrices de rigidez vienen las piezas compartidas.
-
-\texttt{addTripletIfNeeded} es el punto por el que pasa toda entrada de la
-matriz, y descarta las menores que \texttt{SMALL}.
-
-\texttt{addCellGradientDotCoeffs} agrega la fila de gradiente de una celda
-proyectada sobre un vector, usando los stencils MLS. Es donde vive el problema
-abierto más grande: sobre celdas pegadas a un corte de procesador ese stencil
-pierde un miembro, y como el ajuste se rehace sobre el conjunto reducido,
-\textbf{refita toda la fila}. Vive en solids4foam, no acá.
+Las piezas compartidas del ensamblado están en \texttt{monodomainAssembly.H} y
+\texttt{monodomainBase.H}. \texttt{addTripletIfNeeded} es el punto por el que
+pasa toda entrada de la matriz y descarta las menores que \texttt{SMALL}.
 
 \texttt{exchangeCoupledFaceRows} intercambia con el rank vecino las filas que el
 término de estabilización necesita del otro lado del corte. Es \textbf{colectiva}
 y está deliberadamente \emph{fuera} del lazo de chunks: adentro se trabaría en
 cuanto dos ranks tuvieran distinta cantidad de chunks.
-""", [("addTripletIfNeeded", "Por acá pasa toda entrada."),
-      ("exchangeCoupledFaceRows", "El intercambio a través del corte. Recortado.")]),
+""", [("addTripletIfNeeded", "Por acá pasa toda entrada (compartido)."),
+      ("exchangeCoupledFaceRows", "El intercambio a través del corte (compartido). Recortado.")]),
 
  ("Las dos matrices de rigidez, y el defecto de la conductividad", r"""
-Igual que en el MMS hay dos ensamblados y la tríada elige cuál corre: el
-ortogonal de dos puntos y el de alto orden sobre el stencil LRE.
+Hay dos ensamblados y la tríada elige cuál corre: el ortogonal de dos puntos y el
+de alto orden sobre el estencil LRE, los dos compartidos con el MMS.
 
-Acá estuvo el defecto más grande que encontró la verificación. El camino de alto
-orden usaba \texttt{conductivity[own]} \textbf{en las dos filas} de una cara
-interna, en vez del promedio $\tfrac12(D_{own}+D_{nei})$ que ya usaban el camino
-de bajo orden y el término de estabilización.
+El camino de alto orden usaba \texttt{conductivity[own]} en las dos filas de una
+cara interna, en vez del promedio $\tfrac12(D_{own}+D_{nei})$. Con $D$ uniforme
+la diferencia se cancela; con $D$ no uniforme hacía que $K$ cambiara un
+\textbf{21\,\%} al descomponer la malla. El arreglo fueron tres cambios: el
+promedio en la cara interna, el promedio también en la de procesador, y sacar el
+intercambio de conductividad de la condición de estabilización. \textbf{M15} lo
+mide: de 2.108e-01 a 4.736e-15.
+""", [("assembleHighOrderStiffnessMatrix", "El ensamblado de alto orden (compartido). Recortado.")]),
 
-Con $D$ uniforme los dos tensores coinciden y la diferencia se cancela
-idénticamente, así que fue invisible durante toda la vida del código: todas las
-corridas usaban el tensor constante del benchmark. Con $D$ \textbf{no uniforme}
---- o sea, en cuanto entren fibras --- hacía que $K$ cambiara un \textbf{21\,\%}
-al descomponer la malla, porque al cortar, cada rank pasa a ser dueño de su lado
-de la cara y ninguno coincide con lo que hizo la corrida serial.
+ ("La solución lineal: PETSc con precondicionado por derecha", r"""
+\texttt{PetscKspMatrixSolver} guarda la matriz, el KSP y la factorización entre
+pasos, y decide en cada solve si reconstruir, refrescar valores o reusar. En
+paralelo, \texttt{ilu}/\texttt{lu} se vuelven block-Jacobi con esa factorización
+por bloque. Desde 2026-10, GMRES y BiCGStab precondicionan \textbf{por derecha}
+(y cg monitorea la norma sin precondicionar): así la tolerancia lineal mide el
+mismo residuo verdadero que el criterio no lineal.
+""", [(("monodomainPetsc.H", "@// Stop on the TRUE residual", "setPetscOptionsPrefix(ksp_, optionsPrefix);"), "El lado del precondicionador en PetscKspMatrixSolver::reset (compartido).")]),
 
-El arreglo son tres cambios, no uno: el promedio en la cara interna, el promedio
-\textbf{también en la cara de procesador} (con el tensor remoto), y sacar el
-intercambio de conductividad de la condición de estabilización, porque ahora hace
-falta con cualquier alpha. Corregir sólo el primero arreglaba el operador serial
-y dejaba el paralelo roto. \textbf{M15} lo mide: de 2.108e-01 a 4.736e-15.
-""", [("assembleHighOrderStiffnessMatrix", "El ensamblado de alto orden. Recortado.")]),
+ ("Modo híbrido: GP en el frente, CC en el resto", r"""
+\texttt{flagFrontCells} marca como frente las celdas cuyo $V_m$ varía más de
+\texttt{hybridFrontVmRange} entre sus puntos de Gauss (o que están estimuladas),
+y \texttt{dilateFrontCells} agranda la banda unas capas. La clasificación se
+calcula \textbf{una vez por paso} y se congela para todo el solve no lineal:
+recalcularla por iteración convierte el punto fijo en un ciclo límite.
 
- ("Modo híbrido: EDO donde el frente lo pide", r"""
-Resolver la EDO en cada punto de Gauss es lo más directo y lo más caro;
-resolverla en el centro de celda y reconstruir a los puntos es mucho más barato
-pero falla donde el frente es abrupto, porque los estados del TNNP son rígidos.
+En las celdas del frente la EDO se integra en cada punto de Gauss; en el resto,
+una vez en el centro, como en CC puro. \textbf{Desde 2026-10-16 las celdas suaves
+guardan su propio estado en el centro} (\texttt{hybridCellStates}) y sólo el
+frente vive en los puntos de Gauss. Antes, cada paso rehacían su estado como el
+promedio de su reconstrucción en Gauss --- que no es la identidad: agrega
+$(h^2/24)\,\Delta s$ --- y eso era una difusión de los estados aplicada una vez por
+paso, más fuerte cuanto más chico $\Delta t$: un piso de $2.2\cdot10^{-3}$ en la
+convergencia temporal que ningún esquema podía bajar. Con el arreglo el híbrido
+da lo mismo que GP con historia (CN orden 2.00, BDF4 5.8e-6 en el par fino) a la
+mitad del costo, sin limitador.
 
-\texttt{flagFrontCells} clasifica las celdas del frente por el rango de $V_m$
-entre sus puntos de Gauss, y \texttt{dilateFrontCells} agranda esa banda unas
-capas. El modo híbrido resuelve la EDO en los puntos de Gauss ahí y en el centro
-de celda en el resto.
-
-El detalle de implementación que importa: la clasificación se calcula
-\textbf{una vez por paso} y se congela para todo el solve no lineal. Recalcularla
-por iteración hace que el interruptor frente/suave oscile entre iteraciones y
-convierte el punto fijo de Picard en un ciclo límite que nunca converge.
+Al final de cada corrida con híbrido el log informa cuántas veces cambiaron de
+modo las celdas.
 """, [("flagFrontCells", "La clasificación del frente. Recortada."),
-      ("dilateFrontCells", "La dilatación de la banda. Recortada.")]),
+      ("dilateFrontCells", "La dilatación de la banda. Recortada."),
+      ("averageStatesIntegrationPointsToCells", "El promedio de Gauss a celda, que ahora se usa una sola vez por celda.")]),
 
  ("Tiempos de activación y muestreo del benchmark", r"""
-Lo que el benchmark reporta son \textbf{tiempos de activación}, no campos.
-
+Lo que el benchmark reporta son \textbf{tiempos de activación}.
 \texttt{updateActivationTimes} los interpola \emph{dentro} del paso ---
-$t_n + w\,\Delta t$ con $w$ el cruce lineal del umbral --- así que no quedan
-cuantizados a múltiplos de $\Delta t$, lo cual importa para cualquier estudio de
-refinamiento.
+$t_n + w\,\Delta t$ con $w$ el cruce lineal del umbral ---, así que no quedan
+cuantizados a múltiplos de $\Delta t$; esa interpolación tiene su propio error
+$O(\Delta t^2)$, y por eso E02 mide órdenes sobre el campo $V_m$ y no sobre los
+tiempos.
 
-\texttt{writeActivationSamples} escribe el valor en el punto P8 y un perfil a lo
-largo de la diagonal. El muestreo es en puntos \textbf{físicos fijos},
-independientes de la malla, y eso es lo que permite restar dos perfiles índice a
-índice sin interpolar entre discretizaciones --- la base de E11 y de los estudios
-de convergencia.
-
-\texttt{nearestCellToPoint} merece atención: devuelve el índice en \textbf{exactamente
-un} rank y $-1$ en todos los demás, resuelto con una reducción para que la
-elección sea determinista. El consumidor está guardado contra ese $-1$; el
-\emph{banner} que imprime el punto de parada no lo estaba, y evaluaba
-\texttt{mesh.C()[-1]} en todos los ranks perdedores. En build optimizado eso es
-lectura fuera de rango, o sea comportamiento indefinido, y se manifestaba como
-\textbf{SIGFPE} de forma reproducible pero aparentemente arbitraria: a dx=0.125
-mm fallaba con 4 ranks y no con 1, 2 ni 8.
+\texttt{writeActivationSamples} escribe el valor en P8 y un perfil sobre la
+diagonal, en puntos físicos fijos muestreados por distancia inversa.
+\texttt{nearestCellToPoint} devuelve el índice en \textbf{exactamente un} rank y
+$-1$ en el resto; el banner que imprimía el punto de parada no estaba guardado
+contra ese $-1$ y daba un SIGFPE aparentemente arbitrario. \textbf{E28} verifica
+que el frente cruce los cortes de procesador sin déficit.
 """, [("updateActivationTimes", "La interpolación dentro del paso. Recortada."),
       ("nearestCellToPoint", "Exactamente un rank gana; el resto devuelve -1.")]),
 
  ("main(): montaje y lazo temporal", r"""
 \texttt{main()} lee malla y diccionarios, construye los operadores LRE, ensambla
-$M$ y $K$ \textbf{una sola vez} --- la no linealidad está en el término iónico,
-no en la difusión --- y entra al lazo temporal.
+$M$ y $K$ una sola vez y entra al lazo temporal. Cada paso resuelve un sistema no
+lineal con Picard, JFNK o diagonalIion; \textbf{E08} verifica que los tres lleguen
+al mismo lugar, y un nombre inválido es \texttt{FatalError} (\textbf{E31}).
 
-Cada paso resuelve un sistema no lineal con Picard, JFNK o diagonalIion, y
-\textbf{E10} verifica que los tres lleguen al mismo lugar. Un nombre de método
-inválido es \texttt{FatalError} y no un fallback silencioso a Picard, cosa que
-\textbf{E18} comprueba.
-
-Al agotar las iteraciones sin converger, la rama está \textbf{una sola vez},
-después del despacho de método, así que los tres comparten la semántica: por
-defecto se descarta el paso y se vuelve a los valores del inicio, y con
-\texttt{nonlinearAcceptUnconverged} se acepta el iterado. \textbf{E24} lo
-verifica en las dos configuraciones. El solver MMS tiene el corte adentro del
-despacho y por eso allá Picard acepta mientras los otros dos descartan --- dos
-semánticas en la misma matriz de métodos, y sigue abierto.
-""", [("computeStableDeltaT", "El paso estable de referencia."),
-      ("applyStimulus", "El estímulo a nivel tejido. Recortado.")]),
+Al agotar las iteraciones sin converger, los tres métodos --- en los dos solvers
+--- comparten la semántica: por defecto se descarta el paso y se vuelve a los
+valores del inicio (y se reinicia la historia BDF), y con
+\texttt{nonlinearAcceptUnconverged} se acepta el iterado. Lo verifica
+\textbf{E34}. Los valores por defecto del harness desde 2026-10-16: sin
+protección del TNNP, sin limitador de estados, con
+\texttt{stateODEGaussPointHistory}.
+""", [("computeStableDeltaT", "El paso estable de referencia.")]),
 ]
 
 
@@ -383,44 +422,96 @@ def emit_listing(rel_source, first, last, caption, truncated):
                % (first, first, last, cap, rel_source)).replace(r"\end{lstlisting}", "")
 
 
+def all_sources():
+    """El .C primero, después los headers compartidos: (path, relativo)."""
+    out = [(SOLVER / SOURCE, "../" + SOURCE)]
+    for h in sorted(COMMON.glob("*.H")):
+        out.append((h, "../../../../src/monodomainCommon/" + h.name))
+    return out
+
+
 def main():
     src = SOLVER / SOURCE
-    text = src.read_text()
-    funcs = find_functions(src)
-    rel = "../" + SOURCE
+    sources = all_sources()
+    text = "\n".join(p.read_text() for p, _ in sources)
+    located = {}                      # nombre -> (rel, a, b); el .C manda
+    per_file = []
+    for path, rel_path in sources:
+        fx = find_functions(path)
+        per_file.append((path.name, fx))
+        for name, (a, b) in fx.items():
+            located.setdefault(name, (rel_path, a, b))
+    funcs = {n: (a, b) for n, (_, a, b) in located.items()}
 
     body = []
     for title, prose, items in SECTIONS:
         body.append(r"\section{%s}" % title)
         body.append(prose.strip())
         for ref, caption in items:
-            if isinstance(ref, tuple):
+            if (isinstance(ref, tuple) and isinstance(ref[0], str)
+                    and str(ref[1]).startswith("@")):
+                # (archivo, "@marcador de inicio", "marcador de fin"): un bloque
+                # que no es una función entera, ubicado por texto y no por número
+                # de línea, así que el rango se recalcula si el código se mueve.
+                fname, start_mark, end_mark = ref
+                path, rel = next((pp, rr) for pp, rr in sources if pp.name == fname)
+                lines = path.read_text().split("\n")
+                try:
+                    a = next(i for i, l in enumerate(lines) if start_mark[1:] in l) + 1
+                    b = next(i for i in range(a, len(lines)) if end_mark in lines[i])
+                except StopIteration:
+                    print(f"  aviso: no encontré el bloque {start_mark!r} en {fname}",
+                          file=sys.stderr)
+                    continue
+                trunc = False
+            elif isinstance(ref, tuple) and isinstance(ref[0], str):
+                # (archivo, nombre, línea desde la que buscar): para nombres que
+                # se repiten en un archivo, como los métodos de dos clases.
+                fname, name, after = ref
+                path, rel = next((pp, rr) for pp, rr in sources if pp.name == fname)
+                try:
+                    a, b, trunc = span(find_functions(path, after), name)
+                except KeyError as exc:
+                    print(f"  aviso: {exc}", file=sys.stderr)
+                    continue
+            elif isinstance(ref, tuple):
                 a, b, trunc = ref[0], ref[1], False
+                rel = "../" + SOURCE
             else:
                 try:
                     a, b, trunc = span(funcs, ref)
                 except KeyError as exc:
                     print(f"  aviso: {exc}", file=sys.stderr)
                     continue
+                rel = located[ref][0]
+            caption = caption + r" \texttt{[%s]}" % rel.split("/")[-1].replace("_", r"\_")
             body.append(emit_listing(rel, a, b, caption, trunc))
 
     # indice completo de funciones
     index = [r"\section{Índice de funciones}",
-             "Todas las funciones del espacio de nombres anónimo, en orden de "
-             "aparición. Las secciones anteriores recorren las principales; ésta "
-             "es el mapa completo para ubicarse en el archivo.",
-             r"\begin{longtable}{rll}", r"\toprule",
-             r"línea & función & líneas \\", r"\midrule", r"\endhead"]
-    for name, (a, b) in sorted(funcs.items(), key=lambda kv: kv[1][0]):
-        index.append(r"%d & \texttt{%s} & %d \\" % (a, name.replace("_", r"\_"), b - a + 1))
-    index += [r"\bottomrule", r"\end{longtable}"]
+             "Todas las funciones, archivo por archivo y en orden de aparición: "
+             "primero las del solver, después las de los headers compartidos de "
+             r"\texttt{src/monodomainCommon}. Las secciones anteriores recorren "
+             "las principales; ésta es el mapa completo."]
+    for fname, fx in per_file:
+        if not fx:
+            continue
+        index += [r"\subsection*{\texttt{%s}}" % fname.replace("_", r"\_"),
+                  r"\begin{longtable}{rll}", r"\toprule",
+                  r"línea & función & líneas \\", r"\midrule", r"\endhead"]
+        for name, (a, b) in sorted(fx.items(), key=lambda kv: kv[1][0]):
+            if name == "if":
+                continue
+            index.append(r"%d & \texttt{%s} & %d \\" % (a, name.replace("_", r"\_"), b - a + 1))
+        index += [r"\bottomrule", r"\end{longtable}"]
 
     tex = "\n\n".join([
         PREAMBLE.replace('LITERATE_HERE', literate_clause(text)),
         r"\title{\textbf{Recorrido del código}\\[4pt]\large\texttt{%s}}"
         % NAME.replace("_", r"\_"),
         r"\author{}",
-        r"\date{Generado el %s a partir de \texttt{%s} (%d líneas)}"
+        r"\date{Generado el %s a partir de \texttt{%s} (%d líneas) y de los "
+        r"headers de \texttt{src/monodomainCommon}}"
         % (_dt.date.today().isoformat(), SOURCE.replace("_", r"\_"),
            len(src.read_text().split("\n"))),
         r"\begin{document}", r"\maketitle",

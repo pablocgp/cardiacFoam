@@ -83,1173 +83,11 @@ Description
 namespace
 {
 
-    // Added for cardiacFoam: global row offset of this rank's block of cells,
-    // i.e. globalIndex::localStart(). Constant for the whole run (one mesh, one
-    // decomposition), so it is set once in main() rather than threaded through
-    // every linear-solver signature. Zero in serial.
-    label gRowStart = 0;
-    bool gRowStartSet = false;
+// Shared code of the two monodomain solvers (src/monodomainCommon). Included
+// here, inside the anonymous namespace, so it has internal linkage.
+#include "monodomainCommon.H"
 
-    // Added for cardiacFoam, ported from the MMS solver: read through an
-    // accessor that refuses to serve the initial 0. The assignment happens in
-    // main, right after the mesh is read, and every PETSc row insertion reads
-    // it. A future code path that touched a matrix before that point would
-    // offset by 0 on EVERY rank, so ranks > 0 would write their rows on top of
-    // rank 0's: a corrupt operator and a plausible wrong answer, never an
-    // error. Nothing does that today - this makes it impossible rather than
-    // merely unlikely.
-    label globalRowStart()
-    {
-        if (!gRowStartSet)
-        {
-            FatalErrorInFunction
-                << "The global row offset was read before it was set."
-                << " It is assigned once in main from"
-                << " gCellsPtr->localStart(); reaching a PETSc matrix before"
-                << " that offsets every rank's rows by 0 and corrupts the"
-                << " operator."
-                << exit(FatalError);
-        }
 
-        return gRowStart;
-    }
-
-    // Added for cardiacFoam: global cell addressing used for matrix COLUMNS.
-    // Owned by main(); the assembly routines are free functions, so a
-    // file-scope handle avoids threading an extra argument through all of them.
-    autoPtr<globalIndex> gCellsPtr;
-
-    // Added for cardiacFoam: local cell index -> global column index.
-    inline label gCol(const label localCellI)
-    {
-        return gCellsPtr->toGlobal(localCellI);
-    }
-
-    // Added for cardiacFoam: total number of columns (global cell count).
-    inline label gNCols()
-    {
-        return gCellsPtr->totalSize();
-    }
-
-    using SpMat = Eigen::SparseMatrix<scalar, Eigen::RowMajor>;
-    using Triplet = Eigen::Triplet<scalar>;
-    using EigVec = Eigen::Matrix<scalar, Eigen::Dynamic, 1>;
-
-    // How a persistent linear solver should treat the matrix on a given solve
-    // (Phase B: reuse factorisations instead of rebuilding them every call).
-    //   Rebuild    : first use, or the sparsity pattern / dt changed -> full
-    //                allocation + symbolic factorisation + numeric setup.
-    //   ValuesOnly : same pattern, values changed (e.g. diagonalIion adds a
-    //                fresh diagonal each nonlinear iteration) -> refresh values
-    //                and re-factorise, but reuse the allocation and pattern.
-    //   Reuse      : matrix identical to the previous solve (Picard with a
-    //                constant operator) -> no matrix touch at all, just solve.
-    enum class MatrixUpdate
-    {
-        Rebuild,
-        ValuesOnly,
-        Reuse
-    };
-
-    // Persistent Eigen factorisations reused across time steps / nonlinear
-    // iterations (mirror of the persistent PetscKspMatrixSolver for the Eigen
-    // backend). The symbolic analysis (analyzePattern) is done once; only the
-    // numeric factorisation is repeated when the values change.
-    struct PersistentEigenSolvers
-    {
-        Eigen::SparseLU<SpMat> lu;
-        bool luAnalyzed = false;
-        Eigen::BiCGSTAB<SpMat, Eigen::IncompleteLUT<scalar>> bicgstab;
-
-        // Incomplete-LU preconditioner for the matrix-free JFNK Jacobian
-        // (Phase A3). An exact LU of the wide-stencil high-order operator has
-        // impractical fill-in; ILUT gives a cheap, bounded-fill approximation
-        // of M^{-1} that is very effective here since AImplicit ~ M/dt is
-        // strongly diagonally dominant for small dt.
-        Eigen::IncompleteLUT<scalar> jfnkPrec;
-        bool jfnkPrecComputed = false;
-    };
-
-    // Abort with the calling context if a PETSc call returned an error code.
-    // Every PETSc entry point below goes through this: PETSc reports failures by
-    // return value, so an unchecked call fails silently and the symptom appears
-    // much later, in the solution rather than at the call site.
-    void checkPetscError(const PetscErrorCode ierr, const char* context)
-    {
-        if (ierr)
-        {
-            FatalErrorInFunction
-                << "PETSc call failed in " << context
-                << " with error code " << ierr
-                << exit(FatalError);
-        }
-    }
-
-    // Added for cardiacFoam: build a distributed PETSc matrix from an Eigen
-    // matrix that holds LOCAL rows and GLOBAL columns.
-    //
-    // That layout is exactly MPIAIJ's, so the only translation needed is to
-    // offset the row index by this rank's global row start. Preallocation is
-    // split into the diagonal block (columns owned by this rank) and the
-    // off-diagonal one; getting that split right is what stops assembly from
-    // degenerating into repeated reallocation.
-    //
-    // In serial gRowStart is 0 and the global column count equals the local row
-    // count, so this produces exactly the sequential matrix it replaces.
-    void buildDistributedMat(const SpMat& A, Mat& out)
-    {
-        const PetscInt nLocalRows = static_cast<PetscInt>(A.rows());
-        const PetscInt nGlobalCols = static_cast<PetscInt>(A.cols());
-        const PetscInt rStart = static_cast<PetscInt>(globalRowStart());
-        const PetscInt rEnd = rStart + nLocalRows;
-
-        std::vector<PetscInt> dNnz(nLocalRows, 0);
-        std::vector<PetscInt> oNnz(nLocalRows, 0);
-        for (PetscInt row = 0; row < nLocalRows; ++row)
-        {
-            for (SpMat::InnerIterator it(A, row); it; ++it)
-            {
-                const PetscInt c = static_cast<PetscInt>(it.col());
-                if (c >= rStart && c < rEnd)
-                {
-                    ++dNnz[row];
-                }
-                else
-                {
-                    ++oNnz[row];
-                }
-            }
-        }
-
-        checkPetscError(MatCreate(PETSC_COMM_WORLD, &out), "MatCreate");
-        checkPetscError
-        (
-            MatSetSizes
-            (
-                out,
-                nLocalRows,
-                nLocalRows,     // local size of the vector this matrix multiplies
-                PETSC_DETERMINE,
-                nGlobalCols
-            ),
-            "MatSetSizes"
-        );
-        checkPetscError(MatSetType(out, MATAIJ), "MatSetType");
-        checkPetscError
-        (
-            MatSeqAIJSetPreallocation
-            (
-                out, 0, dNnz.empty() ? nullptr : dNnz.data()
-            ),
-            "MatSeqAIJSetPreallocation"
-        );
-        checkPetscError
-        (
-            MatMPIAIJSetPreallocation
-            (
-                out,
-                0, dNnz.empty() ? nullptr : dNnz.data(),
-                0, oNnz.empty() ? nullptr : oNnz.data()
-            ),
-            "MatMPIAIJSetPreallocation"
-        );
-        checkPetscError
-        (
-            MatSetOption(out, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE),
-            "MatSetOption"
-        );
-
-        for (PetscInt row = 0; row < nLocalRows; ++row)
-        {
-            for (SpMat::InnerIterator it(A, row); it; ++it)
-            {
-                checkPetscError
-                (
-                    MatSetValue
-                    (
-                        out,
-                        rStart + static_cast<PetscInt>(it.row()),
-                        static_cast<PetscInt>(it.col()),
-                        static_cast<PetscScalar>(it.value()),
-                        INSERT_VALUES
-                    ),
-                    "MatSetValue(buildDistributedMat)"
-                );
-            }
-        }
-
-        checkPetscError(MatAssemblyBegin(out, MAT_FINAL_ASSEMBLY), "MatAssemblyBegin");
-        checkPetscError(MatAssemblyEnd(out, MAT_FINAL_ASSEMBLY), "MatAssemblyEnd");
-    }
-
-    // Added for cardiacFoam: distributed matrix-vector product.
-    //
-    // With local rows and global columns, Eigen can no longer perform A*x: it
-    // would need the whole global vector, and each rank only holds its own
-    // block. PETSc's MatMult does the halo exchange internally, so the product
-    // becomes correct in parallel and unchanged in serial. The vectors are
-    // wrapped around the caller's arrays, so there is no copy.
-    class DistributedMatVec
-    {
-        Mat A_ = nullptr;
-        mutable Vec x_ = nullptr;
-        mutable Vec y_ = nullptr;
-        label nLocal_ = 0;
-
-    public:
-
-        DistributedMatVec() = default;
-
-        ~DistributedMatVec()
-        {
-            clear();
-        }
-
-        DistributedMatVec(const DistributedMatVec&) = delete;
-        void operator=(const DistributedMatVec&) = delete;
-
-        bool isInitialised() const
-        {
-            return A_ != nullptr;
-        }
-
-        void clear()
-        {
-            PetscBool finalized = PETSC_FALSE;
-            PetscFinalized(&finalized);
-            if (!finalized)
-            {
-                if (y_) VecDestroy(&y_);
-                if (x_) VecDestroy(&x_);
-                if (A_) MatDestroy(&A_);
-            }
-            y_ = nullptr;
-            x_ = nullptr;
-            A_ = nullptr;
-            nLocal_ = 0;
-        }
-
-        void reset(const SpMat& A)
-        {
-            clear();
-            nLocal_ = A.rows();
-            buildDistributedMat(A, A_);
-
-            checkPetscError
-            (
-                VecCreateMPI
-                (
-                    PETSC_COMM_WORLD,
-                    static_cast<PetscInt>(nLocal_),
-                    PETSC_DETERMINE,
-                    &x_
-                ),
-                "VecCreateMPI(DistributedMatVec x)"
-            );
-            checkPetscError(VecDuplicate(x_, &y_), "VecDuplicate(DistributedMatVec y)");
-        }
-
-        EigVec operator()(const EigVec& x) const
-        {
-            if (!isInitialised())
-            {
-                FatalErrorInFunction
-                    << "DistributedMatVec used before reset()"
-                    << exit(FatalError);
-            }
-            if (x.size() != nLocal_)
-            {
-                FatalErrorInFunction
-                    << "DistributedMatVec: vector has " << x.size()
-                    << " entries, expected " << nLocal_
-                    << exit(FatalError);
-            }
-
-            PetscScalar* xa = nullptr;
-            checkPetscError(VecGetArray(x_, &xa), "VecGetArray(x)");
-            for (label i = 0; i < nLocal_; ++i)
-            {
-                xa[i] = static_cast<PetscScalar>(x[i]);
-            }
-            checkPetscError(VecRestoreArray(x_, &xa), "VecRestoreArray(x)");
-
-            checkPetscError(MatMult(A_, x_, y_), "MatMult");
-
-            EigVec result(nLocal_);
-            const PetscScalar* ya = nullptr;
-            checkPetscError(VecGetArrayRead(y_, &ya), "VecGetArrayRead(y)");
-            for (label i = 0; i < nLocal_; ++i)
-            {
-                result[i] = static_cast<scalar>(ya[i]);
-            }
-            checkPetscError(VecRestoreArrayRead(y_, &ya), "VecRestoreArrayRead(y)");
-
-            return result;
-        }
-    };
-
-
-    // Added for cardiacFoam: globally reduced vector norms and inner product.
-    //
-    // An EigVec holds only this rank's block of cells, so Eigen's norm() and
-    // dot() are local quantities. Used unreduced in a convergence test or in a
-    // finite-difference step size they make the result depend on how the mesh
-    // was decomposed, which looks like a discretisation problem rather than a
-    // parallel bug. In serial these reduce to the plain Eigen calls.
-    scalar gSquaredNorm(const EigVec& v)
-    {
-        scalar s = v.squaredNorm();
-        reduce(s, sumOp<scalar>());
-        return s;
-    }
-
-    // Global Euclidean norm of a distributed vector (each rank holds its own
-    // block of rows).
-    scalar gNorm(const EigVec& v)
-    {
-        return std::sqrt(gSquaredNorm(v));
-    }
-
-    // Global inner product of two distributed vectors. Needed wherever a
-    // convergence test or an orthogonalisation would otherwise see only this
-    // rank's block.
-    scalar gDot(const EigVec& a, const EigVec& b)
-    {
-        scalar s = a.dot(b);
-        reduce(s, sumOp<scalar>());
-        return s;
-    }
-
-    // Modified for cardiacFoam, ported from the MMS solver: every dictionary
-    // option has exactly ONE accepted spelling, compared case-sensitively, and
-    // anything else stops the run at start-up with the list of valid values.
-    //
-    // This replaces lowerWord, which matched user input case-insensitively and
-    // had accumulated aliases on top of it: SparseLU/sparselu/lu, Picard/picard,
-    // diagonalIion/diagonal/localDiagonal, RKF45/RKT45/rkf45, off/false/nopc,
-    // ilut, jakobi, amg, boomeramg and more. Two spellings for one thing is how
-    // the SparseLU bug hid in the MMS: one test compared case-sensitively and
-    // another did not, so the same word took a different path in each place.
-    void requireOneOf
-    (
-        const char* key,
-        const word& value,
-        std::initializer_list<const char*> valid
-    )
-    {
-        for (const char* v : valid)
-        {
-            if (value == v)
-            {
-                return;
-            }
-        }
-
-        std::string options;
-        for (const char* v : valid)
-        {
-            if (!options.empty())
-            {
-                options += ", ";
-            }
-            options += v;
-        }
-
-        FatalErrorInFunction
-            << "Unknown " << key << ": " << value << nl
-            << "Valid options are " << options.c_str()
-            << " (exact spelling, case-sensitive)."
-            << exit(FatalError);
-    }
-
-    // True when a linearSolverBackend / jfnkLinearSolverBackend key selects
-    // PETSc rather than the Eigen path.
-    //
-    // Modified for cardiacFoam, ported from the MMS solver: the name is
-    // VALIDATED. It used to be tested against a two-entry whitelist (petsc,
-    // ksp, any case) whose else-branch was Eigen, so a typo moved the whole run
-    // onto the serial backend without a word in the log - the same failure mode
-    // as "nonlinearMethod Picrad", which collapsed a method matrix onto one
-    // method. One spelling each, PETSc and Eigen.
-    bool usesPetscBackend(const word& backend)
-    {
-        requireOneOf("linear solver backend", backend, {"PETSc", "Eigen"});
-        return backend == "PETSc";
-    }
-
-    // Added for cardiacFoam, ported from the MMS solver: the (KSP, PC) pair a
-    // linearSolver request really means for PETSc, resolved in ONE place.
-    //
-    // A direct solve is preonly + lu whatever petscLinearPcType says, so that
-    // is what SparseLU resolves to. On the MMS side the PC used to come from its
-    // default (ilu) on two of the three PETSc paths: ONE application of ILU
-    // standing in for the inverse of A, and preonly never checks a tolerance, so
-    // Picard converged - to the fixed point of the wrong operator. BiCGSTAB
-    // needs no case of its own: the default of petscLinearKspType is already
-    // its translation (petscKspTypeForLinearSolver), and a petscLinearKspType
-    // written explicitly is an explicit choice that should win.
-    void resolvePetscKspPc
-    (
-        const word& linearSolver,
-        const word& petscKspType,
-        const word& petscPcType,
-        word& kspType,
-        word& pcType
-    )
-    {
-        kspType = petscKspType;
-        pcType = petscPcType;
-
-        if (linearSolver == "SparseLU")
-        {
-            kspType = "preonly";
-            pcType = "lu";
-        }
-    }
-
-    // Added for cardiacFoam, ported from the MMS solver: the PETSc KSP a
-    // backend-neutral linearSolver name stands for, used as the default of
-    // petscLinearKspType. SparseLU becomes preonly because in PETSc a direct
-    // solve is PCLU applied once (resolvePetscKspPc sets that PC).
-    //
-    // This replaces petscKspTypeName and petscPcTypeName, which accepted any
-    // capitalisation plus a list of aliases and passed anything else through
-    // to PETSc unchecked. The KSP and PC keys are now validated at start-up
-    // against closed lists of PETSc's own names, so nothing is left to
-    // translate.
-    word petscKspTypeForLinearSolver(const word& linearSolver)
-    {
-        if (linearSolver == "GMRES")
-        {
-            return "gmres";
-        }
-        if (linearSolver == "BiCGSTAB")
-        {
-            return "bcgs";
-        }
-        return "preonly";
-    }
-
-
-    // Added for cardiacFoam: incomplete and complete LU are sequential-only
-    // preconditioners; PETSc has no MPIAIJ implementation of either and
-    // KSPSetUp fails with PETSC_ERR_SUP. In parallel they have to be wrapped in
-    // a block-Jacobi preconditioner, which applies the requested factorisation
-    // independently on each rank's diagonal block. That is the standard
-    // substitution and is what "ilu in parallel" means in practice.
-    //
-    // Returns the outer PC name; subPc receives the factorisation to configure
-    // on each block, or stays empty when no wrapping is needed.
-    std::string petscParallelPcTypeName(const word& pcType, std::string& subPc)
-    {
-        const std::string s(pcType);
-        subPc.clear();
-
-        if (Pstream::parRun() && (s == "ilu" || s == "lu"))
-        {
-            subPc = s;
-            return "bjacobi";
-        }
-
-        return s;
-    }
-
-    // True when the requested KSP is restarted GMRES, which is the only one
-    // that needs a restart length to be configured.
-    bool isGmresType(const word& kspType)
-    {
-        return kspType == "gmres";
-    }
-
-    // RAII guard around PetscInitialize/PetscFinalize.
-    //
-    // Only finalises if it was this object that initialised PETSc: OpenFOAM's
-    // own PETSc-based components, or a library linked into the same process,
-    // may have initialised it first, and finalising someone else's session
-    // would break them.
-    class PetscSession
-    {
-        bool ownsSession_;
-
-    public:
-
-        PetscSession(int& argc, char**& argv)
-        :
-            ownsSession_(false)
-        {
-            PetscBool initialized = PETSC_FALSE;
-            checkPetscError(PetscInitialized(&initialized), "PetscInitialized");
-
-            if (!initialized)
-            {
-                checkPetscError
-                (
-                    PetscInitialize(&argc, &argv, nullptr, nullptr),
-                    "PetscInitialize"
-                );
-                ownsSession_ = true;
-            }
-        }
-
-        ~PetscSession()
-        {
-            if (ownsSession_)
-            {
-                PetscBool finalized = PETSC_FALSE;
-                PetscBool initialized = PETSC_FALSE;
-
-                PetscFinalized(&finalized);
-                PetscInitialized(&initialized);
-
-                if (initialized && !finalized)
-                {
-                    PetscFinalize();
-                }
-            }
-        }
-
-        PetscSession(const PetscSession&) = delete;
-        void operator=(const PetscSession&) = delete;
-    };
-
-    // Copy this rank's block of an Eigen vector into a PETSc Vec. Assembly and
-    // the nonlinear layer work in Eigen; only the linear solve is PETSc's, so
-    // each solve crosses this boundary twice.
-    void copyEigVecToPetscVec(const EigVec& src, Vec dst)
-    {
-        PetscScalar* values = nullptr;
-        checkPetscError(VecGetArray(dst, &values), "VecGetArray");
-
-        for (PetscInt i = 0; i < src.size(); ++i)
-        {
-            values[i] = static_cast<PetscScalar>(src[i]);
-        }
-
-        checkPetscError(VecRestoreArray(dst, &values), "VecRestoreArray");
-    }
-
-    // Copy a PETSc Vec back into this rank's block of an Eigen vector.
-    void copyPetscVecToEigVec(Vec src, EigVec& dst)
-    {
-        const PetscScalar* values = nullptr;
-        checkPetscError(VecGetArrayRead(src, &values), "VecGetArrayRead");
-
-        for (PetscInt i = 0; i < dst.size(); ++i)
-        {
-            dst[i] = static_cast<scalar>(values[i]);
-        }
-
-        checkPetscError
-        (
-            VecRestoreArrayRead(src, &values),
-            "VecRestoreArrayRead"
-        );
-    }
-
-    // Give a KSP its own options prefix, so that several solvers living in the
-    // same run (the PDE solve, the JFNK inner Krylov, its preconditioner) can
-    // be tuned independently from the command line or from PETSC_OPTIONS.
-    void setPetscOptionsPrefix(KSP ksp, const word& prefix)
-    {
-        if (prefix.size())
-        {
-            checkPetscError
-            (
-                KSPSetOptionsPrefix(ksp, prefix.c_str()),
-                "KSPSetOptionsPrefix"
-            );
-        }
-    }
-
-    // Persistent PETSc KSP for an ASSEMBLED matrix, kept alive across time
-    // steps and nonlinear iterations.
-    //
-    // The point is the MatrixUpdate policy: rebuilding the matrix and its
-    // preconditioner on every solve dominates the cost when, as in Picard with
-    // a constant operator, the matrix does not change at all. Holding the Mat,
-    // the KSP and the two work vectors lets a solve be reduced to Reuse (solve
-    // only) or ValuesOnly (refresh values, re-factorise, keep the pattern).
-    class PetscKspMatrixSolver
-    {
-        Mat A_;
-        KSP ksp_;
-        Vec b_;
-        Vec x_;
-        label n_;
-
-    public:
-
-        PetscKspMatrixSolver()
-        :
-            A_(nullptr),
-            ksp_(nullptr),
-            b_(nullptr),
-            x_(nullptr),
-            n_(0)
-        {}
-
-        ~PetscKspMatrixSolver()
-        {
-            clear();
-        }
-
-        PetscKspMatrixSolver(const PetscKspMatrixSolver&) = delete;
-        void operator=(const PetscKspMatrixSolver&) = delete;
-
-        void clear()
-        {
-            if (ksp_) checkPetscError(KSPDestroy(&ksp_), "KSPDestroy");
-            if (A_) checkPetscError(MatDestroy(&A_), "MatDestroy");
-            if (b_) checkPetscError(VecDestroy(&b_), "VecDestroy");
-            if (x_) checkPetscError(VecDestroy(&x_), "VecDestroy");
-
-            ksp_ = nullptr;
-            A_ = nullptr;
-            b_ = nullptr;
-            x_ = nullptr;
-            n_ = 0;
-        }
-
-        void reset
-        (
-            const SpMat& A,
-            const word& kspType,
-            const word& pcType,
-            const scalar tolerance,
-            const label maxIterations,
-            const label restart,
-            const word& optionsPrefix,
-            const bool useOptions,
-            const scalar factorFill = 1.0,
-            const scalar dropTolerance = 0.0
-        )
-        {
-            clear();
-
-            n_ = A.rows();
-            const PetscInt nRows = static_cast<PetscInt>(A.rows());
-
-            // Modified for cardiacFoam: was MatCreateSeqAIJ, which PETSc
-            // rejects on a communicator of size > 1 ("Comm must be of size 1").
-            // buildDistributedMat produces MATAIJ - sequential on one rank,
-            // MPIAIJ on several - from the same local-rows/global-columns Eigen
-            // matrix, with the diagonal/off-diagonal preallocation split that
-            // stops assembly degenerating into repeated reallocation.
-            buildDistributedMat(A, A_);
-
-            // Modified for cardiacFoam: distributed vector with nRows LOCAL entries.
-            checkPetscError
-            (
-                VecCreateMPI(PETSC_COMM_WORLD, nRows, PETSC_DETERMINE, &b_),
-                "VecCreateMPI(b)"
-            );
-            checkPetscError(VecDuplicate(b_, &x_), "VecDuplicate(x)");
-
-            checkPetscError(KSPCreate(PETSC_COMM_WORLD, &ksp_), "KSPCreate");
-            checkPetscError(KSPSetOperators(ksp_, A_, A_), "KSPSetOperators");
-
-            const std::string kspName(kspType);
-            // Modified for cardiacFoam: ilu/lu have no MPIAIJ implementation
-            // and KSPSetUp fails with PETSC_ERR_SUP. In parallel they are
-            // wrapped in block-Jacobi, which applies the requested
-            // factorisation on each rank's diagonal block. The driver's
-            // default pcType is ilu, so this is needed from the first run.
-            std::string subPcName;
-            const std::string pcName = petscParallelPcTypeName(pcType, subPcName);
-            checkPetscError(KSPSetType(ksp_, kspName.c_str()), "KSPSetType");
-
-            PC pc = nullptr;
-            checkPetscError(KSPGetPC(ksp_, &pc), "KSPGetPC");
-            checkPetscError(PCSetType(pc, pcName.c_str()), "PCSetType");
-
-            // Added for cardiacFoam: configure the per-block factorisation.
-            if (!subPcName.empty())
-            {
-                checkPetscError(KSPSetUp(ksp_), "KSPSetUp(bjacobi)");
-                PetscInt nLocalBlocks = 0;
-                KSP* subKsp = nullptr;
-                checkPetscError
-                (
-                    PCBJacobiGetSubKSP(pc, &nLocalBlocks, nullptr, &subKsp),
-                    "PCBJacobiGetSubKSP"
-                );
-                for (PetscInt b = 0; b < nLocalBlocks; ++b)
-                {
-                    PC subPc = nullptr;
-                    checkPetscError(KSPGetPC(subKsp[b], &subPc), "KSPGetPC(sub)");
-                    checkPetscError
-                    (
-                        PCSetType(subPc, subPcName.c_str()), "PCSetType(sub)"
-                    );
-                }
-            }
-            if (pcName == "ilu" || pcName == "lu")
-            {
-                checkPetscError
-                (
-                    PCFactorSetFill(pc, max(factorFill, scalar(1.0))),
-                    "PCFactorSetFill"
-                );
-            }
-            if (pcName == "ilu" && dropTolerance > 0.0)
-            {
-                checkPetscError
-                (
-                    PCFactorSetDropTolerance(pc, dropTolerance, dropTolerance, 1000),
-                    "PCFactorSetDropTolerance"
-                );
-            }
-
-            checkPetscError
-            (
-                KSPSetTolerances
-                (
-                    ksp_,
-                    tolerance,
-                    PETSC_DEFAULT,
-                    PETSC_DEFAULT,
-                    max(maxIterations, label(1))
-                ),
-                "KSPSetTolerances"
-            );
-
-            if (isGmresType(kspType))
-            {
-                checkPetscError
-                (
-                    KSPGMRESSetRestart(ksp_, max(restart, label(1))),
-                    "KSPGMRESSetRestart"
-                );
-            }
-
-            setPetscOptionsPrefix(ksp_, optionsPrefix);
-
-            if (useOptions)
-            {
-                checkPetscError(KSPSetFromOptions(ksp_), "KSPSetFromOptions");
-            }
-
-            checkPetscError(KSPSetUp(ksp_), "KSPSetUp");
-        }
-
-        bool isInitialised() const
-        {
-            return ksp_ != nullptr && A_ != nullptr;
-        }
-
-        label size() const
-        {
-            return n_;
-        }
-
-        void updateValues(const SpMat& A, const bool reusePreconditioner = false)
-        {
-            if (!isInitialised())
-            {
-                FatalErrorInFunction
-                    << "PetscKspMatrixSolver::updateValues requires reset()"
-                    << exit(FatalError);
-            }
-
-            // Modified for cardiacFoam: n_ is the LOCAL row count, while
-            // A.cols() is the GLOBAL column count - they are only equal in
-            // serial. Comparing them aborted every diagonalIion run in
-            // parallel ("320x640 but cached PETSc Mat is 320x320").
-            if (A.rows() != n_ || A.cols() != gNCols())
-            {
-                FatalErrorInFunction
-                    << "PetscKspMatrixSolver::updateValues called with "
-                    << "matrix of size " << A.rows() << "x" << A.cols()
-                    << " but expected " << n_ << "x" << gNCols()
-                    << exit(FatalError);
-            }
-
-            checkPetscError(MatZeroEntries(A_), "MatZeroEntries(updateValues)");
-
-            const PetscInt nRows = static_cast<PetscInt>(A.rows());
-            for (PetscInt row = 0; row < nRows; ++row)
-            {
-                for (SpMat::InnerIterator it(A, row); it; ++it)
-                {
-                    checkPetscError
-                    (
-                        MatSetValue
-                        (
-                            A_,
-                            // Modified for cardiacFoam: PETSc addresses rows
-                            // GLOBALLY. it.row() is this rank's local index, so
-                            // it needs the same gRowStart offset that
-                            // buildDistributedMat() applies; without it every
-                            // rank but the first wrote into the wrong rows.
-                            static_cast<PetscInt>(globalRowStart() + it.row()),
-                            static_cast<PetscInt>(it.col()),
-                            static_cast<PetscScalar>(it.value()),
-                            INSERT_VALUES
-                        ),
-                        "MatSetValue(updateValues)"
-                    );
-                }
-            }
-
-            checkPetscError(MatAssemblyBegin(A_, MAT_FINAL_ASSEMBLY), "MatAssemblyBegin(updateValues)");
-            checkPetscError(MatAssemblyEnd(A_, MAT_FINAL_ASSEMBLY), "MatAssemblyEnd(updateValues)");
-            checkPetscError
-            (
-                KSPSetReusePreconditioner
-                (
-                    ksp_,
-                    reusePreconditioner ? PETSC_TRUE : PETSC_FALSE
-                ),
-                "KSPSetReusePreconditioner(updateValues)"
-            );
-            checkPetscError(KSPSetUp(ksp_), "KSPSetUp(updateValues)");
-        }
-
-        EigVec solve
-        (
-            const EigVec& rhs,
-            label& iterations,
-            scalar& estimatedError
-        )
-        {
-            if (!ksp_)
-            {
-                FatalErrorInFunction
-                    << "Attempted to use an unset PETSc KSP solver"
-                    << exit(FatalError);
-            }
-
-            copyEigVecToPetscVec(rhs, b_);
-            checkPetscError(VecSet(x_, 0.0), "VecSet(x)");
-            checkPetscError(KSPSolve(ksp_, b_, x_), "KSPSolve");
-
-            PetscInt petscIterations = 0;
-            PetscReal residualNorm = 0.0;
-            KSPConvergedReason reason;
-
-            checkPetscError(KSPGetIterationNumber(ksp_, &petscIterations), "KSPGetIterationNumber");
-            checkPetscError(KSPGetResidualNorm(ksp_, &residualNorm), "KSPGetResidualNorm");
-            checkPetscError(KSPGetConvergedReason(ksp_, &reason), "KSPGetConvergedReason");
-
-            if (reason < 0)
-            {
-                FatalErrorInFunction
-                    << "PETSc KSP diverged with reason " << reason
-                    << exit(FatalError);
-            }
-
-            EigVec result(rhs.size());
-            copyPetscVecToEigVec(x_, result);
-
-            iterations = static_cast<label>(petscIterations);
-            estimatedError =
-                static_cast<scalar>(residualNorm)/max(gNorm(rhs), scalar(SMALL));
-
-            return result;
-        }
-    };
-
-    // Payload handed to a PETSc MatShell: the matrix-free product to apply and
-    // the local row count. Used by JFNK, whose Jacobian is never assembled -
-    // it exists only as a directional finite difference of the residual.
-    struct PetscShellMatVecContext
-    {
-        std::function<EigVec(const EigVec&)> matVec;
-        label n;
-    };
-
-    // MatShell callback: PETSc asks for y = A*x, this unpacks the context and
-    // delegates to the C++ functor, converting Vec <-> EigVec on the way.
-    PetscErrorCode petscShellMatMult(Mat A, Vec x, Vec y)
-    {
-        void* rawContext = nullptr;
-        PetscErrorCode ierr = MatShellGetContext(A, &rawContext);
-        if (ierr) return ierr;
-
-        PetscShellMatVecContext* context =
-            static_cast<PetscShellMatVecContext*>(rawContext);
-
-        EigVec xEigen(context->n);
-        copyPetscVecToEigVec(x, xEigen);
-
-        const EigVec yEigen = context->matVec(xEigen);
-        copyEigVecToPetscVec(yEigen, y);
-
-        return 0;
-    }
-
-    // Payload for a PCShell: the preconditioner application and the local row
-    // count. Lets an arbitrary C++ operator (here an ILU of the diffusion
-    // matrix) act as a PETSc preconditioner.
-    struct PetscShellPCContext
-    {
-        std::function<EigVec(const EigVec&)> apply;
-        label n;
-    };
-
-    // PCShell callback: PETSc asks for y = M^{-1} x, this delegates to the
-    // C++ functor.
-    PetscErrorCode petscShellPCApply(PC pc, Vec x, Vec y)
-    {
-        void* rawContext = nullptr;
-        PetscErrorCode ierr = PCShellGetContext(pc, &rawContext);
-        if (ierr) return ierr;
-
-        PetscShellPCContext* context =
-            static_cast<PetscShellPCContext*>(rawContext);
-
-        EigVec xEigen(context->n);
-        copyPetscVecToEigVec(x, xEigen);
-
-        const EigVec yEigen = context->apply(xEigen);
-        copyEigVecToPetscVec(yEigen, y);
-
-        return 0;
-    }
-
-    // Persistent PETSc KSP over a MATRIX-FREE operator, used for the JFNK inner
-    // Krylov solve.
-    //
-    // Same lifetime argument as PetscKspMatrixSolver, but here there is no
-    // matrix to reuse: what is worth keeping is the KSP, the work vectors and
-    // the shell contexts. The preconditioner is optional and is itself a shell,
-    // so JFNK can run unpreconditioned or against an ILU of AImplicit.
-    class PetscShellKspSolver
-    {
-        Mat A_;
-        KSP ksp_;
-        Vec b_;
-        Vec x_;
-        PetscShellMatVecContext matContext_;
-        PetscShellPCContext pcContext_;
-        label n_;
-        bool initialised_;
-        bool hasShellPC_;
-
-    public:
-
-        PetscShellKspSolver()
-        :
-            A_(nullptr),
-            ksp_(nullptr),
-            b_(nullptr),
-            x_(nullptr),
-            matContext_{},
-            pcContext_{},
-            n_(0),
-            initialised_(false),
-            hasShellPC_(false)
-        {
-            matContext_.n = 0;
-            pcContext_.n = 0;
-        }
-
-        ~PetscShellKspSolver()
-        {
-            clear();
-        }
-
-        PetscShellKspSolver(const PetscShellKspSolver&) = delete;
-        void operator=(const PetscShellKspSolver&) = delete;
-
-        void clear()
-        {
-            if (ksp_) checkPetscError(KSPDestroy(&ksp_), "KSPDestroy(cached shell)");
-            if (A_) checkPetscError(MatDestroy(&A_), "MatDestroy(cached shell)");
-            if (b_) checkPetscError(VecDestroy(&b_), "VecDestroy(cached shell b)");
-            if (x_) checkPetscError(VecDestroy(&x_), "VecDestroy(cached shell x)");
-            ksp_ = nullptr;
-            A_ = nullptr;
-            b_ = nullptr;
-            x_ = nullptr;
-            n_ = 0;
-            initialised_ = false;
-            hasShellPC_ = false;
-            matContext_.matVec = nullptr;
-            pcContext_.apply = nullptr;
-        }
-
-        bool isInitialised() const { return initialised_; }
-
-        void initialise
-        (
-            const label n,
-            const word& kspType,
-            const word& pcType,
-            const label restart,
-            const label maxIterations,
-            const scalar tolerance,
-            const word& optionsPrefix,
-            const bool useOptions,
-            const bool withShellPC
-        )
-        {
-            clear();
-
-            n_ = n;
-            const PetscInt nP = static_cast<PetscInt>(n);
-
-            matContext_.n = n;
-            pcContext_.n = n;
-
-            checkPetscError
-            (
-                // Modified for cardiacFoam: nP is the LOCAL row/col count; the global
-                // sizes are left to PETSc to sum across ranks.
-                MatCreateShell
-                (
-                    PETSC_COMM_WORLD, nP, nP,
-                    PETSC_DETERMINE, PETSC_DETERMINE,
-                    &matContext_, &A_
-                ),
-                "MatCreateShell(cached)"
-            );
-            checkPetscError
-            (
-                MatShellSetOperation
-                (
-                    A_,
-                    MATOP_MULT,
-                    reinterpret_cast<void(*)(void)>(petscShellMatMult)
-                ),
-                "MatShellSetOperation(cached MATOP_MULT)"
-            );
-
-            // Modified for cardiacFoam: distributed vector, nP LOCAL entries.
-            checkPetscError
-            (
-                VecCreateMPI(PETSC_COMM_WORLD, nP, PETSC_DETERMINE, &b_),
-                "VecCreateMPI(cached shell b)"
-            );
-            checkPetscError(VecDuplicate(b_, &x_), "VecDuplicate(cached shell x)");
-
-            checkPetscError(KSPCreate(PETSC_COMM_WORLD, &ksp_), "KSPCreate(cached shell)");
-            checkPetscError(KSPSetOperators(ksp_, A_, A_), "KSPSetOperators(cached shell)");
-
-            const std::string kspName(kspType);
-            checkPetscError(KSPSetType(ksp_, kspName.c_str()), "KSPSetType(cached shell)");
-            checkPetscError
-            (
-                KSPSetTolerances
-                (
-                    ksp_,
-                    tolerance,
-                    PETSC_DEFAULT,
-                    PETSC_DEFAULT,
-                    max(maxIterations, label(1))
-                ),
-                "KSPSetTolerances(cached shell)"
-            );
-
-            if (isGmresType(kspType))
-            {
-                checkPetscError
-                (
-                    KSPGMRESSetRestart(ksp_, max(restart, label(1))),
-                    "KSPGMRESSetRestart(cached shell)"
-                );
-            }
-
-            PC pc = nullptr;
-            checkPetscError(KSPGetPC(ksp_, &pc), "KSPGetPC(cached shell)");
-            setPetscOptionsPrefix(ksp_, optionsPrefix);
-
-            if (useOptions)
-            {
-                checkPetscError(KSPSetFromOptions(ksp_), "KSPSetFromOptions(cached shell)");
-                checkPetscError(KSPGetPC(ksp_, &pc), "KSPGetPC(cached shell, after options)");
-            }
-
-            if (withShellPC)
-            {
-                checkPetscError(PCSetType(pc, PCSHELL), "PCSetType(cached shell PCSHELL)");
-                checkPetscError(PCShellSetContext(pc, &pcContext_), "PCShellSetContext(cached)");
-                checkPetscError(PCShellSetApply(pc, petscShellPCApply), "PCShellSetApply(cached)");
-                // Right preconditioning so the KSP monitors the true residual
-                // ||b - A x|| (matching the Eigen solveGMRES path), rather than
-                // the left-preconditioned residual ||M^{-1}(b - A x)||.
-                checkPetscError(KSPSetPCSide(ksp_, PC_RIGHT), "KSPSetPCSide(cached shell)");
-                hasShellPC_ = true;
-            }
-            else
-            {
-                // Modified for cardiacFoam: see the note on bjacobi above.
-                std::string subPcNameShell;
-                const std::string pcName =
-                    petscParallelPcTypeName(pcType, subPcNameShell);
-                checkPetscError(PCSetType(pc, pcName.c_str()), "PCSetType(cached shell scalar PC)");
-                hasShellPC_ = false;
-            }
-
-            initialised_ = true;
-        }
-
-        EigVec solve
-        (
-            const std::function<EigVec(const EigVec&)>& matVec,
-            const std::function<EigVec(const EigVec&)>* applyPreconditioner,
-            const EigVec& rhs,
-            label& iterations,
-            scalar& estimatedError
-        )
-        {
-            if (!initialised_)
-            {
-                FatalErrorInFunction
-                    << "PetscShellKspSolver::solve called before initialise()"
-                    << exit(FatalError);
-            }
-
-            if (rhs.size() != n_)
-            {
-                FatalErrorInFunction
-                    << "PetscShellKspSolver::solve rhs size " << rhs.size()
-                    << " differs from cached dimension " << n_
-                    << exit(FatalError);
-            }
-
-            if (hasShellPC_ != static_cast<bool>(applyPreconditioner))
-            {
-                FatalErrorInFunction
-                    << "PetscShellKspSolver::solve shell-PC configuration changed"
-                    << exit(FatalError);
-            }
-
-            matContext_.matVec = matVec;
-            if (applyPreconditioner)
-            {
-                pcContext_.apply = *applyPreconditioner;
-            }
-
-            copyEigVecToPetscVec(rhs, b_);
-            checkPetscError(VecSet(x_, 0.0), "VecSet(cached shell x)");
-            checkPetscError(KSPSolve(ksp_, b_, x_), "KSPSolve(cached shell)");
-
-            PetscInt petscIterations = 0;
-            PetscReal residualNorm = 0.0;
-            KSPConvergedReason reason;
-
-            checkPetscError(KSPGetIterationNumber(ksp_, &petscIterations), "KSPGetIterationNumber(cached shell)");
-            checkPetscError(KSPGetResidualNorm(ksp_, &residualNorm), "KSPGetResidualNorm(cached shell)");
-            checkPetscError(KSPGetConvergedReason(ksp_, &reason), "KSPGetConvergedReason(cached shell)");
-
-            if (reason < 0)
-            {
-                FatalErrorInFunction
-                    << "PETSc cached shell KSP diverged with reason " << reason
-                    << exit(FatalError);
-            }
-
-            EigVec result(rhs.size());
-            copyPetscVecToEigVec(x_, result);
-
-            iterations = static_cast<label>(petscIterations);
-            estimatedError =
-                static_cast<scalar>(residualNorm)/max(gNorm(rhs), scalar(SMALL));
-
-            return result;
-        }
-    };
 
 
     // ----------------------------------------------------------------- //
@@ -1889,88 +727,6 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
 }
 
 
-    // Added for cardiacFoam, ported from the MMS solver: the Vm the state ODEs
-    // are driven by, at ONE point, as a set of nodes in normalised time
-    // s = tau/interval over [0, 1].
-    //
-    // The ionic states are integrated over a PDE step with Vm held by the
-    // caller, and the ACCURACY OF THAT Vm(t) CAPS THE COUPLING. This solver used
-    // to hold it FROZEN at the candidate V^{n+1} for the whole step - a
-    // first-order splitting of the Vm-state coupling, whatever the PDE scheme,
-    // Crank-Nicolson included (E06 measured a Cauchy ratio of 0.41 ~ 2^-1.3 on
-    // CN, where second order gives 0.25). A linear blend between V^n and the
-    // candidate is O(dt^2); the MMS measured it capping every scheme above
-    // second order (BDF4 fits 2.04 with it and 3.89 with the history
-    // interpolant, ESDIRK4 1.88 against 2.99).
-    //
-    // nNodes == 2 with s = {0, 1} is the linear blend. BDF2-4 pass the k+1
-    // levels of their history and the ESDIRK stages their stage values - both
-    // already stored, so the higher-order interpolant costs no evaluation.
-    // The LAST node is always the candidate, at s = 1.
-    struct VmDriverNodes
-    {
-        label nNodes = 2;
-        //- Normalised abscissae; the last one is 1
-        FixedList<scalar, 6> s;
-        //- Vm [V] at those abscissae
-        FixedList<scalar, 6> v;
-    };
-
-    // Lagrange interpolation of the driver at normalised time s.
-    inline scalar interpolateVmDriver
-    (
-        const VmDriverNodes& nd,
-        const scalar s
-    )
-    {
-        // Written out for two nodes: the path every one-step scheme takes.
-        if (nd.nNodes <= 2)
-        {
-            return (1.0 - s)*nd.v[0] + s*nd.v[1];
-        }
-
-        scalar result = 0.0;
-
-        for (label j = 0; j < nd.nNodes; ++j)
-        {
-            scalar Lj = 1.0;
-
-            for (label m = 0; m < nd.nNodes; ++m)
-            {
-                if (m != j)
-                {
-                    Lj *= (s - nd.s[m])/(nd.s[j] - nd.s[m]);
-                }
-            }
-
-            result += Lj*nd.v[j];
-        }
-
-        return result;
-    }
-
-    // Added for cardiacFoam, ported from the MMS solver: the nodes of the
-    // driver at FIELD level - the same abscissae for every point, one field of
-    // values per node, indexed like the Vm array handed to solveODE. The last
-    // node is the candidate, which solveODE takes from its own Vm argument, so
-    // its field pointer is left null.
-    struct VmDriverStages
-    {
-        label nNodes = 2;
-        FixedList<scalar, 6> s;
-        FixedList<const scalarField*, 6> field;
-
-        VmDriverStages()
-        {
-            forAll(s, i)
-            {
-                s[i] = 0.0;
-                field[i] = nullptr;
-            }
-            s[1] = 1.0;
-        }
-    };
-
 
     // ten Tusscher-Noble-Noble-Panfilov (2004) ionic model, embedded in this
     // translation unit rather than taken from the ionicModels library.
@@ -1998,7 +754,6 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         Field<Field<scalar>> algebraic_;
         Field<Field<scalar>> rates_;
         Field<Field<scalar>> oldStates_;
-        scalarList stepMs_;
         wordList exportedNames_;
         wordList debugNames_;
         label tissue_;
@@ -2006,6 +761,7 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         scalar odeAbsTol_;
         scalar odeRelTol_;
         label odeMaxSteps_;
+        scalar odeInitialStepMs_;
         Switch numericalProtection_;
         Switch clampGates_;
         Switch clampVmForRates_;
@@ -2348,7 +1104,6 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             scalarField& state,
             scalarField& algebraic,
             scalarField& rates,
-            scalar& stepMs,
             const label pointI
         )
         {
@@ -2373,7 +1128,6 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                 eulerStep(tStartMs, dtMs, state, rates, algebraic, pointI, nodes, tStartMs, dtMs);
                 protectState(state, tStartMs + dtMs, pointI, "solveODE_end");
                 computeVariables(tStartMs + dtMs, state, rates, algebraic);
-                stepMs = dtMs;
                 return;
             }
 
@@ -2382,7 +1136,6 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                 rk4Step(tStartMs, dtMs, state, rates, algebraic, pointI, nodes, tStartMs, dtMs);
                 protectState(state, tStartMs + dtMs, pointI, "solveODE_end");
                 computeVariables(tStartMs + dtMs, state, rates, algebraic);
-                stepMs = dtMs;
                 return;
             }
 
@@ -2392,33 +1145,22 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             // are gone.
 
             scalar tau = 0.0;
-            // Modified for cardiacFoam: the `initialODEStep` fallback that used
-            // to sit on the false arm of this expression is gone, and with it
-            // the member and the dictionary read.
+            // Modified for cardiacFoam, as in the MMS solver: every integration
+            // starts from the same first sub-step, stateODEInitialStep.
             //
-            // It was unreachable. `stepMs` is stepMs_[slotI], which the
-            // constructor seeds for EVERY slot with max(1000*initialDeltaT,
-            // SMALL) ms, and each call overwrites it with a positive h. So the
-            // condition is already true on the very first call and the false arm
-            // could only be taken with deltaT == 0. Measured: sweeping
-            // `initialODEStep` over four orders (1e-3 to 1e-7) moved APD90 by
-            // exactly 0.0000 ms and the trace by 0.0000 mV, while a control
-            // (Euler at dt=1e-4) moved 6.6 ms in the same table - so the null was
-            // the solver's, not the metric's (test E03).
-            //
-            // It was also dimensionally wrong: the member was named ...Ms and
-            // used here against dtMs (milliseconds), but the dictionary value
-            // sits among quantities in SECONDS, so activating it would have
-            // applied a step 1000x smaller than the dictionary asked for.
-            //
-            // Removed rather than wired up: the adaptive controller demonstrably
-            // does not care what the first sub-step is, so the knob would only
-            // have changed the cost of the first call - and it would have done so
-            // in units nobody agreed on. If a real initial-step control is ever
-            // wanted, it needs the seconds-to-milliseconds conversion and a test
-            // that measures cost, not the answer.
-            scalar h = min(dtMs, stepMs);
-            if (h <= SMALL) h = dtMs;
+            // It used to start from the LAST accepted step of the previous
+            // integration of the same scratch slot (stepMs_, seeded once with
+            // dt). That made the answer depend on history the state itself does
+            // not carry: on which slot a point maps to (so on the integration
+            // mode and on the partition), on whether the step was rolled back
+            // (the history was not restored), and on what was integrated
+            // before - so two evaluations of the same Vm candidate differed at
+            // the RKF45 tolerance, which is noise inside JFNK's finite-
+            // difference Jacobian. Now the result is a function of its inputs.
+            scalar h =
+                odeInitialStepMs_ > SMALL
+              ? min(dtMs, odeInitialStepMs_)
+              : dtMs;
             const scalar hMin = max(dtMs*1.0e-12, SMALL);
             scalarField yTrial(NUM_STATES, 0.0);
 
@@ -2455,7 +1197,6 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                     max(scalar(0.1), scalar(0.84)*std::pow(1.0/(err + SMALL), 0.25))
                 );
                 h = max(hMin, min(dtMs - tau, h*factor));
-                stepMs = h;
             }
 
             if (tau < dtMs - 10.0*SMALL)
@@ -2478,6 +1219,14 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         {
             static const labelList empty;
             return empty;
+        }
+
+        // Added for cardiacFoam: threading of the per-point ODE loop, from the
+        // shared OpenMP controls (openMPControls.H).
+        void setOpenMP(const bool useOpenMP, const label threshold)
+        {
+            parallelODE_ = useOpenMP;
+            parallelODEThreshold_ = threshold;
         }
 
         // Added for cardiacFoam: first scratch slot of the cell-centre bank.
@@ -2524,11 +1273,6 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                 Field<scalar>(NUM_STATES, 0.0)
             ),
             oldStates_(nIntegrationPoints, Field<scalar>(NUM_STATES, 0.0)),
-            stepMs_
-            (
-                nIntegrationPoints + nCellSlots,
-                max(1000.0*initialDeltaT, SMALL)
-            ),
             exportedNames_(),
             debugNames_(),
             tissue_(tissueFlag(dict.lookupOrDefault<word>("tissue", "epicardialCells"))),
@@ -2536,6 +1280,13 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             odeAbsTol_(max(dict.lookupOrDefault<scalar>("absTol", dict.lookupOrDefault<scalar>("stateODEAbsTol", 1.0e-9)), scalar(SMALL))),
             odeRelTol_(max(dict.lookupOrDefault<scalar>("relTol", dict.lookupOrDefault<scalar>("stateODERelTol", 1.0e-6)), scalar(SMALL))),
             odeMaxSteps_(dict.lookupOrDefault<label>("maxSteps", dict.lookupOrDefault<label>("stateODEMaxSteps", 10000))),
+            // Added for cardiacFoam, as in the MMS solver: the first sub-step
+            // of EVERY RKF45 integration, in seconds like the MMS key (1e-5 s
+            // by default), stored in ms because this integrator works in ms.
+            odeInitialStepMs_
+            (
+                1000.0*dict.lookupOrDefault<scalar>("stateODEInitialStep", 1.0e-5)
+            ),
             numericalProtection_(dict.lookupOrDefault<Switch>("TNNPNumericalProtection", false)),
             clampGates_(dict.lookupOrDefault<Switch>("TNNPClampGates", true)),
             clampVmForRates_(dict.lookupOrDefault<Switch>("TNNPClampVmForRates", true)),
@@ -2550,11 +1301,11 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             // Added for cardiacFoam. The key name matches the one the solver
             // report documents and the one the tutorial driver already writes
             // into this dictionary - which until now nothing read.
-            parallelODE_(dict.lookupOrDefault<Switch>("parallelODE", false)),
-            parallelODEThreshold_
-            (
-                dict.lookupOrDefault<label>("parallelODEThreshold", 256)
-            )
+            // Set by setOpenMP() from the shared OpenMP controls
+            // (stateODEUseOpenMP, stateODEOpenMPThreshold), as in the MMS
+            // solver; they used to be TNNP keys of their own.
+            parallelODE_(false),
+            parallelODEThreshold_(256)
         {
             // Added for cardiacFoam: validated here, at start-up, instead of
             // at the first ODE integration.
@@ -2628,7 +1379,7 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         // every call and silently reset the whole cell model to its resting
         // state at every time step (no state history could ever accumulate).
         //
-        // The per-point scratch (rates_, algebraic_, stepMs_) is sized in the
+        // The per-point scratch (rates_, algebraic_) is sized in the
         // constructor to nPoints_, the largest point count the model is ever
         // driven with, and is left alone here.
         void initialiseStates(Field<Field<scalar>>& states)
@@ -2768,7 +1519,7 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             // correct. That path calls solveODE twice per iteration, once with
             // a compacted array of nF front Gauss points and once with a
             // compacted array of nS smooth cells, both indexed from 0. Without
-            // a slot map both passes write algebraic_/rates_/stepMs_[0..n),
+            // a slot map both passes write algebraic_/rates_[0..n),
             // so the second silently overwrites the first's scratch even
             // though the two arrays describe different physical points.
             if (!scratchIDs.empty())
@@ -2863,7 +1614,6 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                     states[pointI],
                     algebraic_[slotI],
                     rates_[slotI],
-                    stepMs_[slotI],
                     slotI
                 );
                 Im[pointI] = algebraic_[slotI][Iion_cm];
@@ -3002,32 +1752,6 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         return dtStable;
     }
 
-    // Peak resident set size of this process in MB, from getrusage. Linux
-    // reports ru_maxrss in KiB and macOS in bytes, hence the platform split.
-    scalar currentPeakRSSMB()
-    {
-        struct rusage usage;
-        if (getrusage(RUSAGE_SELF, &usage) != 0)
-        {
-            return -1.0;
-        }
-
-#if defined(__APPLE__)
-        return scalar(usage.ru_maxrss)/(1024.0*1024.0);
-#else
-        return scalar(usage.ru_maxrss)/1024.0;
-#endif
-    }
-
-    // Print the peak RSS at a named point of the run. The high-order setup
-    // (stencils, per-quadrature-point QR factorisations) is the memory peak of
-    // these cases, so the checkpoints bracket it.
-    void logMemoryCheckpoint(const word& stage)
-    {
-        Info<< "Memory checkpoint [" << stage << "]: peakRSS_MB = "
-            << currentPeakRSSMB() << nl;
-    }
-
     // Tissue-level external stimulus over the step [t0, t0 + dt]: in the cells
     // of every stimulus region, stimulusIntensity times the FRACTION of the step
     // that falls inside the region's window [tStart, tStart + duration], and
@@ -3095,373 +1819,6 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         return fraction;
     }
 
-    // EXPLICIT high-order diffusion: evaluates the face fluxes
-    // n . (D grad Vm) by LRE quadrature over each face and takes their
-    // divergence, writing both the face flux field and the cell Laplacian.
-    //
-    // This is the diagnostic/post-processing counterpart of
-    // assembleHighOrderStiffnessMatrix, which builds the same operator as a
-    // matrix. Boundary faces with zeroGradient or empty carry no flux;
-    // gradScalarFaceQuad performs its own halo exchange, so this is
-    // parallel-correct as written.
-    void computeHighOrderLaplacian
-    (
-        const volScalarField& Vm,
-        const volTensorField& conductivity,
-        const highOrderInterp& LREInterp_Vm,
-        surfaceScalarField& fluxVm_HO,
-        volScalarField& lapVm
-    )
-    {
-        const fvMesh& mesh = Vm.mesh();
-
-        autoPtr<CompactListList<vector>> gradVmQuadPtr =
-            LREInterp_Vm.gradScalarFaceQuad(Vm);
-        // Modified for cardiacFoam: CompactListList, not List<List>. It is
-        // indexed identically but stores contiguously.
-        CompactListList<vector>& gradVmQuad = gradVmQuadPtr.ref();
-        const CompactListList<scalar>& faceQuadW = LREInterp_Vm.faceQuadWeightPhysical();
-
-        const surfaceVectorField nHat(mesh.Sf()/mesh.magSf());
-
-        for (label faceI = 0; faceI < mesh.nInternalFaces(); ++faceI)
-        {
-            const label owner = mesh.owner()[faceI];
-            const vector& faceNormal = nHat[faceI];
-
-            fluxVm_HO[faceI] = 0.0;
-
-            forAll(gradVmQuad[faceI], pI)
-            {
-                const vector Dg = conductivity[owner] & gradVmQuad[faceI][pI];
-                // Modified for cardiacFoam: no |Sf| factor - the
-                // physical quadrature weights already sum to it.
-                fluxVm_HO[faceI] +=
-                    (faceNormal & Dg)*faceQuadW[faceI][pI];
-            }
-        }
-
-        forAll(fluxVm_HO.boundaryField(), patchI)
-        {
-            scalarField& patchFlux = fluxVm_HO.boundaryFieldRef()[patchI];
-
-            if (patchFlux.size() == 0)
-            {
-                continue;
-            }
-
-            const word bcType = Vm.boundaryField()[patchI].type();
-            if
-            (
-                bcType == zeroGradientFvPatchScalarField::typeName
-             || bcType == "empty"
-            )
-            {
-                patchFlux = 0.0;
-                continue;
-            }
-
-            const label start = mesh.boundaryMesh()[patchI].start();
-            const vectorField& pNormals = nHat.boundaryField()[patchI];
-
-            forAll(patchFlux, faceI)
-            {
-                const label globalFaceI = start + faceI;
-                const label owner = mesh.owner()[globalFaceI];
-                const vector& faceNormal = pNormals[faceI];
-
-                patchFlux[faceI] = 0.0;
-
-                forAll(gradVmQuad[globalFaceI], pI)
-                {
-                    const vector Dg = conductivity[owner] & gradVmQuad[globalFaceI][pI];
-                    // Modified for cardiacFoam: no |Sf| factor.
-                    patchFlux[faceI] +=
-                        (faceNormal & Dg)*faceQuadW[globalFaceI][pI];
-                }
-            }
-        }
-
-        lapVm = fvc::div(fluxVm_HO);
-    }
-
-    // d . H . d for a symmetric tensor, written out to exploit the symmetry.
-    // The second-order term of a Taylor reconstruction.
-    scalar quadraticForm(const symmTensor& H, const vector& d)
-    {
-        return
-            H.xx()*d.x()*d.x()
-          + 2.0*H.xy()*d.x()*d.y()
-          + 2.0*H.xz()*d.x()*d.z()
-          + H.yy()*d.y()*d.y()
-          + 2.0*H.yz()*d.y()*d.z()
-          + H.zz()*d.z()*d.z();
-    }
-
-    // Evaluate a Taylor reconstruction at offset d from a cell centre:
-    //
-    //     c + grad.d + (1/2) d.H.d + (1/6) T3(d,d,d)
-    //
-    // The Hessian and third-derivative pointers are null below the corresponding
-    // polynomial order, which is how the same routine serves p1, p2 and p3. In
-    // 2-D the cubic form drops its out-of-plane components (twoD).
-    scalar reconstructFromTaylor
-    (
-        const scalar c,
-        const vector& grad,
-        const symmTensor* H,
-        const highOrderInterp::symmTensor3Order* T3,
-        const vector& d,
-        const bool twoD
-    )
-    {
-        scalar val = c + (grad & d);
-
-        if (H)
-        {
-            val += 0.5*quadraticForm(*H, d);
-        }
-
-        if (T3)
-        {
-            val += (1.0/6.0)*highOrderInterp::cubicForm(*T3, d, twoD);
-        }
-
-        return val;
-    }
-
-
-    // Added for cardiacFoam, ported from the MMS solver: coefficients of the
-    // time scheme. With M the mass operator and L the scaled diffusion
-    // operator, the two families are
-    //
-    //   theta family   M (V^{n+1} - V^n)/dt
-    //                    = L (theta V^{n+1} + (1-theta) V^n)
-    //                    + theta s^{n+1} + (1-theta) s^n
-    //
-    //   BDF-k          (M/dt) sum_{j=0}^{k} a_j V^{n+1-j}  =  L V^{n+1} + s^{n+1}
-    //
-    //     A = (a_0/dt) M - theta L        (theta = 1 for BDF)
-    //     B = M/dt + (1-theta) L          (= M/dt for BDF)
-    //
-    // and the step solves A V^{n+1} = B H + source, where the history vector H
-    // is V^n for the theta family and -sum_{j>=1} a_j V^{n+1-j} for BDF. So a
-    // BDF step is still ONE mass-matrix product: the combination of the stored
-    // levels is formed first, as a field. BDF1 and backwardEuler are the same
-    // scheme: a_0 = 1, a_1 = -1 gives H = V^n and A = M/dt - L, bit for bit.
-    struct TimeSchemeCoeffs
-    {
-        scalar theta = 1.0;
-        //- 0 for the theta family, k for BDF-k
-        label bdfOrder = 0;
-        //- a_0 .. a_k, trailing entries zero. a_0 is what scales M in A.
-        FixedList<scalar, 5> a;
-
-        TimeSchemeCoeffs()
-        {
-            a[0] = 1.0;
-            a[1] = -1.0;
-            a[2] = 0.0;
-            a[3] = 0.0;
-            a[4] = 0.0;
-        }
-    };
-
-    // Added for cardiacFoam, ported from the MMS solver: Butcher tableau of an
-    // ESDIRK - Explicit first stage (raises the stage order to 2, against order
-    // reduction on stiff problems), Singly Diagonally Implicit (every implicit
-    // stage shares gamma, so ONE matrix M/(gamma dt) - L serves all of them) and
-    // stiffly accurate (b equals the last row, so V^{n+1} = Y_s and the method is
-    // L-stable). Here it only supplies what BDF-k cannot do by itself: the first
-    // k-1 steps, the k-1 steps after a restart, and a step of non-nominal length.
-    struct EsdirkTableau
-    {
-        label nStages = 0;
-        label order = 0;
-        scalar gamma = 0.0;
-        //- Lower-triangular including the diagonal; entries above it are zero
-        FixedList<FixedList<scalar, 6>, 6> a;
-        //- Abscissae. c[nStages - 1] == 1 for a stiffly accurate method
-        FixedList<scalar, 6> c;
-    };
-
-    // ESDIRK3(2)4L[2]SA: four stages, classical order 3, L-stable, stiffly
-    // accurate. gamma is the root of gamma^3 - 3 gamma^2 + (3/2) gamma - 1/6 = 0
-    // in (1/4, 1/2). The coefficients were obtained on the MMS side by solving
-    // the order conditions for c = [0, 2 gamma, 3/5, 1], row sums equal to c
-    // and b equal to the last row, and checked there: the four third-order
-    // conditions hold to ~1e-41 and the fourth-order one misses by 1.4e-3, so
-    // the method is exactly third order. Copied verbatim.
-    EsdirkTableau esdirk3Tableau()
-    {
-        EsdirkTableau tb;
-        tb.nStages = 4;
-        tb.order = 3;
-        tb.gamma = 0.435866521508458999416;
-
-        forAll(tb.c, i)
-        {
-            tb.c[i] = 0.0;
-            forAll(tb.a[i], j)
-            {
-                tb.a[i][j] = 0.0;
-            }
-        }
-
-        const scalar g = tb.gamma;
-
-        tb.c[0] = 0.0;
-        tb.c[1] = 2.0*g;
-        tb.c[2] = 0.6;
-        tb.c[3] = 1.0;
-
-        tb.a[1][0] = g;
-        tb.a[1][1] = g;
-
-        tb.a[2][0] =  0.257648246066427245800;
-        tb.a[2][1] = -0.093514767574886245216;
-        tb.a[2][2] =  g;
-
-        tb.a[3][0] =  0.187641024346723825161;
-        tb.a[3][1] = -0.595297473576954948048;
-        tb.a[3][2] =  0.971789927721772123471;
-        tb.a[3][3] =  g;
-
-        return tb;
-    }
-
-    // Coefficients of the requested scheme. The name is validated at start-up
-    // (requireOneOf in createFields.H), so reaching the end is a programming
-    // error.
-    TimeSchemeCoeffs timeSchemeCoeffs(const word& scheme)
-    {
-        TimeSchemeCoeffs c;
-
-        if (scheme == "backwardEuler")
-        {
-            c.theta = 1.0;
-            return c;
-        }
-
-        if (scheme == "crankNicolson")
-        {
-            c.theta = 0.5;
-            return c;
-        }
-
-        // BDF is fully implicit in L, so theta = 1, and the source is wanted at
-        // t^{n+1} only - one source evaluation per step fewer than
-        // Crank-Nicolson needs.
-        c.theta = 1.0;
-
-        if (scheme == "BDF1")
-        {
-            c.bdfOrder = 1;
-            c.a[0] =  1.0;
-            c.a[1] = -1.0;
-        }
-        else if (scheme == "BDF2")
-        {
-            c.bdfOrder = 2;
-            c.a[0] =  3.0/2.0;
-            c.a[1] = -2.0;
-            c.a[2] =  1.0/2.0;
-        }
-        else if (scheme == "BDF3")
-        {
-            c.bdfOrder = 3;
-            c.a[0] =  11.0/6.0;
-            c.a[1] = -3.0;
-            c.a[2] =  3.0/2.0;
-            c.a[3] = -1.0/3.0;
-        }
-        else if (scheme == "BDF4")
-        {
-            c.bdfOrder = 4;
-            c.a[0] =  25.0/12.0;
-            c.a[1] = -4.0;
-            c.a[2] =  3.0;
-            c.a[3] = -4.0/3.0;
-            c.a[4] =  1.0/4.0;
-        }
-        else
-        {
-            FatalErrorInFunction
-                << "Unknown implicitScheme: " << scheme
-                << abort(FatalError);
-        }
-
-        return c;
-    }
-
-    // Modified for cardiacFoam: one spelling per mode, lumped and consistent.
-    // The aliases diagonal and consistentHO are gone (see requireOneOf).
-    word normalizedMassMatrixType(const word& massMatrix)
-    {
-        requireOneOf("massMatrix", massMatrix, {"lumped", "consistent"});
-        return massMatrix;
-    }
-
-    // Copy the internal field of an OpenFOAM volScalarField into an Eigen
-    // vector. In parallel this is this rank's block only, which is exactly the
-    // row range its matrices own.
-    EigVec fieldToEigVec(const volScalarField& fld)
-    {
-        const scalarField& f = fld.primitiveField();
-        EigVec v(f.size());
-
-        forAll(f, cellI)
-        {
-            v[cellI] = f[cellI];
-        }
-
-        return v;
-    }
-
-    // Inverse of fieldToEigVec: write a solution vector back into a field.
-    // Boundary conditions are not evaluated here; the caller does it when
-    // needed.
-    void eigVecToField(const EigVec& v, volScalarField& fld)
-    {
-        scalarField& f = fld.primitiveFieldRef();
-
-        forAll(f, cellI)
-        {
-            f[cellI] = v[cellI];
-        }
-    }
-
-    // ||current - previous|| / ||current||, globally reduced. The nonlinear
-    // stopping test for the state fields.
-    scalar relativeL2Difference
-    (
-        const scalarField& current,
-        const scalarField& previous
-    )
-    {
-        scalar num = 0.0;
-        scalar den = 0.0;
-
-        forAll(current, cellI)
-        {
-            const scalar diff = current[cellI] - previous[cellI];
-            num += diff*diff;
-            den += current[cellI]*current[cellI];
-        }
-
-        reduce(num, sumOp<scalar>());
-        reduce(den, sumOp<scalar>());
-
-        return std::sqrt(num)/(std::sqrt(den) + SMALL);
-    }
-
-    // ||r|| / ||reference||, both global. The nonlinear stopping test for Vm
-    // and the linear one for the Krylov solvers.
-    scalar relativeL2Norm(const EigVec& r, const EigVec& reference)
-    {
-        // Modified for cardiacFoam: both norms are over LOCAL blocks only.
-        return gNorm(r)/(gNorm(reference) + SMALL);
-    }
 
     // Worst relative L2 change over all state variables between two nonlinear
     // iterations, also filling the per-state residuals for reporting. The
@@ -3534,220 +1891,6 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         return maxResidual;
     }
 
-    // Added for cardiacFoam: the square diagonal block of a local-rows /
-    // global-columns matrix, i.e. the columns this rank owns, renumbered to
-    // start at zero.
-    //
-    // Eigen's factorisations need a SQUARE matrix. In parallel AImplicit is
-    // nLocal x nGlobal - 320 x 640 on two ranks - and handing that to
-    // IncompleteLUT aborts inside Eigen on a dimension assertion. Factorising
-    // the diagonal block instead is precisely block-Jacobi ILU, the same
-    // substitution petscParallelPcTypeName() makes for the assembled path.
-    //
-    // In serial gRowStart is 0 and the block is the whole matrix, so the
-    // factorisation is bit-identical to what it was.
-    SpMat diagonalBlock(const SpMat& A)
-    {
-        const label nLocal = A.rows();
-        std::vector<Triplet> triplets;
-        triplets.reserve(A.nonZeros());
-
-        for (label row = 0; row < nLocal; ++row)
-        {
-            for (SpMat::InnerIterator it(A, row); it; ++it)
-            {
-                const label col = it.col() - globalRowStart();
-                if (col >= 0 && col < nLocal)
-                {
-                    triplets.emplace_back(row, col, it.value());
-                }
-            }
-        }
-
-        SpMat block(nLocal, nLocal);
-        block.setFromTriplets(triplets.begin(), triplets.end());
-        block.makeCompressed();
-        return block;
-    }
-
-    // Add coefficient*diagonal[cell] to the diagonal of an assembled matrix,
-    // in place. Used by the diagonalIion linearisation, which folds a fresh
-    // -theta*dIion/dVm into A on every nonlinear iteration.
-    void addDiagonalToMatrix
-    (
-        const scalarField& diagonal,
-        const scalar coefficient,
-        SpMat& A
-    )
-    {
-        // Modified for cardiacFoam: the column must be GLOBAL, like every
-        // other column in these matrices. Same trap as the diagonal mass
-        // matrix: a wrong column changes neither nnz nor any row sum, so the
-        // operator fingerprint cannot see it.
-        forAll(diagonal, cellI)
-        {
-            A.coeffRef(cellI, gCol(cellI)) += coefficient*diagonal[cellI];
-        }
-
-        A.makeCompressed();
-    }
-
-    // Restarted GMRES(m) with Modified Gram-Schmidt orthogonalisation.
-    //
-    //   Solves  A * x = b  iteratively, where A is provided as a matrix-vector
-    //   product functor (matVec). The Krylov subspace is rebuilt up to
-    //   maxRestarts times to avoid storing arbitrarily many basis vectors when
-    //   convergence is slow.
-    //
-    //   - krylovDim   : maximum dimension m of each inner subspace (GMRES(m))
-    //   - maxRestarts : maximum number of outer restarts (0 = no restart)
-    //   - tolerance   : stop when ||r_k||/||b|| < tolerance
-    //   - iterations  : total number of inner Arnoldi steps performed (out)
-    //   - estimatedError : final relative residual ||r_k||/||b|| (out)
-    template<class MatrixVectorProduct>
-    EigVec solveGMRES
-    (
-        const MatrixVectorProduct& matVec,
-        const EigVec& b,
-        const label krylovDim,
-        const label maxRestarts,
-        const scalar tolerance,
-        label& iterations,
-        scalar& estimatedError,
-        const std::function<EigVec(const EigVec&)>* applyPreconditioner = nullptr
-    )
-    {
-        // Right preconditioning (Phase A3): solve  A M^{-1} u = b,  x = M^{-1} u.
-        // The Arnoldi operator becomes A M^{-1} and the correction V*y is mapped
-        // back through M^{-1}; the least-squares residual still equals the true
-        // residual ||b - A x||, and the restart residual uses the raw A. When no
-        // preconditioner is supplied, applyPrec is the identity (unchanged GMRES).
-        auto applyPrec = [&](const EigVec& v) -> EigVec
-        {
-            return applyPreconditioner ? (*applyPreconditioner)(v) : v;
-        };
-        const label n = b.size();
-
-        // Modified for cardiacFoam: b.size() is this rank's block, so a Krylov
-        // dimension capped by it would differ per rank - and the restart/break
-        // logic below runs inside a COLLECTIVE solve, so ranks would leave the
-        // loop at different iterations and deadlock. Cap by the global count.
-        const label nGlobal = returnReduce(n, sumOp<label>());
-        const label m = min(max(krylovDim, label(1)), label(nGlobal));
-        const label maxOuter = max(maxRestarts, label(0));
-
-        // Initial iterate x_0 = 0  =>  initial residual r_0 = b - A*0 = b
-        EigVec x = EigVec::Zero(n);
-        EigVec r = b;
-        const scalar bNorm = gNorm(b);
-        scalar beta = bNorm;
-        iterations = 0;
-        estimatedError = 1.0;
-
-        if (bNorm <= SMALL)
-        {
-            // Right-hand side is essentially zero; trivial solution
-            estimatedError = 0.0;
-            return x;
-        }
-
-        // Storage for Arnoldi basis V and upper-Hessenberg matrix H.
-        // We allocate once and reuse across restarts to avoid reallocation.
-        std::vector<EigVec> V(m + 1, EigVec::Zero(n));
-        Eigen::Matrix<scalar, Eigen::Dynamic, Eigen::Dynamic> H =
-            Eigen::Matrix<scalar, Eigen::Dynamic, Eigen::Dynamic>::Zero
-            (m + 1, m);
-
-        for (label restart = 0; restart <= maxOuter; ++restart)
-        {
-            // Seed the Krylov subspace with the (normalised) current residual.
-            V[0] = r/beta;
-            H.setZero();
-            bool toleranceMet = false;
-            EigVec bestX = x;
-
-            for (label j = 0; j < m; ++j)
-            {
-                ++iterations;
-
-                // Arnoldi step: form w = A * M^{-1} * V[j]
-                EigVec w = matVec(applyPrec(V[j]));
-
-                // Modified Gram-Schmidt orthogonalisation.
-                //
-                //   Each H(i,j) is computed against the *currently updated* w,
-                //   so loss-of-orthogonality is bounded by O(eps * kappa(A_m))
-                //   instead of O(eps * kappa(A_m)^2) as in classical GS.
-                //   This is important for stiff ionic systems (TNNP) where
-                //   the Jacobian can be poorly conditioned.
-                for (label i = 0; i <= j; ++i)
-                {
-                    H(i, j) = gDot(V[i], w);
-                    w -= H(i, j)*V[i];
-                }
-
-                // Sub-diagonal entry of the Hessenberg matrix.
-                // Happy breakdown (H(j+1,j) ~= 0) means the Krylov space is
-                // already A-invariant and the current iterate is exact.
-                H(j + 1, j) = gNorm(w);
-                if (H(j + 1, j) > SMALL && j + 1 < m + 1)
-                {
-                    V[j + 1] = w/H(j + 1, j);
-                }
-
-                // Least-squares solve for the projected problem:
-                //     min || beta*e_1 - H_j * y ||
-                // We use Eigen's column-pivoted Householder QR. For small
-                // Hessenberg blocks (j+2 x j+1) this is fast and robust.
-                Eigen::Matrix<scalar, Eigen::Dynamic, Eigen::Dynamic> Hj =
-                    H.block(0, 0, j + 2, j + 1);
-                EigVec g = EigVec::Zero(j + 2);
-                g[0] = beta;
-                const EigVec y = Hj.colPivHouseholderQr().solve(g);
-
-                // Reconstruct candidate iterate: x_j = x_restart + M^{-1}(V_j * y)
-                // The correction lives in the preconditioned space and is mapped
-                // back with M^{-1} (identity when unpreconditioned).
-                EigVec Vy = EigVec::Zero(n);
-                for (label i = 0; i <= j; ++i)
-                {
-                    Vy += y[i]*V[i];
-                }
-                EigVec xj = x + applyPrec(Vy);
-
-                // In GMRES theory the residual norm of the least-squares
-                // problem equals the true residual norm:
-                //     ||g - H_j*y|| = ||b - A*x_j||
-                // Using it avoids an extra matVec call per inner iteration.
-                const scalar relResidual =
-                    (g - Hj*y).norm()/max(bNorm, SMALL);
-                bestX = xj;
-                estimatedError = relResidual;
-
-                if (relResidual <= tolerance || H(j + 1, j) <= SMALL)
-                {
-                    toleranceMet = true;
-                    break;
-                }
-            }
-
-            // Commit the best iterate found in this inner cycle.
-            x = bestX;
-            if (toleranceMet) break;
-            if (restart == maxOuter) break;
-
-            // Restart: recompute the *true* residual r = b - A*x and re-seed
-            // the next Krylov cycle. This costs one extra matrix-vector
-            // product but recovers from subspace exhaustion.
-            r = b - matVec(x);
-            beta = gNorm(r);
-            estimatedError = beta/max(bNorm, SMALL);
-            if (beta <= SMALL*bNorm) break;
-        }
-
-        return x;
-    }
-
     // Added for cardiacFoam: directory for this run's postProcessing output.
     //
     // In a parallel run runTime.path() is <case>/processorN, so every one of
@@ -3773,2338 +1916,73 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
     }
 
 
-    // Added for cardiacFoam: globally reduced fingerprint of an assembled
-    // operator. This is the sharpest parallel check available, and it costs one
-    // reduction on a run that need not advance in time at all.
-    //
-    // nnzGlobal must match the serial value EXACTLY: movingLeastSquares builds
-    // its stencils geometrically, so they are invariant to how the mesh was
-    // partitioned. A dropped processor face, an insufficient halo for a high
-    // polynomial order, or a stencil that disagrees across a cut all change it.
-    //
-    // Note what maxAbsRowSum does NOT catch: omitting a face contributes
-    // nothing to either of its rows, so the rows still sum to zero. That is why
-    // the missing processor-face branch in the orthogonal assembly showed up as
-    // a KSP breakdown rather than as a failed sanity check.
-    void reportOperatorFingerprint(const word& name, const SpMat& A)
-    {
-        label nnz = A.nonZeros();
-        scalar sumAll = 0.0;
-        scalar sumAbs = 0.0;
-        scalar maxAbsRowSum = 0.0;
 
-        for (label row = 0; row < label(A.rows()); ++row)
-        {
-            scalar rowSum = 0.0;
-            for (SpMat::InnerIterator it(A, row); it; ++it)
-            {
-                sumAll += it.value();
-                sumAbs += mag(it.value());
-                rowSum += it.value();
-            }
-            maxAbsRowSum = max(maxAbsRowSum, mag(rowSum));
-        }
 
-        reduce(nnz, sumOp<label>());
-        reduce(sumAll, sumOp<scalar>());
-        reduce(sumAbs, sumOp<scalar>());
-        reduce(maxAbsRowSum, maxOp<scalar>());
 
-        Info<< "    [operator " << name << "] nnzGlobal = " << nnz
-            << "  sum = " << sumAll
-            << "  sumAbs = " << sumAbs
-            << "  maxAbsRowSum = " << maxAbsRowSum << endl;
 
-        if (nnz == 0)
-        {
-            FatalErrorInFunction
-                << "Operator " << name << " is empty." << abort(FatalError);
-        }
-    }
 
 
-    // Append a matrix entry, dropping values below SMALL. The filter is on the
-    // INDIVIDUAL contribution, not on the accumulated one, so it is independent
-    // of the order in which contributions arrive and of any chunking of the
-    // assembly.
-    void addTripletIfNeeded
-    (
-        std::vector<Triplet>& triplets,
-        const label row,
-        const label col,
-        const scalar value
-    )
-    {
-        if (mag(value) > SMALL)
-        {
-            triplets.emplace_back(row, col, value);
-        }
-    }
 
-    // Lumped mass matrix: coefficient (chi*Cm, or 1) on the diagonal. Rows are
-    // local, the column is global.
-    void assembleDiagonalMassMatrix
-    (
-        const fvMesh& mesh,
-        const scalar coefficient,
-        SpMat& M
-    )
-    {
-        std::vector<Triplet> triplets;
-        triplets.reserve(mesh.nCells());
 
-        forAll(mesh.C(), cellI)
-        {
-            // Modified for cardiacFoam: the column must be GLOBAL. This site
-            // was missed by the first sweep because it builds its triplet
-            // directly instead of going through addTripletIfNeeded.
-            //
-            // It is worth recording why the operator fingerprint did not catch
-            // it: putting an entry in the wrong COLUMN changes neither nnz, nor
-            // sum, nor sumAbs, nor any row sum. Only combining M with L, where
-            // the misplaced diagonal no longer coincided with L's, exposed it -
-            // as 320 extra nonzeros in AImplicit at two ranks, exactly the
-            // per-rank row count.
-            triplets.emplace_back(cellI, gCol(cellI), coefficient);
-        }
 
-        M.resize(mesh.nCells(), gNCols());
-        M.setFromTriplets(triplets.begin(), triplets.end());
-        M.makeCompressed();
-
-        reportOperatorFingerprint("M (lumped)", M);
-    }
-
-    // High-order consistent mass matrix assembled with LRE cell quadrature.
-    //
-    //   For every cell i and every cell j in its LRE stencil we accumulate
-    //
-    //       M(i, j) = coefficient * sum_{qp in cell_i} w_qp * phi_j(x_qp)
-    //
-    //   where phi_j(x_qp) is the LRE Taylor-basis function of stencil cell j
-    //   evaluated at quadrature point x_qp using the cell-centred Taylor
-    //   expansion (value + grad + Hessian + 3rd-order derivative). The
-    //   resulting M is effectively a high-order weighted-averaging operator:
-    //   (M * Vm)[i] approximates the cell-averaged Vm at cell i to the
-    //   order of the LRE reconstruction.
-    void assembleConsistentMassMatrixHO
-    (
-        const fvMesh& mesh,
-        const highOrderInterp& LREInterp,
-        const scalar coefficient,
-        const bool compactRows,
-        SpMat& M
-    )
-    {
-        const bool twoD = mesh.nGeometricD() == 2;
-        const vectorField& C = mesh.C();
-
-        // Stencils and quadrature data from the LRE object.
-        const CompactListList<label>& stencils =
-            LREInterp.globalCellStencils();
-        const CompactListList<point>& cellQP = LREInterp.cellQuadPoints();
-        const CompactListList<scalar>& cellQW = LREInterp.cellQuadWeightPhysical();
-        // Linear, quadratic and cubic Taylor-reconstruction coefficients.
-        // For each stencil cell cI of cell cellI, gradCoeffs[cellI][cI] gives
-        // the contribution of Vm_{stencil_cI} to grad Vm at cell cellI's
-        // centre; similarly for the Hessian and 3rd-order derivatives.
-        const CompactListList<vector>& gradCoeffs = LREInterp.QRGradCoeffs();
-        const CompactListList<symmTensor>& hessCoeffs =
-            LREInterp.cellHessianCoeffs();
-        const CompactListList<highOrderInterp::symmTensor3Order>& thirdCoeffs =
-            LREInterp.cellThirdDerivCoeffs();
-
-        std::vector<Triplet> triplets;
-        if (compactRows)
-        {
-            label compactReserve = 0;
-            forAll(stencils, cellI)
-            {
-                compactReserve += stencils[cellI].size() + 1;
-            }
-            triplets.reserve(compactReserve);
-        }
-        else
-        {
-            triplets.reserve(mesh.nCells()*40);
-        }
-
-        forAll(stencils, cellI)
-        {
-            // Modified for cardiacFoam: must be UList<label> BY VALUE, not
-                // a labelList reference - see the note on
-                // CompactListList in the header comment.
-                const UList<label> curStencil = stencils[cellI];
-            // LRE stores stencil-cell coefficients in [0..nStencil-1] and
-            // the self (centre) coefficients at index nStencil.
-            const label selfCoeffI = curStencil.size();
-
-            // Added for cardiacFoam: the coefficient rows carry one
-            // trailing entry for the cell itself, so this index must
-            // be the last one. If the stencil silently came back
-            // empty, selfCoeffI is 0, which is still in range and
-            // reads a neighbour's coefficient instead.
-            if (selfCoeffI != gradCoeffs[cellI].size() - 1)
-            {
-                FatalErrorInFunction
-                    << "Stencil/coefficient mismatch at cell " << cellI
-                    << ": stencil size " << selfCoeffI
-                    << ", coefficient row " << gradCoeffs[cellI].size()
-                    << " (expected row = size + 1)."
-                    << abort(FatalError);
-            }
-
-            // Normalise quadrature weights so they sum to one. The mass
-            // matrix then approximates the cell-averaged operator
-            //   (M Vm)[i] ~ (1/|Omega_i|) integral_{Omega_i} Vm dV
-            scalar wSum = 0.0;
-            forAll(cellQW[cellI], qpI)
-            {
-                wSum += cellQW[cellI][qpI];
-            }
-            wSum = max(wSum, SMALL);
-
-            forAll(cellQP[cellI], qpI)
-            {
-                const scalar w = cellQW[cellI][qpI]/wSum;
-                // Displacement from cell centre to quadrature point.
-                const vector d = cellQP[cellI][qpI] - C[cellI];
-
-                // Off-diagonal entries: basis function of every stencil
-                // neighbour evaluated at this quadrature point.
-                forAll(curStencil, cI)
-                {
-                    // phi_j(x_qp) = grad . d + (1/2) H : (d x d) + (1/6) T3 :: (d x d x d)
-                    scalar coeff = (gradCoeffs[cellI][cI] & d);
-
-                    if (LREInterp.order() >= 2)
-                    {
-                        coeff += 0.5*quadraticForm(hessCoeffs[cellI][cI], d);
-                    }
-
-                    if (LREInterp.order() >= 3)
-                    {
-                        coeff +=
-                            (1.0/6.0)
-                           *highOrderInterp::cubicForm(thirdCoeffs[cellI][cI], d, twoD);
-                    }
-
-                    addTripletIfNeeded
-                    (
-                        triplets,
-                        cellI,
-                        curStencil[cI],
-                        coefficient*w*coeff
-                    );
-                }
-
-                // Diagonal (self) entry: starts at 1.0 because phi_i is the
-                // partition-of-unity reconstruction centred at cell i.
-                scalar selfCoeff = 1.0 + (gradCoeffs[cellI][selfCoeffI] & d);
-
-                if (LREInterp.order() >= 2)
-                {
-                    selfCoeff +=
-                        0.5*quadraticForm(hessCoeffs[cellI][selfCoeffI], d);
-                }
-
-                if (LREInterp.order() >= 3)
-                {
-                    selfCoeff +=
-                        (1.0/6.0)
-                       *highOrderInterp::cubicForm(thirdCoeffs[cellI][selfCoeffI], d, twoD);
-                }
-
-                addTripletIfNeeded
-                (
-                    triplets, cellI, gCol(cellI), coefficient*w*selfCoeff
-                );
-            }
-        }
-
-        M.resize(mesh.nCells(), gNCols());
-        M.setFromTriplets(triplets.begin(), triplets.end());
-        M.makeCompressed();
-
-        reportOperatorFingerprint("M (consistent)", M);
-    }
-
-    // Two-point orthogonal diffusion coefficient of a face,
-    // |Sf| (n . D . e)/|d|, with e the unit owner-to-neighbour direction. The
-    // standard low-order finite-volume approximation of the diffusive flux; it
-    // neglects the non-orthogonal part of d relative to Sf.
-    scalar orthogonalDiffusionCoeff
-    (
-        const vector& Sf,
-        const vector& d,
-        const tensor& D
-    )
-    {
-        const scalar area = mag(Sf) + VSMALL;
-        const vector n = Sf/area;
-        const scalar dMag = mag(d) + VSMALL;
-        const vector e = d/dMag;
-
-        return area*(n & (D & e))/dMag;
-    }
-
-    // Added for cardiacFoam, ported from the MMS solver: the part of the
-    // diffusive flux that a two-point flux cannot see.
-    //
-    // The exact flux through a face is |Sf| n . D . grad(V)|_f. Splitting the
-    // gradient along the owner-to-neighbour direction e = d/|d| and the rest,
-    //
-    //     |Sf| n.D.grad V = |Sf| (n.D.e)(grad V . e)  +  |Sf| (grad V . w)
-    //
-    // and approximating (grad V . e) by (V_nei - V_own)/|d| turns the FIRST term
-    // into exactly orthogonalDiffusionCoeff() times the two-point difference.
-    // This function returns the vector w of the SECOND term, which the two-point
-    // flux drops:
-    //
-    //     g = D . n,    w = g - (g . e) e
-    //
-    // i.e. the part of D.n orthogonal to the line joining the cell centres.
-    //
-    // Two cases make it non-zero, and both are real here:
-    //   - a NON-ORTHOGONAL mesh, where e is not parallel to n. This is what
-    //     makes the uncorrected two-point flux inconsistent on triangles and
-    //     tetrahedra: measured on the MMS, order 0.81 instead of 2.
-    //   - an ANISOTROPIC D, where D.n is not parallel to n even on an orthogonal
-    //     mesh. With fibre-oriented conductivity that is every face whose
-    //     normal is not aligned with the fibres, i.e. most of a heart mesh.
-    //
-    // With D aligned with an orthogonal mesh (the Niederer slab: diagonal D,
-    // axis-aligned hexahedra), g = lambda n and e = n, so w = 0 EXACTLY. That
-    // is why the term carries no dictionary key: where it would cost something
-    // it is also required for consistency, and where it is not required it
-    // costs nothing.
-    //
-    // Same decomposition as OpenFOAM's gaussLaplacianScheme (nonOrthDeltaCoeffs
-    // plus nonOrthCorrectionVectors), except that here the correction is
-    // assembled IMPLICITLY, through the reconstruction rows, instead of being
-    // deferred to the right-hand side.
-    vector nonOrthFluxVector(const vector& Sf, const vector& d, const tensor& D)
-    {
-        const vector n = Sf/(mag(Sf) + VSMALL);
-        const vector e = d/(mag(d) + VSMALL);
-        const vector g = D & n;
-        const vector w = g - (g & e)*e;
-
-        // w is the difference of two nearly equal vectors when e is nearly
-        // parallel to D.n, so where it should vanish it comes out at ROUNDOFF
-        // rather than at zero - face normals and cell centres are themselves
-        // computed by summation. That residue is not harmless: multiplied by
-        // |Sf|/V and the reconstruction coefficients it lands above the ABSOLUTE
-        // SMALL that addTripletIfNeeded filters on and survives into K. Measured
-        // on the hexahedral MMS at N=20: 3043 extra entries in K, all at 8.0e-16
-        // of the largest, moving Vm_L2 by 2.8e-07 relative.
-        //
-        // So the test is RELATIVE to |g|, the scale w is a remainder of, with a
-        // threshold inside a measured gap: on the unstructured MMS mesh the
-        // term's largest entry is 2.3e-02 of the largest entry of K, fourteen
-        // orders above the hexahedral residue. 1e-12 sits ~300x above the noise
-        // and ~1e11 below the signal.
-        const scalar wRelativeFloor = 1.0e-12;
-
-        if (mag(w) <= wRelativeFloor*max(mag(g), VSMALL))
-        {
-            return vector::zero;
-        }
-
-        return w;
-    }
-
-    // Diffusivity resolved along a face normal, n . D . n, floored at SMALL so
-    // that a degenerate tensor cannot produce a zero stabilisation scale.
-    scalar normalDiffusivity(const tensor& D, const vector& n)
-    {
-        return max(mag(n & (D & n)), SMALL);
-    }
-
-    // Scale of the Rhie-Chow-like face-jump stabilisation:
-    // alpha |Sf| (n.D.n)/|d.n|. Zero when alpha is zero, which switches the
-    // whole stabilisation off. Note it depends on the face orientation only
-    // through |d.n|, so the two sides of a face - including the two ranks of a
-    // processor face - compute the same value.
-    scalar stabilisationFaceCoeff
-    (
-        const scalar alpha,
-        const scalar area,
-        const tensor& D,
-        const vector& n,
-        const vector& d
-    )
-    {
-        if (alpha <= SMALL)
-        {
-            return 0.0;
-        }
-
-        const scalar dn = max(mag(d & n), VSMALL);
-        return alpha*area*normalDiffusivity(D, n)/dn;
-    }
-
-    // Expand grad Vm|_cellI . d into matrix coefficients: one entry per cell of
-    // that cell's LRE stencil plus one for the cell itself, all with GLOBAL
-    // column indices. The building block of the stabilisation jump.
-    void addCellGradientDotCoeffs
-    (
-        std::vector<Triplet>& triplets,
-        const label row,
-        const scalar scale,
-        const label cellI,
-        const vector& d,
-        const highOrderInterp& LREInterp
-    )
-    {
-        if (mag(scale) <= SMALL)
-        {
-            return;
-        }
-
-        const CompactListList<label>& stencils =
-            LREInterp.globalCellStencils();
-        const CompactListList<vector>& gradCoeffs = LREInterp.QRGradCoeffs();
-        // Modified for cardiacFoam: must be UList<label> BY VALUE, not
-                // a labelList reference - see the note on
-                // CompactListList in the header comment.
-                const UList<label> curStencil = stencils[cellI];
-        const label selfCoeffI = curStencil.size();
-
-            // Added for cardiacFoam: the coefficient rows carry one
-            // trailing entry for the cell itself, so this index must
-            // be the last one. If the stencil silently came back
-            // empty, selfCoeffI is 0, which is still in range and
-            // reads a neighbour's coefficient instead.
-            if (selfCoeffI != gradCoeffs[cellI].size() - 1)
-            {
-                FatalErrorInFunction
-                    << "Stencil/coefficient mismatch at cell " << cellI
-                    << ": stencil size " << selfCoeffI
-                    << ", coefficient row " << gradCoeffs[cellI].size()
-                    << " (expected row = size + 1)."
-                    << abort(FatalError);
-            }
-
-        forAll(curStencil, cI)
-        {
-            addTripletIfNeeded
-            (
-                triplets,
-                row,
-                curStencil[cI],
-                scale*(gradCoeffs[cellI][cI] & d)
-            );
-        }
-
-        addTripletIfNeeded
-        (
-            triplets,
-            row,
-            gCol(cellI),
-            scale*(gradCoeffs[cellI][selfCoeffI] & d)
-        );
-    }
-
-    // Added for cardiacFoam: the Taylor coefficient of ONE entry of a cell's
-    // reconstruction row, to the polynomial order of the interpolator
-    // (gradient, plus Hessian at p2+, plus third derivatives at p3).
-    //
-    // Factored out so the row written straight into the matrix
-    // (addCellTaylorExtrapolationCoeffs) and the row SHIPPED to another rank
-    // (buildCellTaylorExtrapolationRow) cannot drift apart. Two copies of this
-    // arithmetic would fail as an inconsistency between ranks, which is one of
-    // the more expensive things to diagnose.
-    // "base" is the zeroth-order term: 0 for a stencil entry, 1 for the self
-    // entry. It is a PARAMETER rather than something the caller adds
-    // afterwards because floating-point addition is not associative: the
-    // original code computed ((1 + grad.d) + 0.5*quad) + cubic/6, and folding
-    // the 1 in at the end instead changed the serial result by 4e-07 relative
-    // over 50 steps. Threading it through keeps the arithmetic bit-identical
-    // to what this solver produced before the refactor.
-    scalar cellTaylorEntryCoeff
-    (
-        const label cellI,
-        const label entryI,
-        const vector& d,
-        const highOrderInterp& LREInterp,
-        const bool twoD,
-        const scalar base = 0.0
-    )
-    {
-        scalar coeff = base + (LREInterp.QRGradCoeffs()[cellI][entryI] & d);
-
-        if (LREInterp.order() >= 2)
-        {
-            coeff +=
-                0.5*quadraticForm(LREInterp.cellHessianCoeffs()[cellI][entryI], d);
-        }
-
-        if (LREInterp.order() >= 3)
-        {
-            coeff +=
-                (1.0/6.0)
-               *highOrderInterp::cubicForm
-                (
-                    LREInterp.cellThirdDerivCoeffs()[cellI][entryI],
-                    d,
-                    twoD
-                );
-        }
-
-        return coeff;
-    }
-
-
-    // Expand the Taylor reconstruction of cell cellI evaluated at evalPoint
-    // into matrix coefficients, to the polynomial order of the interpolator.
-    // Same row layout as addCellGradientDotCoeffs; the self entry additionally
-    // carries the 1.0 of the zeroth-order term.
-    //
-    // Modified for cardiacFoam: the per-entry arithmetic now lives in
-    // cellTaylorEntryCoeff, shared with the wire-format row builder.
-    void addCellTaylorExtrapolationCoeffs
-    (
-        std::vector<Triplet>& triplets,
-        const label row,
-        const scalar scale,
-        const label cellI,
-        const point& evalPoint,
-        const highOrderInterp& LREInterp,
-        const vectorField& C,
-        const bool twoD
-    )
-    {
-        if (mag(scale) <= SMALL)
-        {
-            return;
-        }
-
-        const vector d = evalPoint - C[cellI];
-
-        // Modified for cardiacFoam: must be UList<label> BY VALUE, not a
-        // labelList reference - CompactListList::operator[] returns a view.
-        const UList<label> curStencil = LREInterp.globalCellStencils()[cellI];
-        const label selfCoeffI = curStencil.size();
-
-        // Added for cardiacFoam: the coefficient rows carry one trailing entry
-        // for the cell itself, so this index must be the last one. If the
-        // stencil silently came back empty, selfCoeffI is 0, which is still in
-        // range and reads a neighbour's coefficient instead.
-        if (selfCoeffI != LREInterp.QRGradCoeffs()[cellI].size() - 1)
-        {
-            FatalErrorInFunction
-                << "Stencil/coefficient mismatch at cell " << cellI
-                << ": stencil size " << selfCoeffI
-                << ", coefficient row " << LREInterp.QRGradCoeffs()[cellI].size()
-                << " (expected row = size + 1)."
-                << abort(FatalError);
-        }
-
-        forAll(curStencil, cI)
-        {
-            addTripletIfNeeded
-            (
-                triplets,
-                row,
-                curStencil[cI],
-                scale*cellTaylorEntryCoeff(cellI, cI, d, LREInterp, twoD)
-            );
-        }
-
-        addTripletIfNeeded
-        (
-            triplets,
-            row,
-            gCol(cellI),
-            scale*cellTaylorEntryCoeff(cellI, selfCoeffI, d, LREInterp, twoD, 1.0)
-        );
-    }
-
-    // Added for cardiacFoam: the same Taylor row as
-    // addCellTaylorExtrapolationCoeffs, but as (global column, coefficient)
-    // pairs instead of triplets, so it can be sent to another rank.
-    void buildCellTaylorExtrapolationRow
-    (
-        labelList& cols,
-        scalarField& coeffs,
-        const label cellI,
-        const point& evalPoint,
-        const highOrderInterp& LREInterp,
-        const vectorField& C,
-        const bool twoD
-    )
-    {
-        const vector d = evalPoint - C[cellI];
-
-        const UList<label> curStencil = LREInterp.globalCellStencils()[cellI];
-        const label selfCoeffI = curStencil.size();
-
-        cols.setSize(selfCoeffI + 1);
-        coeffs.setSize(selfCoeffI + 1);
-
-        forAll(curStencil, cI)
-        {
-            cols[cI] = curStencil[cI];
-            coeffs[cI] = cellTaylorEntryCoeff(cellI, cI, d, LREInterp, twoD);
-        }
-
-        cols[selfCoeffI] = gCol(cellI);
-        coeffs[selfCoeffI] =
-            cellTaylorEntryCoeff(cellI, selfCoeffI, d, LREInterp, twoD, 1.0);
-    }
-
-
-    // Added for cardiacFoam: grad|_cellI . d as (global column, coefficient)
-    // pairs. The wire-format twin of addCellGradientDotCoeffs; no 1.0 term.
-    void buildCellGradientDotRow
-    (
-        labelList& cols,
-        scalarField& coeffs,
-        const label cellI,
-        const vector& d,
-        const highOrderInterp& LREInterp
-    )
-    {
-        const CompactListList<vector>& gradCoeffs = LREInterp.QRGradCoeffs();
-
-        const UList<label> curStencil = LREInterp.globalCellStencils()[cellI];
-        const label selfCoeffI = curStencil.size();
-
-        cols.setSize(selfCoeffI + 1);
-        coeffs.setSize(selfCoeffI + 1);
-
-        forAll(curStencil, cI)
-        {
-            cols[cI] = curStencil[cI];
-            coeffs[cI] = gradCoeffs[cellI][cI] & d;
-        }
-
-        cols[selfCoeffI] = gCol(cellI);
-        coeffs[selfCoeffI] = gradCoeffs[cellI][selfCoeffI] & d;
-    }
-
-
-    // Added for cardiacFoam: pour a row received from another rank into the
-    // triplets. The columns are already global, so nothing is translated here.
-    void addRemoteRowCoeffs
-    (
-        std::vector<Triplet>& triplets,
-        const label row,
-        const scalar scale,
-        const labelList& cols,
-        const scalarField& coeffs
-    )
-    {
-        if (mag(scale) <= SMALL)
-        {
-            return;
-        }
-
-        forAll(cols, i)
-        {
-            addTripletIfNeeded(triplets, row, cols[i], scale*coeffs[i]);
-        }
-    }
-
-
-    // Added for cardiacFoam: exchange one variable-length matrix row per
-    // coupled face.
-    //
-    // The rank that OWNS a cell builds that cell's reconstruction row itself
-    // and ships (global column, coefficient) pairs. Nothing but the shared face
-    // geometry has to agree across the cut - in particular no stencil, no cell
-    // centre and no owner/neighbour convention.
-    //
-    // COLLECTIVE. Call it exactly once per assembly, outside any chunk loop:
-    // inside one it would deadlock as soon as two ranks had a different number
-    // of chunks. The decision to call it must also be uniform across ranks.
-    //
-    // Results are indexed by boundary-face position (faceI - nInternalFaces);
-    // non-processor boundary faces are left empty.
-    void exchangeCoupledFaceRows
-    (
-        const fvMesh& mesh,
-        const std::function
-        <
-            void(const label patchI, const label faceI, labelList&, scalarField&)
-        >& buildRow,
-        List<labelList>& nbrCols,
-        List<scalarField>& nbrCoeffs
-    )
-    {
-        nbrCols.setSize(mesh.nBoundaryFaces());
-        nbrCoeffs.setSize(mesh.nBoundaryFaces());
-
-        if (!Pstream::parRun())
-        {
-            return;
-        }
-
-        PstreamBuffers pBufs(Pstream::commsTypes::nonBlocking);
-
-        forAll(mesh.boundary(), patchI)
-        {
-            const fvPatch& patch = mesh.boundary()[patchI];
-            const processorFvPatch* ppPtr = isA<processorFvPatch>(patch);
-
-            if (!ppPtr)
-            {
-                continue;
-            }
-
-            List<labelList> sendCols(patch.size());
-            List<scalarField> sendCoeffs(patch.size());
-
-            forAll(patch, faceI)
-            {
-                buildRow(patchI, faceI, sendCols[faceI], sendCoeffs[faceI]);
-            }
-
-            UOPstream toNbr(ppPtr->neighbProcNo(), pBufs);
-            toNbr << sendCols << sendCoeffs;
-        }
-
-        pBufs.finishedSends();
-
-        forAll(mesh.boundary(), patchI)
-        {
-            const fvPatch& patch = mesh.boundary()[patchI];
-            const processorFvPatch* ppPtr = isA<processorFvPatch>(patch);
-
-            if (!ppPtr)
-            {
-                continue;
-            }
-
-            List<labelList> recvCols;
-            List<scalarField> recvCoeffs;
-
-            UIPstream fromNbr(ppPtr->neighbProcNo(), pBufs);
-            fromNbr >> recvCols >> recvCoeffs;
-
-            if (recvCols.size() != patch.size() || recvCoeffs.size() != patch.size())
-            {
-                FatalErrorInFunction
-                    << "Received " << recvCols.size() << " rows for patch "
-                    << patch.name() << " of size " << patch.size()
-                    << exit(FatalError);
-            }
-
-            const label bStart = patch.start() - mesh.nInternalFaces();
-
-            forAll(patch, faceI)
-            {
-                nbrCols[bStart + faceI].transfer(recvCols[faceI]);
-                nbrCoeffs[bStart + faceI].transfer(recvCoeffs[faceI]);
-            }
-        }
-    }
-
-
-    // Stabilisation jump on an internal face, added to one row:
-    //
-    //     scale*(Vm[nei] - Vm[own])
-    //       - 0.5*scale*(grad Vm|_own . dPN)
-    //       - 0.5*scale*(grad Vm|_nei . dPN)
-    //
-    // i.e. the difference between the two cell values and the value the two
-    // reconstructions predict, which vanishes for a field the reconstruction
-    // represents exactly and therefore does not alter the formal order. The
-    // caller passes +a/V[own] for the owner row and -a/V[nei] for the
-    // neighbour's.
-    void addRhieChowInternalJumpCoeffs
-    (
-        std::vector<Triplet>& triplets,
-        const label row,
-        const scalar scale,
-        const label own,
-        const label nei,
-        const vector& dPN,
-        const highOrderInterp& LREInterp
-    )
-    {
-        addTripletIfNeeded(triplets, row, gCol(nei), scale);
-        addTripletIfNeeded(triplets, row, gCol(own), -scale);
-
-        addCellGradientDotCoeffs
-        (
-            triplets,
-            row,
-            -0.5*scale,
-            own,
-            dPN,
-            LREInterp
-        );
-
-        addCellGradientDotCoeffs
-        (
-            triplets,
-            row,
-            -0.5*scale,
-            nei,
-            dPN,
-            LREInterp
-        );
-    }
-
-    // Added for cardiacFoam: the same jump across a PROCESSOR face.
-    //
-    // Only the local row is written. The far rank writes its own, exactly as
-    // the internal-face loop writes both rows at once when both cells are
-    // local - so no owner/neighbour convention has to be agreed across the
-    // partition.
-    void addRhieChowCoupledJumpCoeffs
-    (
-        std::vector<Triplet>& triplets,
-        const label row,
-        const scalar scale,
-        const label own,
-        const label nbrGlobalCell,
-        const vector& dPN,
-        const labelList& nbrGradCols,
-        const scalarField& nbrGradCoeffs,
-        const highOrderInterp& LREInterp
-    )
-    {
-        addTripletIfNeeded(triplets, row, nbrGlobalCell, scale);
-        addTripletIfNeeded(triplets, row, gCol(own), -scale);
-
-        addCellGradientDotCoeffs
-        (
-            triplets,
-            row,
-            -0.5*scale,
-            own,
-            dPN,
-            LREInterp
-        );
-
-        // The remote row was built as grad|_nbr . dPN with dPN already
-        // expressed in THIS rank's orientation (the sender used minus its own
-        // delta), so it carries the same -0.5 factor as the local one.
-        addRemoteRowCoeffs
-        (
-            triplets,
-            row,
-            -0.5*scale,
-            nbrGradCols,
-            nbrGradCoeffs
-        );
-    }
-
-
-    // Same jump against a Dirichlet boundary face, where the "neighbour" value
-    // is prescribed and therefore goes to the right-hand side rather than into
-    // the matrix; only the owner's terms are added here.
-    void addRhieChowBoundaryJumpCoeffs
-    (
-        std::vector<Triplet>& triplets,
-        const label row,
-        const scalar scale,
-        const label own,
-        const vector& dPb,
-        const highOrderInterp& LREInterp
-    )
-    {
-        addTripletIfNeeded(triplets, row, gCol(own), -scale);
-        addCellGradientDotCoeffs
-        (
-            triplets,
-            row,
-            -scale,
-            own,
-            dPb,
-            LREInterp
-        );
-    }
-
-    // Low-order diffusion operator (useHighOrder_Vm = false): two-point
-    // orthogonal fluxes over internal faces, Dirichlet boundary faces, and
-    // coupled (processor) faces, divided by the cell volume so that K
-    // represents div(D grad .) rather than its integral.
-    //
-    // The coupled branch is the one the serial ancestor did not have: without
-    // it every partition's block of the matrix is uncoupled from its
-    // neighbours', which does not produce a wrong answer but a KSP breakdown -
-    // and the row-sum check cannot see it, because an omitted face contributes
-    // nothing to either of its rows. The far cell's data comes from
-    // syncTools::swapBoundaryCellList, never from a patch field.
-    //
-    // Modified for cardiacFoam, ported from the MMS solver: the flux carries
-    // BOTH parts of the decomposition in nonOrthFluxVector() - the two-point
-    // term along the line joining the cell centres, and the tangential
-    // remainder, expanded implicitly through the reconstruction rows. The
-    // second one is not optional. A bare two-point flux is INCONSISTENT on
-    // triangles and tetrahedra (order 0.81 instead of 2 on the MMS, with an
-    // error 230x larger) and with conductivity not aligned with the faces, so
-    // it is not selectable. Where D is aligned with an orthogonal mesh the
-    // tangential term is identically zero and costs nothing.
-    //
-    // The reconstruction is taken by reference: createFields.H now always
-    // builds it, because this function always needs it.
-    void assembleStandardOrthogonalStiffnessMatrix
-    (
-        const fvMesh& mesh,
-        const volTensorField& conductivity,
-        const highOrderInterp& LREInterp,
-        const scalar stabilisationAlpha,
-        SpMat& K
-    )
-    {
-        const vectorField& C = mesh.C();
-        const scalarField& V = mesh.V();
-        const labelUList& owner = mesh.owner();
-        const labelUList& neighbour = mesh.neighbour();
-
-        std::vector<Triplet> triplets;
-        triplets.reserve(4*mesh.nFaces());
-
-        forAll(neighbour, faceI)
-        {
-            const label own = owner[faceI];
-            const label nei = neighbour[faceI];
-
-            const tensor Df = 0.5*(conductivity[own] + conductivity[nei]);
-            const vector dPN = C[nei] - C[own];
-            const scalar a = orthogonalDiffusionCoeff(mesh.Sf()[faceI], dPN, Df);
-
-            addTripletIfNeeded(triplets, own, gCol(own), -a/max(V[own], SMALL));
-            addTripletIfNeeded(triplets, own, gCol(nei),  a/max(V[own], SMALL));
-            addTripletIfNeeded(triplets, nei, gCol(own),  a/max(V[nei], SMALL));
-            addTripletIfNeeded(triplets, nei, gCol(nei), -a/max(V[nei], SMALL));
-
-            // The tangential flux a two-point form would drop. grad V|_f is
-            // taken as the average of the two cell gradients, which is what
-            // OpenFOAM's correction does; here each of them is expanded into
-            // the matrix through its reconstruction row, so the term is
-            // IMPLICIT. Skipped where w is zero, which on an aligned orthogonal
-            // mesh is every face.
-            const vector w = nonOrthFluxVector(mesh.Sf()[faceI], dPN, Df);
-
-            if (w != vector::zero)
-            {
-                const scalar areaHalf = 0.5*(mag(mesh.Sf()[faceI]) + VSMALL);
-
-                for (const label cellI : {own, nei})
-                {
-                    addCellGradientDotCoeffs
-                    (
-                        triplets, own, areaHalf/max(V[own], SMALL), cellI, w,
-                        LREInterp
-                    );
-                    addCellGradientDotCoeffs
-                    (
-                        triplets, nei, -areaHalf/max(V[nei], SMALL), cellI, w,
-                        LREInterp
-                    );
-                }
-            }
-        }
-
-        const surfaceVectorField& Cf = mesh.Cf();
-
-        if (stabilisationAlpha > SMALL)
-        {
-            forAll(neighbour, faceI)
-            {
-                const label own = owner[faceI];
-                const label nei = neighbour[faceI];
-
-                const vector Sf = mesh.Sf()[faceI];
-                const scalar area = mag(Sf) + VSMALL;
-                const vector n = Sf/area;
-                const vector dPN = C[nei] - C[own];
-                const tensor Df = 0.5*(conductivity[own] + conductivity[nei]);
-                const scalar a =
-                    stabilisationFaceCoeff
-                    (
-                        stabilisationAlpha,
-                        area,
-                        Df,
-                        n,
-                        dPN
-                    );
-
-                addRhieChowInternalJumpCoeffs
-                (
-                    triplets,
-                    own,
-                    a/max(V[own], SMALL),
-                    own,
-                    nei,
-                    dPN,
-                    LREInterp
-                );
-
-                addRhieChowInternalJumpCoeffs
-                (
-                    triplets,
-                    nei,
-                    -a/max(V[nei], SMALL),
-                    own,
-                    nei,
-                    dPN,
-                    LREInterp
-                );
-            }
-        }
-
-        // Added for cardiacFoam: data from the cell on the FAR side of every
-        // coupled (processor) face. Both are indexed by boundary-face position,
-        // i.e. faceI - mesh.nInternalFaces().
-        //
-        // syncTools::swapBoundaryCellList is used rather than
-        // conductivity.boundaryField() or mesh.C().boundaryField(): the latter
-        // is a slicedVolVectorField whose coupled values are only correct after
-        // an evaluation nothing here performs, and a processor patch field
-        // holds the interpolated FACE value, not the neighbouring CELL value.
-        List<tensor> nbrConductivity;
-        List<label> nbrGlobalCell;
-        List<labelList> nbrGradCols;
-        List<scalarField> nbrGradCoeffs;
-        // Added for cardiacFoam, ported from the MMS solver: far-side
-        // reconstruction rows already dotted with the tangential flux vector w
-        // of the non-orthogonal correction. A SECOND exchange is needed because
-        // w is not dPN: the stabilisation jump ships grad|_far . dPN and this
-        // ships grad|_far . w.
-        List<labelList> nbrWCols;
-        List<scalarField> nbrWCoeffs;
-
-        if (Pstream::parRun())
-        {
-            syncTools::swapBoundaryCellList
-            (
-                mesh, conductivity.primitiveField(), nbrConductivity
-            );
-
-            labelList myGlobalCell(mesh.nCells());
-            forAll(myGlobalCell, cellI)
-            {
-                myGlobalCell[cellI] = gCol(cellI);
-            }
-            syncTools::swapBoundaryCellList(mesh, myGlobalCell, nbrGlobalCell);
-
-            // w flips sign across a processor face: the far rank sees -Sf and
-            // -d, so its g and e both flip and w = g - (g.e)e flips with g.
-            // Building the row with MINUS the local w therefore hands the
-            // receiver exactly grad|_there . w_here, usable with the same sign
-            // as its own gradient term - the same trick the stabilisation
-            // exchange uses with -delta.
-            //
-            // Unconditional, unlike the stabilisation exchange below: the
-            // correction does not depend on alpha. COLLECTIVE, and every rank
-            // takes it. A face whose w is zero ships an empty row.
-            {
-                label lastWPatch = -1;
-                vectorField wDelta;
-
-                exchangeCoupledFaceRows
-                (
-                    mesh,
-                    [&]
-                    (
-                        const label patchI,
-                        const label faceI,
-                        labelList& cols,
-                        scalarField& coeffs
-                    )
-                    {
-                        const fvPatch& patch = mesh.boundary()[patchI];
-                        const label own = owner[patch.start() + faceI];
-
-                        // Cached per patch: delta() rebuilds the whole field.
-                        if (patchI != lastWPatch)
-                        {
-                            wDelta = patch.delta();
-                            lastWPatch = patchI;
-                        }
-
-                        const label bFaceI =
-                            patch.start() - mesh.nInternalFaces() + faceI;
-                        const tensor Df =
-                            0.5*(conductivity[own] + nbrConductivity[bFaceI]);
-                        const vector w =
-                            nonOrthFluxVector
-                            (
-                                mesh.Sf().boundaryField()[patchI][faceI],
-                                wDelta[faceI],
-                                Df
-                            );
-
-                        if (w == vector::zero)
-                        {
-                            cols.clear();
-                            coeffs.clear();
-                            return;
-                        }
-
-                        buildCellGradientDotRow
-                        (
-                            cols, coeffs, own, -w, LREInterp
-                        );
-                    },
-                    nbrWCols,
-                    nbrWCoeffs
-                );
-            }
-
-            // Added for cardiacFoam: the far cell's gradient row, for the
-            // stabilisation jump. Only under alpha > 0.
-            //
-            // The call is COLLECTIVE and the condition is uniform across ranks:
-            // stabilisationAlpha comes from a dictionary.
-            if (stabilisationAlpha > SMALL)
-            {
-                label lastDeltaPatch = -1;
-                vectorField sendDelta;
-
-                exchangeCoupledFaceRows
-                (
-                    mesh,
-                    [&]
-                    (
-                        const label patchI,
-                        const label faceI,
-                        labelList& cols,
-                        scalarField& coeffs
-                    )
-                    {
-                        const fvPatch& patch = mesh.boundary()[patchI];
-                        const label own = owner[patch.start() + faceI];
-
-                        // Cached per patch: delta() rebuilds the whole field.
-                        if (patchI != lastDeltaPatch)
-                        {
-                            sendDelta = patch.delta();
-                            lastDeltaPatch = patchI;
-                        }
-
-                        // Built with MINUS this rank's delta, i.e. with the
-                        // RECEIVER's owner-to-neighbour vector, so the row
-                        // arrives as grad|_here . dPN_there and can be used
-                        // with the same sign as the local gradient term.
-                        buildCellGradientDotRow
-                        (
-                            cols,
-                            coeffs,
-                            own,
-                            -sendDelta[faceI],
-                            LREInterp
-                        );
-                    },
-                    nbrGradCols,
-                    nbrGradCoeffs
-                );
-            }
-        }
-
-        forAll(mesh.boundary(), patchI)
-        {
-            const fvPatch& patch = mesh.boundary()[patchI];
-            const word bcType =
-                patch.lookupPatchField<volScalarField, scalar>("Vm").type();
-
-            if
-            (
-                bcType == "empty"
-             || bcType == zeroGradientFvPatchScalarField::typeName
-            )
-            {
-                continue;
-            }
-
-            // Added for cardiacFoam: coupling across a processor boundary.
-            //
-            // This branch did not exist. The test below is
-            // "fixedValue or fixedVoltage" with no else, so a processor patch
-            // passed the empty/zeroGradient filter, failed that one and
-            // contributed NOTHING - leaving every partition's block of the
-            // matrix uncoupled from its neighbours. The symptom is not a wrong
-            // answer but a KSP breakdown, and the usual sanity check does not
-            // see it: omitting a face adds nothing, so row sums still vanish.
-            //
-            // Only the owner side is added; the rank on the other side of the
-            // face adds its own, exactly as the internal-face loop adds both
-            // sides when both cells are local.
-            if (patch.coupled())
-            {
-                // Added for cardiacFoam: exchangeCoupledFaceRows can reach the
-                // far rank of a processorFvPatch and nothing else. A cyclic is
-                // coupled too, and taking this branch with no row to add would
-                // be worse than the omission it replaces.
-                if (!isA<processorFvPatch>(patch))
-                {
-                    FatalErrorInFunction
-                        << "Coupled patch " << patch.name() << " of type "
-                        << patch.type() << " is not a processor patch; the"
-                        << " coupling across it is not implemented."
-                        << exit(FatalError);
-                }
-
-                const vectorField patchDelta(patch.delta());
-                const label bStart = patch.start() - mesh.nInternalFaces();
-
-                forAll(patch, faceI)
-                {
-                    const label gf = patch.start() + faceI;
-                    const label own = owner[gf];
-                    const label bFaceI = bStart + faceI;
-
-                    const tensor Df =
-                        0.5*(conductivity[own] + nbrConductivity[bFaceI]);
-
-                    const scalar a =
-                        orthogonalDiffusionCoeff
-                        (
-                            mesh.Sf().boundaryField()[patchI][faceI],
-                            patchDelta[faceI],
-                            Df
-                        );
-
-                    addTripletIfNeeded
-                    (
-                        triplets, own, gCol(own), -a/max(V[own], SMALL)
-                    );
-                    addTripletIfNeeded
-                    (
-                        triplets, own, nbrGlobalCell[bFaceI],
-                        a/max(V[own], SMALL)
-                    );
-
-                    // Added for cardiacFoam, ported from the MMS solver: the
-                    // tangential flux. Own half from the local reconstruction
-                    // row, far half from the row that arrived already dotted
-                    // with w. The far rank computed the same |w| and shipped an
-                    // empty row exactly when this w is zero.
-                    const vector w =
-                        nonOrthFluxVector
-                        (
-                            mesh.Sf().boundaryField()[patchI][faceI],
-                            patchDelta[faceI],
-                            Df
-                        );
-
-                    if (w != vector::zero)
-                    {
-                        const scalar areaHalf =
-                            0.5
-                           *(mag(mesh.Sf().boundaryField()[patchI][faceI])
-                           + VSMALL);
-                        const scalar scale = areaHalf/max(V[own], SMALL);
-
-                        addCellGradientDotCoeffs
-                        (
-                            triplets, own, scale, own, w, LREInterp
-                        );
-                        addRemoteRowCoeffs
-                        (
-                            triplets, own, scale,
-                            nbrWCols[bFaceI], nbrWCoeffs[bFaceI]
-                        );
-                    }
-
-                    // Modified for cardiacFoam: the stabilisation jump used to
-                    // be skipped here, because it needs the neighbouring cell's
-                    // reconstruction stencil and that does not cross the
-                    // partition. It now does: the far rank builds its own
-                    // gradient row and ships (global column, coefficient)
-                    // pairs, so nothing but the shared face geometry has to
-                    // agree. Inert at the default stabilisationAlpha = 0.
-                    if (stabilisationAlpha > SMALL)
-                    {
-                        const vector Sf =
-                            mesh.Sf().boundaryField()[patchI][faceI];
-                        const scalar area = mag(Sf) + VSMALL;
-                        const vector n = Sf/area;
-
-                        // Orientation-independent (|d.n| and n.D.n), so both
-                        // ranks compute the same value with no agreement.
-                        const scalar aStab =
-                            stabilisationFaceCoeff
-                            (
-                                stabilisationAlpha,
-                                area,
-                                Df,
-                                n,
-                                patchDelta[faceI]
-                            );
-
-                        addRhieChowCoupledJumpCoeffs
-                        (
-                            triplets,
-                            own,
-                            aStab/max(V[own], SMALL),
-                            own,
-                            nbrGlobalCell[bFaceI],
-                            patchDelta[faceI],
-                            nbrGradCols[bFaceI],
-                            nbrGradCoeffs[bFaceI],
-                            LREInterp
-                        );
-                    }
-                }
-
-                continue;
-            }
-
-            if
-            (
-                bcType == fixedValueFvPatchScalarField::typeName
-             || bcType == "fixedVoltage"
-            )
-            {
-                forAll(patch, faceI)
-                {
-                    const label gf = patch.start() + faceI;
-                    const label own = owner[gf];
-                    const scalar a =
-                        orthogonalDiffusionCoeff
-                        (
-                            mesh.Sf().boundaryField()[patchI][faceI],
-                            Cf.boundaryField()[patchI][faceI] - C[own],
-                            conductivity[own]
-                        );
-
-                    addTripletIfNeeded(triplets, own, gCol(own), -a/max(V[own], SMALL));
-
-                    // Added for cardiacFoam, ported from the MMS solver: no
-                    // neighbour to average with, so grad V|_f is the owner
-                    // gradient alone - hence the full area and not the half.
-                    const vector Sfb = mesh.Sf().boundaryField()[patchI][faceI];
-                    const vector w =
-                        nonOrthFluxVector
-                        (
-                            Sfb,
-                            Cf.boundaryField()[patchI][faceI] - C[own],
-                            conductivity[own]
-                        );
-
-                    if (w != vector::zero)
-                    {
-                        addCellGradientDotCoeffs
-                        (
-                            triplets, own,
-                            (mag(Sfb) + VSMALL)/max(V[own], SMALL),
-                            own, w, LREInterp
-                        );
-                    }
-
-                    if (stabilisationAlpha > SMALL)
-                    {
-                        const vector Sf =
-                            mesh.Sf().boundaryField()[patchI][faceI];
-                        const scalar area = mag(Sf) + VSMALL;
-                        const vector n = Sf/area;
-                        const vector dPb =
-                            Cf.boundaryField()[patchI][faceI] - C[own];
-                        const scalar aStab =
-                            stabilisationFaceCoeff
-                            (
-                                stabilisationAlpha,
-                                area,
-                                conductivity[own],
-                                n,
-                                dPb
-                            );
-
-                        addRhieChowBoundaryJumpCoeffs
-                        (
-                            triplets,
-                            own,
-                            aStab/max(V[own], SMALL),
-                            own,
-                            dPb,
-                            LREInterp
-                        );
-                    }
-                }
-            }
-        }
-
-        K.resize(mesh.nCells(), gNCols());
-        K.setFromTriplets(triplets.begin(), triplets.end());
-        K.makeCompressed();
-
-        reportOperatorFingerprint("K (orthogonal)", K);
-        std::vector<Triplet>().swap(triplets);
-    }
-
-    // High-order stiffness matrix K representing the discrete diffusion
-    // operator  div(D * grad Vm)  via face-quadrature LRE reconstruction.
-    //
-    // For each internal face the flux through the face is integrated using
-    // Gauss quadrature on the face:
-    //
-    //     Phi_f = sum_{qp on f}  area * w_qp * ( n . D . grad Vm |_qp )
-    //
-    // with grad Vm at the quadrature point expressed as a linear combination
-    // of the LRE face-stencil values:
-    //
-    //     grad Vm |_qp = sum_j  gCoeff[face, qp, j] * Vm_j
-    //
-    // The contribution +Phi_f is added to the owner row (outward flux) and
-    // -Phi_f to the neighbour row (inward flux from neighbour's viewpoint).
-    // Because gCoeff for the owner cell itself gives a negative contribution
-    // in the outward-normal direction, the resulting K is negative semi-
-    // definite (negative diagonal, positive off-diagonals), as expected for
-    // a Laplacian discretisation.
-    void assembleHighOrderStiffnessMatrix
-    (
-        const fvMesh& mesh,
-        const volTensorField& conductivity,
-        const highOrderInterp& LREInterp,
-        const scalar stabilisationAlpha,
-        const label tripletsPerFaceReserve,
-        const label faceChunk,
-        SpMat& K
-    )
-    {
-        const bool twoD = mesh.nGeometricD() == 2;
-        const vectorField& C = mesh.C();
-        const surfaceVectorField& Cf = mesh.Cf();
-        const CompactListList<point>& faceQP = LREInterp.faceQuadPoints();
-        const CompactListList<scalar>& faceQW = LREInterp.faceQuadWeightPhysical();
-        const CompactListList<label>& faceStencils =
-            LREInterp.globalFaceStencils();
-        const List<CompactListList<vector>>& faceGradCoeffs =
-            LREInterp.QRGradFaceGPCoeffs();
-
-        const scalarField& V = mesh.V();
-        const labelUList& owner = mesh.owner();
-        const labelUList& neighbour = mesh.neighbour();
-
-        const label nCells = mesh.nCells();
-        const label nInternalFaces = neighbour.size();
-
-        std::vector<Triplet> triplets;
-        const label reserveFaces = min(max(mesh.nFaces(), label(1)), faceChunk);
-        triplets.reserve(reserveFaces*tripletsPerFaceReserve);
-
-        SpMat Klocal(nCells, gNCols());
-        bool kInitialised = false;
-
-        auto flushChunk =
-        [&]()
-        {
-            if (triplets.empty())
-            {
-                return;
-            }
-
-            Klocal.setZero();
-            Klocal.setFromTriplets(triplets.begin(), triplets.end());
-            Klocal.makeCompressed();
-
-            if (!kInitialised)
-            {
-                K.swap(Klocal);
-                Klocal.resize(nCells, gNCols());
-                kInitialised = true;
-            }
-            else
-            {
-                K += Klocal;
-            }
-
-            triplets.clear();
-        };
-
-        // -------- Internal faces -------------------------------------------
-        for
-        (
-            label faceStart = 0;
-            faceStart < nInternalFaces;
-            faceStart += faceChunk
-        )
-        {
-            const label faceEnd = min(faceStart + faceChunk, nInternalFaces);
-
-            for (label faceI = faceStart; faceI < faceEnd; ++faceI)
-            {
-                const label own = owner[faceI];
-                const label nei = neighbour[faceI];
-                const vector Sf = mesh.Sf()[faceI];
-                const scalar area = mag(Sf) + VSMALL;
-                const vector n = Sf/area;            // unit normal owner -> nei
-                // Modified for cardiacFoam: must be UList<label> BY VALUE, not
-                // a labelList reference - see the note on
-                // CompactListList in the header comment.
-                const UList<label> curStencil = faceStencils[faceI];
-
-                forAll(faceQP[faceI], qpI)
-                {
-                    const scalar w = faceQW[faceI][qpI];
-
-                    forAll(curStencil, cI)
-                    {
-                        const label col = curStencil[cI];
-                        const vector gCoeff = faceGradCoeffs[faceI][qpI][cI];
-                        // Modified for cardiacFoam: the FACE tensor is the
-                        // average of the two cells, not the owner's. The same
-                        // fluxCoeff goes into both rows below, so using
-                        // conductivity[own] made the face's diffusivity depend
-                        // on which cell the mesh happens to call the owner.
-                        // Invisible with a uniform D, where the two tensors are
-                        // equal - and with a non-uniform D it made K depend on
-                        // the PARTITION, because a face that is internal in
-                        // serial becomes a coupled face whose owner is
-                        // rank-local. Measured before the fix on an alternating
-                        // D: max|dK|/max|K| = 2.1e-01 at np=2 and np=4, against
-                        // 4.8e-15 with a uniform D (test M15).
-                        //
-                        // With a uniform D this is bit-identical to the old
-                        // expression: 0.5*(x + x) is exact in floating point.
-                        const tensor Df =
-                            0.5*(conductivity[own] + conductivity[nei]);
-
-                        const scalar fluxCoeff =
-                            // Modified for cardiacFoam: no area
-                            // factor, w is a physical weight.
-                            w*(n & (Df & gCoeff));
-
-                        addTripletIfNeeded
-                        (
-                            triplets,
-                            own,
-                            col,
-                            fluxCoeff/max(V[own], SMALL)
-                        );
-
-                        addTripletIfNeeded
-                        (
-                            triplets,
-                            nei,
-                            col,
-                            -fluxCoeff/max(V[nei], SMALL)
-                        );
-                    }
-                }
-            }
-
-            if (stabilisationAlpha > SMALL)
-            {
-                for (label faceI = faceStart; faceI < faceEnd; ++faceI)
-                {
-                    const label own = owner[faceI];
-                    const label nei = neighbour[faceI];
-
-                    const vector Sf = mesh.Sf()[faceI];
-                    const scalar area = mag(Sf) + VSMALL;
-                    const vector n = Sf/area;
-                    const vector dPN = C[nei] - C[own];
-                    const tensor Df = 0.5*(conductivity[own] + conductivity[nei]);
-                    const scalar a =
-                        stabilisationFaceCoeff
-                        (
-                            stabilisationAlpha,
-                            area,
-                            Df,
-                            n,
-                            dPN
-                        );
-                    const point xf = Cf[faceI];
-
-                    addCellTaylorExtrapolationCoeffs
-                    (
-                        triplets,
-                        own,
-                        a/max(V[own], SMALL),
-                        nei,
-                        xf,
-                        LREInterp,
-                        C,
-                        twoD
-                    );
-                    addCellTaylorExtrapolationCoeffs
-                    (
-                        triplets,
-                        own,
-                        -a/max(V[own], SMALL),
-                        own,
-                        xf,
-                        LREInterp,
-                        C,
-                        twoD
-                    );
-                    addCellTaylorExtrapolationCoeffs
-                    (
-                        triplets,
-                        nei,
-                        -a/max(V[nei], SMALL),
-                        nei,
-                        xf,
-                        LREInterp,
-                        C,
-                        twoD
-                    );
-                    addCellTaylorExtrapolationCoeffs
-                    (
-                        triplets,
-                        nei,
-                        a/max(V[nei], SMALL),
-                        own,
-                        xf,
-                        LREInterp,
-                        C,
-                        twoD
-                    );
-                }
-            }
-
-            flushChunk();
-        }
-
-        // Added for cardiacFoam: data needed by the face-jump stabilisation on
-        // coupled (processor) faces, which the boundary loop below did not
-        // handle at all - the stabilisation was gated on fixedValue/
-        // fixedVoltage, so a processor patch contributed the flux term and
-        // nothing else. Invisible in serial, and invisible in the operator
-        // fingerprint too: an omitted term contributes nothing to either of its
-        // rows, so the row sums still vanish.
-        //
-        // Two pieces cross the boundary:
-        //   - the far cell's conductivity, so both ranks form the same face
-        //     coefficient (syncTools gives the CELL value; a processor patch
-        //     field would give the interpolated FACE value);
-        //   - the far cell's Taylor reconstruction row, evaluated at the shared
-        //     face centre by the rank that owns the cell.
-        //
-        // COLLECTIVE, and deliberately here: the internal-face loop above
-        // assembles in chunks, and this call inside a chunk loop would deadlock
-        // as soon as two ranks had a different number of chunks.
-        List<tensor> nbrConductivity;
-        List<labelList> nbrTaylorCols;
-        List<scalarField> nbrTaylorCoeffs;
-
-        // Modified for cardiacFoam: the conductivity swap is NOT gated on the
-        // stabilisation any more. The coupled-face flux below needs the far
-        // cell's tensor to form the face average, whatever alpha is - see the
-        // note at the internal-face flux. The low-order assembly swaps it on
-        // Pstream::parRun() alone for the same reason.
-        //
-        // Still here rather than inside the chunk loop, and still collective:
-        // every rank takes this branch or none does.
-        if (Pstream::parRun())
-        {
-            syncTools::swapBoundaryCellList
-            (
-                mesh, conductivity.primitiveField(), nbrConductivity
-            );
-        }
-
-        if (stabilisationAlpha > SMALL && Pstream::parRun())
-        {
-            exchangeCoupledFaceRows
-            (
-                mesh,
-                [&]
-                (
-                    const label patchI,
-                    const label faceI,
-                    labelList& cols,
-                    scalarField& coeffs
-                )
-                {
-                    const fvPatch& patch = mesh.boundary()[patchI];
-                    const label own = owner[patch.start() + faceI];
-
-                    buildCellTaylorExtrapolationRow
-                    (
-                        cols,
-                        coeffs,
-                        own,
-                        Cf.boundaryField()[patchI][faceI],
-                        LREInterp,
-                        C,
-                        twoD
-                    );
-                },
-                nbrTaylorCols,
-                nbrTaylorCoeffs
-            );
-        }
-
-        // -------- Boundary faces -------------------------------------------
-        forAll(mesh.boundary(), patchI)
-        {
-            const fvPatch& patch = mesh.boundary()[patchI];
-            const word bcType =
-                patch.lookupPatchField<volScalarField, scalar>("Vm").type();
-
-            // Insulating (Neumann) and empty patches contribute zero flux.
-            // For Dirichlet-style patches we still need to assemble the
-            // stencil contributions; the boundary value enters through the
-            // RHS elsewhere.
-            if
-            (
-                bcType == "empty"
-             || bcType == zeroGradientFvPatchScalarField::typeName
-            )
-            {
-                continue;
-            }
-
-            // Added for cardiacFoam: processor patches only. A cyclic is
-            // coupled too and would otherwise fall through into the flux loop
-            // below and be treated as if it were Dirichlet - silently wrong.
-            if (patch.coupled() && !isA<processorFvPatch>(patch))
-            {
-                FatalErrorInFunction
-                    << "Coupled patch " << patch.name() << " of type "
-                    << patch.type() << " is not a processor patch; the"
-                    << " stabilisation jump across it is not implemented."
-                    << exit(FatalError);
-            }
-
-            const bool stabiliseCoupled =
-                stabilisationAlpha > SMALL
-             && Pstream::parRun()
-             && patch.coupled();
-
-            // Owner-to-neighbour vector across a coupled face. patch.delta() is
-            // used rather than C[nei] - C[own] because mesh.C() is a
-            // slicedVolVectorField whose coupled values are only valid after an
-            // evaluation nothing here performs.
-            vectorField patchDelta;
-            if (stabiliseCoupled)
-            {
-                patchDelta = patch.delta();
-            }
-
-            const label bStart = patch.start() - mesh.nInternalFaces();
-
-            forAll(patch, faceI)
-            {
-                const label globalFaceI = patch.start() + faceI;
-                const label own = owner[globalFaceI];
-                const vector Sf = mesh.Sf().boundaryField()[patchI][faceI];
-                const scalar area = mag(Sf) + VSMALL;
-                const vector n = Sf/area;
-                // Modified for cardiacFoam: must be UList<label> BY VALUE, not
-                // a labelList reference - see the note on
-                // CompactListList in the header comment.
-                // Modified for cardiacFoam: the face tensor, matching the
-                // internal-face loop. This loop is reached by BOTH processor
-                // patches and Dirichlet patches, and the two are not the same
-                // face:
-                //
-                //   - across a processor cut there IS a cell on the far side, so
-                //     the face tensor is the average of the two. This is the half
-                //     of the fix that closes the partition dependence; changing
-                //     only the internal-face loop fixes the SERIAL operator and
-                //     leaves parallel building the same physical face with two
-                //     different tensors, one per rank.
-                //   - on a physical boundary there is no neighbour cell, so the
-                //     owner's tensor IS the face tensor. Indexing nbrConductivity
-                //     here would read an entry swapBoundaryCellList never filled.
-                //
-                // patch.coupled() implies processorFvPatch (anything else
-                // FatalErrors above), which implies parRun, so nbrConductivity is
-                // populated whenever this branch is taken.
-                const tensor Dface =
-                    patch.coupled()
-                  ? 0.5*(conductivity[own] + nbrConductivity[bStart + faceI])
-                  : conductivity[own];
-
-                const UList<label> curStencil = faceStencils[globalFaceI];
-
-                forAll(faceQP[globalFaceI], qpI)
-                {
-                    const scalar w = faceQW[globalFaceI][qpI];
-
-                    forAll(curStencil, cI)
-                    {
-                        const label col = curStencil[cI];
-                        const vector gCoeff =
-                            faceGradCoeffs[globalFaceI][qpI][cI];
-                        const scalar fluxCoeff =
-                            // Modified for cardiacFoam: no area
-                            // factor, w is a physical weight.
-                            w*(n & (Dface & gCoeff));
-
-                        addTripletIfNeeded(triplets, own, col, fluxCoeff/max(V[own], SMALL));
-                    }
-                }
-
-                // Added for cardiacFoam: the same jump as the internal-face
-                // loop, written from the LOCAL cell's point of view:
-                //
-                //     a/V[own] * ( T_far(xf) - T_own(xf) )
-                //
-                // where T_c is the Taylor reconstruction of cell c. The
-                // internal loop writes this with a + sign into the owner row
-                // and a - sign into the neighbour row; those two signs are the
-                // same expression seen from either cell, so no owner/neighbour
-                // convention has to be agreed across the partition. The far
-                // rank adds its own copy.
-                if (stabiliseCoupled)
-                {
-                    const label bFaceI = bStart + faceI;
-                    const point xf = Cf.boundaryField()[patchI][faceI];
-                    const tensor Df =
-                        0.5*(conductivity[own] + nbrConductivity[bFaceI]);
-
-                    // Orientation-independent (|d.n|, n.D.n): both ranks get
-                    // the same value with no agreement needed.
-                    const scalar a =
-                        stabilisationFaceCoeff
-                        (
-                            stabilisationAlpha,
-                            area,
-                            Df,
-                            n,
-                            patchDelta[faceI]
-                        );
-
-                    addRemoteRowCoeffs
-                    (
-                        triplets,
-                        own,
-                        a/max(V[own], SMALL),
-                        nbrTaylorCols[bFaceI],
-                        nbrTaylorCoeffs[bFaceI]
-                    );
-
-                    addCellTaylorExtrapolationCoeffs
-                    (
-                        triplets,
-                        own,
-                        -a/max(V[own], SMALL),
-                        own,
-                        xf,
-                        LREInterp,
-                        C,
-                        twoD
-                    );
-                }
-                else if
-                (
-                    stabilisationAlpha > SMALL
-                 && (
-                        bcType == fixedValueFvPatchScalarField::typeName
-                     || bcType == "fixedVoltage"
-                    )
-                )
-                {
-                    const point xf = Cf.boundaryField()[patchI][faceI];
-                    const vector dPb = xf - C[own];
-                    const scalar a =
-                        stabilisationFaceCoeff
-                        (
-                            stabilisationAlpha,
-                            area,
-                            conductivity[own],
-                            n,
-                            dPb
-                        );
-
-                    addCellTaylorExtrapolationCoeffs
-                    (
-                        triplets,
-                        own,
-                        -a/max(V[own], SMALL),
-                        own,
-                        xf,
-                        LREInterp,
-                        C,
-                        twoD
-                    );
-                }
-            }
-        }
-
-        flushChunk();
-
-        if (!kInitialised)
-        {
-            K.resize(nCells, gNCols());
-            K.setZero();
-        }
-
-        K.makeCompressed();
-
-        reportOperatorFingerprint("K (high order)", K);
-        std::vector<Triplet>().swap(triplets);
-    }
-
-    // Solve A x = b with the Eigen backend: SparseLU (direct) or BiCGSTAB with
-    // an ILUT preconditioner. Serial by construction - Eigen has no notion of a
-    // distributed matrix - so this path is available only at one rank.
-    //
-    // updatePolicy is what makes repeated solves cheap: the symbolic analysis
-    // depends only on the sparsity pattern and is done once, the numeric
-    // factorisation is redone when the values change, and a wholly unchanged
-    // matrix skips both.
-    EigVec solveSparseSystemEigen
-    (
-        const SpMat& A,
-        const EigVec& b,
-        const word& linearSolver,
-        const scalar tol,
-        const label maxIter,
-        label& linearIterations,
-        scalar& linearError,
-        PersistentEigenSolvers& persistent,
-        const MatrixUpdate updatePolicy
-    )
-    {
-        if (linearSolver == "SparseLU")
-        {
-            Eigen::SparseLU<SpMat>& solver = persistent.lu;
-
-            // Symbolic analysis depends only on the sparsity pattern, which is
-            // constant for the whole run: do it once. The numeric factorisation
-            // is redone whenever the values change (Rebuild / ValuesOnly) and
-            // skipped entirely when the matrix is unchanged (Reuse).
-            if (updatePolicy != MatrixUpdate::Reuse)
-            {
-                if (!persistent.luAnalyzed)
-                {
-                    solver.analyzePattern(A);
-                    persistent.luAnalyzed = true;
-                }
-
-                solver.factorize(A);
-
-                if (solver.info() != Eigen::Success)
-                {
-                    FatalErrorInFunction
-                        << "SparseLU factorization failed"
-                        << exit(FatalError);
-                }
-            }
-
-            EigVec x = solver.solve(b);
-            linearIterations = 1;
-            linearError = 0.0;
-
-            if (solver.info() != Eigen::Success)
-            {
-                FatalErrorInFunction
-                    << "SparseLU solve failed"
-                    << exit(FatalError);
-            }
-
-            return x;
-        }
-        else if (linearSolver == "BiCGSTAB")
-        {
-            Eigen::BiCGSTAB<SpMat, Eigen::IncompleteLUT<scalar>>& solver =
-                persistent.bicgstab;
-            solver.setTolerance(tol);
-            solver.setMaxIterations(maxIter);
-
-            // compute() builds the incomplete-LU preconditioner; reuse it when
-            // the matrix is unchanged.
-            if (updatePolicy != MatrixUpdate::Reuse)
-            {
-                solver.compute(A);
-
-                if (solver.info() != Eigen::Success)
-                {
-                    FatalErrorInFunction
-                        << "BiCGSTAB setup failed"
-                        << exit(FatalError);
-                }
-            }
-
-            EigVec x = solver.solve(b);
-            linearIterations = solver.iterations();
-            linearError = solver.error();
-
-            if (solver.info() != Eigen::Success)
-            {
-                FatalErrorInFunction
-                    << "BiCGSTAB solve failed"
-                    << exit(FatalError);
-            }
-
-            return x;
-        }
-
-        FatalErrorInFunction
-            << "Unknown implicit linear solver: " << linearSolver << nl
-            << "Valid options are SparseLU or BiCGSTAB"
-            << exit(FatalError);
-
-        return EigVec();
-    }
-
-    // Front door for the assembled linear solves (Picard and diagonalIion):
-    // dispatches to PETSc or to Eigen according to linearSolverBackend, and
-    // returns the iteration count and final relative residual through its
-    // out-parameters.
-    //
-    // The two backends take the same convergence controls so that a case file
-    // produces an algorithmically equivalent run either way; they differ only
-    // in how the system is solved. In parallel only the PETSc path is usable.
-    EigVec solveSparseSystem
-    (
-        const SpMat& A,
-        const EigVec& b,
-        const word& linearSolverBackend,
-        const word& linearSolver,
-        const word& petscKspType,
-        const word& petscPcType,
-        const label petscRestart,
-        const word& petscOptionsPrefix,
-        const bool petscUseOptions,
-        const scalar tol,
-        const label maxIter,
-        label& linearIterations,
-        scalar& linearError,
-        PetscKspMatrixSolver& petscSolver,
-        PersistentEigenSolvers& eigenSolvers,
-        const MatrixUpdate updatePolicy,
-        const bool reusePreconditioner
-    )
-    {
-        if (usesPetscBackend(linearSolverBackend))
-        {
-            // Reuse the persistent KSP/factorisation across time steps and
-            // nonlinear iterations (Phase B). The matrix is only reassembled
-            // into PETSc when the pattern changes (Rebuild) or its values
-            // change (ValuesOnly); a constant operator (Reuse) skips both.
-            switch (updatePolicy)
-            {
-                case MatrixUpdate::Rebuild:
-                {
-                    word kspType;
-                    word pcType;
-                    resolvePetscKspPc
-                    (
-                        linearSolver, petscKspType, petscPcType, kspType, pcType
-                    );
-
-                    petscSolver.reset
-                    (
-                        A,
-                        kspType,
-                        pcType,
-                        tol,
-                        maxIter,
-                        petscRestart,
-                        petscOptionsPrefix,
-                        petscUseOptions
-                    );
-                    break;
-                }
-
-                case MatrixUpdate::ValuesOnly:
-                {
-                    petscSolver.updateValues(A, reusePreconditioner);
-                    break;
-                }
-
-                case MatrixUpdate::Reuse:
-                {
-                    // Nothing to do: the cached operator is still valid.
-                    break;
-                }
-            }
-
-            return petscSolver.solve(b, linearIterations, linearError);
-        }
-
-        // Added for cardiacFoam, ported from the MMS solver: the Eigen backend
-        // is serial only, and the comments above said so without enforcing it.
-        // A carries LOCAL rows and GLOBAL columns (the MPIAIJ layout), so in
-        // parallel it is rectangular by design and Eigen's SparseLU/BiCGSTAB
-        // die on an eigen_assert naming a file inside the library - not this
-        // solver, not the key that selected them, and not the word "parallel".
-        if (Pstream::parRun())
-        {
-            FatalErrorInFunction
-                << "linearSolverBackend = " << linearSolverBackend
-                << " selects the Eigen backend, which is serial only." << nl
-                << "The assembled matrix has " << A.rows()
-                << " local rows and " << A.cols()
-                << " global columns, so Eigen would be handed a rectangular"
-                << " system." << nl
-                << "Set 'linearSolverBackend PETSc;' to run on "
-                << Pstream::nProcs() << " ranks."
-                << exit(FatalError);
-        }
-
-        return solveSparseSystemEigen
-        (
-            A,
-            b,
-            linearSolver,
-            tol,
-            maxIter,
-            linearIterations,
-            linearError,
-            eigenSolvers,
-            updatePolicy
-        );
-    }
-
-    // Evaluate Vm at every Iion integration point using a Taylor expansion
-    // around the cell centre:
-    //
-    //     Vm(x_qp) = Vm_c + grad . d + (1/2) H : (d x d) + (1/6) T3 :: d^3
-    //
-    // The expansion order is set by the LRE object for Vm. When high-order
-    // is disabled we fall back to a plain linear extrapolation from the
-    // standard FVM cell gradient (still 2nd-order accurate on smooth fields
-    // but without LRE's extended stencil).
-    void reconstructVmAtIionIntegrationPoints
-    (
-        const volScalarField& Vm,
-        const Switch useHighOrderVm,
-        const highOrderInterp* LREInterp_Vm,
-        const highOrderInterp& LREInterp_Iion,
-        scalarField& VmIntegrationPoints
-    )
-    {
-        const fvMesh& mesh = Vm.mesh();
-        const vectorField& C = mesh.C();
-        const CompactListList<point>& cellIionQuadP =
-            LREInterp_Iion.cellQuadPoints();
-
-        // Flat counter walks through every cell's quadrature points in the
-        // same order they were laid out by the LRE constructor.
-        label integrationPointI = 0;
-
-        if (useHighOrderVm && LREInterp_Vm)
-        {
-            const bool twoD = mesh.nGeometricD() == 2;
-
-            tmp<volVectorField> tGradVm = LREInterp_Vm->grad(Vm);
-            const vectorField& gradVm = tGradVm->internalField();
-
-            tmp<volSymmTensorField> tHessVm;
-            const symmTensorField* hessVm = nullptr;
-            if (LREInterp_Vm->order() >= 2)
-            {
-                tHessVm = LREInterp_Vm->hessian(Vm);
-                hessVm = &(tHessVm->internalField());
-            }
-
-            autoPtr<List<highOrderInterp::symmTensor3Order>> thirdVmPtr;
-            const List<highOrderInterp::symmTensor3Order>* thirdVm = nullptr;
-            if (LREInterp_Vm->order() >= 3)
-            {
-                thirdVmPtr = LREInterp_Vm->thirdDeriv(Vm);
-                thirdVm = &thirdVmPtr();
-            }
-
-            forAll(mesh.cells(), cellI)
-            {
-                const scalar Vc = Vm[cellI];
-                const vector& gradVc = gradVm[cellI];
-                const vector& xc = C[cellI];
-
-                const symmTensor* H = hessVm ? &((*hessVm)[cellI]) : nullptr;
-                const highOrderInterp::symmTensor3Order* T3 =
-                    thirdVm ? &((*thirdVm)[cellI]) : nullptr;
-
-                forAll(cellIionQuadP[cellI], qI)
-                {
-                    const vector d = cellIionQuadP[cellI][qI] - xc;
-                    VmIntegrationPoints[integrationPointI] =
-                        reconstructFromTaylor(Vc, gradVc, H, T3, d, twoD);
-                    ++integrationPointI;
-                }
-            }
-        }
-        else
-        {
-            tmp<volVectorField> tGradVm = fvc::grad(Vm);
-            const vectorField& gradVm = tGradVm->internalField();
-
-            forAll(mesh.cells(), cellI)
-            {
-                const scalar Vc = Vm[cellI];
-                const vector& gradVc = gradVm[cellI];
-                const vector& xc = C[cellI];
-
-                forAll(cellIionQuadP[cellI], qI)
-                {
-                    const vector d = cellIionQuadP[cellI][qI] - xc;
-                    VmIntegrationPoints[integrationPointI] = Vc + (gradVc & d);
-                    ++integrationPointI;
-                }
-            }
-        }
-    }
-
-
-    // Reconstruct the cell-centred ionic states at the Iion Gauss points using
-    // a dedicated high-order LRE (LREInterp_states). Generic companion to
-    // reconstructVmAtIionIntegrationPoints() for the stateIntegrationMode =
-    // cellCentredReconstruct path: each of the nStates state columns is loaded
-    // into a reusable scratch volScalarField, its LRE Taylor coefficients are
-    // computed, and the field is evaluated at every quadrature point.
+    // The cell-centred ionic states at the Iion quadrature points, all states
+    // in one walk of the stencil, through the shared reconstruction core
+    // (monodomainReconstruction.H):
     //
     //   statesCells [cellI][stateI]  ->  statesIP [ipI][stateI]
+    //
+    // Only the cells with writeCellMask true are written (all when it is
+    // null). limitToNeighbourRange applies the Barth-Jespersen-style limiter
+    // (stateReconstructLimiter), which the stiff TNNP states need across an
+    // under-resolved front.
     void reconstructStatesAtIionIntegrationPoints
     (
+        const fvMesh& mesh,
         const Field<Field<scalar>>& statesCells,
         const label nStates,
         const highOrderInterp& LREInterp_states,
         const highOrderInterp& LREInterp_Iion,
-        volScalarField& scratch,
         Field<Field<scalar>>& statesIP,
-        const boolList* writeCellMask = nullptr,
-        const bool limitToNeighbourRange = true
+        const boolList* writeCellMask,
+        const bool limitToNeighbourRange,
+        const Switch useOpenMP,
+        const label openMPThreshold
     )
     {
-        const fvMesh& mesh = scratch.mesh();
-        const vectorField& C = mesh.C();
-        const bool twoD = mesh.nGeometricD() == 2;
-        const CompactListList<point>& cellIionQuadP =
-            LREInterp_Iion.cellQuadPoints();
-        // Barth--Jespersen-style limiter: bound each reconstructed Gauss value
-        // to the [min,max] of the cell's own value and its face neighbours.
-        // High-order (p3) reconstruction of the stiff TNNP states across an
-        // under-resolved front overshoots (Gibbs) and can drive the ionic
-        // algebra to overflow (SIGFPE); clamping to the local data range
-        // removes the overshoot while leaving smooth regions untouched.
-        const labelListList& cellCells = mesh.cellCells();
+        const CompactListList<point>& qp = LREInterp_Iion.cellQuadPoints();
 
-        scalarField& s = scratch.primitiveFieldRef();
-
+        // One contiguous column per state: the core reads each field by cell.
+        List<scalarField> columns(nStates, scalarField(statesCells.size()));
+        List<const scalarField*> fields(nStates);
         for (label stateI = 0; stateI < nStates; ++stateI)
         {
-            forAll(s, cellI)
+            scalarField& col = columns[stateI];
+            forAll(col, cellI)
             {
-                s[cellI] = statesCells[cellI][stateI];
+                col[cellI] = statesCells[cellI][stateI];
             }
-            scratch.correctBoundaryConditions();
-
-            // Added for cardiacFoam: the limiter's admissible range must also
-            // include neighbours on the far side of a processor boundary.
-            // mesh.cellCells() stops at the cut, so cells next to one saw a
-            // narrower [min,max] and were clamped harder than the same cell in
-            // serial. correctBoundaryConditions() has just run, so the coupled
-            // patch fields already hold the neighbouring cell values.
-            scalarField coupledLo(mesh.nCells(), GREAT);
-            scalarField coupledHi(mesh.nCells(), -GREAT);
-            if (Pstream::parRun())
-            {
-                forAll(mesh.boundary(), patchI)
-                {
-                    const fvPatch& p = mesh.boundary()[patchI];
-                    if (!p.coupled())
-                    {
-                        continue;
-                    }
-
-                    const scalarField pnf
-                    (
-                        scratch.boundaryField()[patchI].patchNeighbourField()
-                    );
-                    const labelUList& faceCells = p.faceCells();
-
-                    forAll(faceCells, i)
-                    {
-                        const label cellI = faceCells[i];
-                        coupledLo[cellI] = min(coupledLo[cellI], pnf[i]);
-                        coupledHi[cellI] = max(coupledHi[cellI], pnf[i]);
-                    }
-                }
-            }
-
-            tmp<volVectorField> tGrad = LREInterp_states.grad(scratch);
-            const vectorField& grad = tGrad->internalField();
-
-            tmp<volSymmTensorField> tHess;
-            const symmTensorField* hess = nullptr;
-            if (LREInterp_states.order() >= 2)
-            {
-                tHess = LREInterp_states.hessian(scratch);
-                hess = &(tHess->internalField());
-            }
-
-            autoPtr<List<highOrderInterp::symmTensor3Order>> thirdPtr;
-            const List<highOrderInterp::symmTensor3Order>* third = nullptr;
-            if (LREInterp_states.order() >= 3)
-            {
-                thirdPtr = LREInterp_states.thirdDeriv(scratch);
-                third = &thirdPtr();
-            }
-
-            label integrationPointI = 0;
-            forAll(mesh.cells(), cellI)
-            {
-                const bool writeThisCell =
-                    (writeCellMask == nullptr) || (*writeCellMask)[cellI];
-
-                const scalar sc = s[cellI];
-                const vector& gradc = grad[cellI];
-                const vector& xc = C[cellI];
-
-                const symmTensor* H = hess ? &((*hess)[cellI]) : nullptr;
-                const highOrderInterp::symmTensor3Order* T3 =
-                    third ? &((*third)[cellI]) : nullptr;
-
-                // Local admissible range for the limiter.
-                scalar sLo = sc, sHi = sc;
-                if (writeThisCell && limitToNeighbourRange)
-                {
-                    const labelList& nbr = cellCells[cellI];
-                    forAll(nbr, j)
-                    {
-                        const scalar sn = s[nbr[j]];
-                        sLo = min(sLo, sn);
-                        sHi = max(sHi, sn);
-                    }
-
-                    // Added for cardiacFoam: neighbours across a processor
-                    // face. The initialisers are GREAT / -GREAT, so a cell with
-                    // no coupled face is left exactly as it was.
-                    sLo = min(sLo, coupledLo[cellI]);
-                    sHi = max(sHi, coupledHi[cellI]);
-                }
-
-                forAll(cellIionQuadP[cellI], qI)
-                {
-                    if (writeThisCell)
-                    {
-                        const vector d = cellIionQuadP[cellI][qI] - xc;
-                        scalar sq =
-                            reconstructFromTaylor(sc, gradc, H, T3, d, twoD);
-                        if (limitToNeighbourRange)
-                        {
-                            sq = min(max(sq, sLo), sHi);
-                        }
-                        statesIP[integrationPointI][stateI] = sq;
-                    }
-                    ++integrationPointI;
-                }
-            }
+            fields[stateI] = &col;
         }
-    }
 
-
-    // Project the per-integration-point ionic currents back to a cell-
-    // centred field via the quadrature-weighted average:
-    //
-    //     Iion_cell = sum_q ( w_q * Iion_q )  /  sum_q w_q
-    //
-    // In-place clamp of a scalar field to a closed interval [vMin, vMax].
-    //
-    // Used as a protective barrier on the Vm vector passed into the ionic
-    // ODE solver: when JFNK probes a candidate iterate far outside the
-    // physiological range (~-100 mV to +60 mV), TNNP's gating dynamics
-    // become extremely stiff and RKF45 stalls. Clamping the input keeps
-    // the integrator in a regime where its time-step controller behaves.
-    inline void clampPhysical
-    (
-        scalarField& v,
-        const scalar vMin,
-        const scalar vMax
-    )
-    {
-        forAll(v, i)
+        auto write = [&statesIP](const label ip, const label k, const scalar v)
         {
-            if (v[i] < vMin) v[i] = vMin;
-            else if (v[i] > vMax) v[i] = vMax;
-        }
+            statesIP[ip][k] = v;
+        };
+
+        reconstructCellFieldsAtIntegrationPoints
+        (
+            mesh,
+            fields,
+            LREInterp_states,
+            qp,
+            write,
+            writeCellMask,
+            limitToNeighbourRange,
+            useOpenMP,
+            openMPThreshold
+        );
     }
+
 
     // This is the discrete cell-average operator and it is the natural
     // companion to reconstructVmAtIionIntegrationPoints(): together they
@@ -6702,14 +2580,9 @@ int main(int argc, char* argv[])
     PetscSession petscSession(argc, argv);
     #include "createTime.H"
     #include "createMesh.H"
-    // Added for cardiacFoam: build the global cell addressing before anything
-    // assembles a matrix. In serial toGlobal() is the identity and totalSize()
-    // is mesh.nCells(), so every column and dimension below is unchanged.
-    gCellsPtr.reset(new globalIndex(mesh.nCells()));
-
-    // Added for cardiacFoam: this rank's first global row. Zero in serial.
-    gRowStart = gCellsPtr->localStart();
-    gRowStartSet = true;
+    // Global cell addressing and row offset, before anything assembles a
+    // matrix (shared code, see monodomainBase.H).
+    initialiseGlobalCells(mesh);
 
     if (Pstream::parRun())
     {
@@ -6837,33 +2710,32 @@ int main(int argc, char* argv[])
     // Front-aware hybrid working set (per-cell front flag and a reusable
     // cell-centred state buffer for the smooth-cell ODE + reconstruction).
     boolList frontCell(useFrontHybrid ? mesh.nCells() : 0, false);
+
+    // Added for cardiacFoam: the per-cell count of mode switches (front <->
+    // smooth) for the end-of-run diagnostic, printed only with the hybrid. A
+    // cell the front simply crosses switches twice; more means it went back
+    // and forth.
+    boolList frontCellLast(useFrontHybrid ? mesh.nCells() : 0, false);
+    labelList frontSwitches(useFrontHybrid ? mesh.nCells() : 0, 0);
+    bool frontClassified = false;
     Field<Field<scalar>> statesCellBuf
     (
         useFrontHybrid ? mesh.nCells() : 0,
         Field<scalar>(nStates, 0.0)
     );
 
-    autoPtr<volScalarField> stateScratchPtr;
-    if (statesAtCells || useFrontHybrid)
-    {
-        stateScratchPtr.reset
-        (
-            new volScalarField
-            (
-                IOobject
-                (
-                    "stateScratch",
-                    runTime.timeName(),
-                    mesh,
-                    IOobject::NO_READ,
-                    IOobject::NO_WRITE
-                ),
-                mesh,
-                dimensionedScalar("stateScratch", dimless, 0.0),
-                zeroGradientFvPatchScalarField::typeName
-            )
-        );
-    }
+    // Added for cardiacFoam: the hybrid's CELL-CENTRED states, kept between
+    // steps as pure cellCentredReconstruct keeps its own. A smooth cell
+    // integrates its ODE from here. It used to start, every step, from the
+    // average of its Gauss-point states - but those are a reconstruction of the
+    // cell states, and averaging a reconstruction is not the identity (on a
+    // square cell it adds (h^2/24) Lap(s)): a small diffusion of the states
+    // applied once per STEP, so stronger the smaller dt, which showed as a
+    // floor of ~2.2e-3 in the hybrid's dt convergence (E02) that no time scheme
+    // got below. Only the front cells keep their states at the Gauss points.
+    // For a front cell the entry is the average of its Gauss-point states,
+    // which is what it starts from the one time it leaves the band.
+    Field<Field<scalar>> hybridCellStates;
 
     scalarField VmIntegrationPoints(totalIionIntegrationPoints, 0.0);
     scalarField IionIntegrationPoints(totalIionIntegrationPoints, 0.0);
@@ -6901,17 +2773,16 @@ int main(int argc, char* argv[])
             << exit(FatalError);
     }
     const word massMatrixMode = normalizedMassMatrixType(massMatrixType);
-    requireOneOf("memoryOptimization", memoryOptimization, {"auto", "on", "off"});
     const word& memoryOptimizationMode = memoryOptimization;
 
-    const bool memoryOptimizationEffective =
-        memoryOptimizationMode == "on"
-     || (
-            memoryOptimizationMode == "auto"
-         && useHighOrder_Vm
-         && dim == 3
-         && mesh.nCells() >= memoryOptimizationCellThreshold
-        );
+    const bool memoryOptimizationEffective = memoryOptimizationIsEffective
+    (
+        memoryOptimizationMode,
+        useHighOrder_Vm,
+        dim,
+        mesh,
+        memoryOptimizationCellThreshold
+    );
 
     const bool useAdaptiveTripletReserve =
         memoryOptimizationEffective
@@ -6942,6 +2813,7 @@ int main(int argc, char* argv[])
         // of a BDF run means nothing without its startup and its ODE driver.
         << "bdfStartup = " << bdfStartup << nl
         << "stateODEDriver = " << stateODEDriver << nl
+        << "stateODEGaussPointHistory = " << stateODEGaussPointHistory << nl
         << "massMatrix = " << massMatrixMode << nl
         << "linearSolverBackend = " << linearSolverBackend << nl
         << "PETSc linear KSP = " << petscLinearKspType
@@ -6992,6 +2864,12 @@ int main(int argc, char* argv[])
         Info<< "LREInterp_states order = " << LREInterp_statesPtr().order()
             << " (front-aware hybrid: Gauss-point ODEs on the front,"
             << " cell-centre + reconstruction elsewhere)" << endl;
+
+        hybridCellStates.setSize(mesh.nCells(), Field<scalar>(nStates, 0.0));
+        averageStatesIntegrationPointsToCells
+        (
+            states, nStates, LREInterp_IionPtr(), hybridCellStates
+        );
     }
 
     const label stopActivationCellI =
@@ -7071,6 +2949,7 @@ int main(int argc, char* argv[])
             LREInterp_VmPtr(),
             1.0,
             compactMassAssembly,
+            assemblyCellChunk,
             M
         );
     }
@@ -7260,7 +3139,39 @@ int main(int argc, char* argv[])
         nonlinearResidualFilePtr() << nl;
     }
 
+    // In-loop timers of the shared reconstructions (monodomainBase.H).
+    FineGrainedTimings fineTimings;
+
     PetscShellKspSolver jfnkPetscShellSolver;
+
+    // The JFNK preconditioner and the controls of the JFNK linear solve,
+    // shared with the MMS solver (monodomainKrylov.H).
+    JfnkPreconditioner jfnkPc
+    (
+        jfnkPreconditioner,
+        usesPetscBackend(jfnkLinearSolverBackend),
+        jfnkPreconditionerKspType,
+        jfnkPreconditionerPcType,
+        jfnkPreconditionerTolerance,
+        jfnkPreconditionerMaxIterations,
+        jfnkMaxKrylovIterations,
+        jfnkPreconditionerOptionsPrefix,
+        petscUseOptions,
+        jfnkPreconditionerFillFactor,
+        jfnkPreconditionerDropTolerance,
+        jfnkPreconditionerUpdateFrequency
+    );
+
+    JfnkKrylovControls jfnkKrylov;
+    jfnkKrylov.petsc = usesPetscBackend(jfnkLinearSolverBackend);
+    jfnkKrylov.kspType = jfnkPetscKspType;
+    jfnkKrylov.pcType = jfnkPetscPcType;
+    jfnkKrylov.restart = jfnkPetscRestart;
+    jfnkKrylov.maxKrylovIterations = jfnkMaxKrylovIterations;
+    jfnkKrylov.maxRestarts = jfnkMaxRestarts;
+    jfnkKrylov.tolerance = jfnkLinearTolerance;
+    jfnkKrylov.optionsPrefix = jfnkPetscOptionsPrefix;
+    jfnkKrylov.useOptions = petscUseOptions;
 
     const auto tEndSetup = std::chrono::steady_clock::now();
     const auto tStartLoop = tEndSetup;
@@ -7405,6 +3316,10 @@ int main(int argc, char* argv[])
     // changes deltaTValue() on the clipped last step.
     const scalar endTimeTolerance = 1.0e-3*runTime.deltaTValue();
 
+    // Nonlinear iterations that stopped at the residual floor instead of the
+    // tolerance (nonlinearIterationExit, monodomainBase.H).
+    label nResidualFloorExits = 0;
+
     while (runTime.value() < effectiveEndTime - endTimeTolerance)
     {
         const scalar t0 = runTime.value();
@@ -7498,6 +3413,14 @@ int main(int argc, char* argv[])
 
         const scalarField VmOldValues(Vm.primitiveField());
         Field<Field<scalar>> statesOld(states);
+
+        // The hybrid's cell-centred states at t^n, and the ones the iterate
+        // being solved ends with. The latter is written only by evaluations of
+        // statesGuess (statesGuessPtr), never by the auxiliary ones - the
+        // diagonalIion perturbation, the JFNK probes - which share the buffer.
+        const Field<Field<scalar>> hybridCellStatesOld(hybridCellStates);
+        Field<Field<scalar>> hybridCellStatesGuess(hybridCellStates);
+        const Field<Field<scalar>>* statesGuessPtr = nullptr;
 
         volScalarField IionOld
         (
@@ -7596,9 +3519,13 @@ int main(int argc, char* argv[])
             (
                 VmOld,
                 useHighOrder_Vm,
-                useHighOrder_Vm ? &LREInterp_VmPtr() : nullptr,
+                LREInterp_VmPtr(),
                 LREInterp_IionPtr(),
-                VmIntegrationPoints
+                VmIntegrationPoints,
+                stateODEUseOpenMP,
+                stateODEOpenMPThreshold,
+                profileTimings,
+                fineTimings
             );
 
             VmOldIntegrationPoints = VmIntegrationPoints;
@@ -7609,14 +3536,16 @@ int main(int argc, char* argv[])
                 // points before evaluating Iion there.
                 reconstructStatesAtIionIntegrationPoints
                 (
+                    mesh,
                     statesOld,
                     nStates,
                     LREInterp_statesPtr(),
                     LREInterp_IionPtr(),
-                    stateScratchPtr(),
                     statesIP,
                     nullptr,
-                    stateReconstructLimiter
+                    stateReconstructLimiter,
+                    stateODEUseOpenMP,
+                    stateODEOpenMPThreshold
                 );
             }
 
@@ -7666,6 +3595,19 @@ int main(int argc, char* argv[])
                 frontCell
             );
             dilateFrontCells(mesh, hybridFrontDilation, frontCell);
+
+            if (frontClassified)
+            {
+                forAll(frontCell, cellI)
+                {
+                    if (frontCell[cellI] != frontCellLast[cellI])
+                    {
+                        ++frontSwitches[cellI];
+                    }
+                }
+            }
+            frontCellLast = frontCell;
+            frontClassified = true;
         }
 
         scalarField sourceOld(mesh.nCells(), 0.0);
@@ -7823,6 +3765,58 @@ int main(int argc, char* argv[])
         gaussDriver.s[1] = 1.0;
         gaussDriver.field[0] = &VmOldIntegrationPoints;
 
+        // Added for cardiacFoam: with stateODEGaussPointHistory the Gauss-point
+        // paths take the same history polynomial as cellDriver. The BDF levels
+        // at the Gauss points are reconstructed from the stored cell levels by
+        // the operator that gave VmOldIntegrationPoints, so each is what that
+        // step had there and nothing is kept between steps. The ESDIRK block
+        // does the same with its stage values.
+        const bool gaussHistory =
+            stateODEGaussPointHistory && historyStateODEDriver
+         && useHighOrder_Iion && (useFrontHybrid || !statesAtCells);
+        autoPtr<volScalarField> VmLevelScratchPtr;
+        List<scalarField> VmBdfOlderIntegrationPoints;
+        if (gaussHistory)
+        {
+            VmLevelScratchPtr.reset(new volScalarField("VmLevelScratch", VmOld));
+        }
+        if (gaussHistory && bdfOrder > 1 && !esdirkThisStep)
+        {
+            VmBdfOlderIntegrationPoints.setSize(bdfOrder - 1);
+            forAll(VmBdfOlderIntegrationPoints, m)
+            {
+                VmBdfOlderIntegrationPoints[m].setSize
+                (
+                    VmOldIntegrationPoints.size()
+                );
+                reconstructVmLevelAtIionIntegrationPoints
+                (
+                    VmBdfOlder[m],
+                    VmLevelScratchPtr(),
+                    useHighOrder_Vm,
+                    LREInterp_VmPtr(),
+                    LREInterp_IionPtr(),
+                    VmBdfOlderIntegrationPoints[m],
+                    stateODEUseOpenMP,
+                    stateODEOpenMPThreshold,
+                    profileTimings,
+                    fineTimings
+                );
+            }
+
+            gaussDriver.nNodes = bdfOrder + 1;
+            for (label j = 0; j < bdfOrder - 1; ++j)
+            {
+                const label m = bdfOrder - 2 - j;
+                gaussDriver.s[j] = -scalar(m + 1);
+                gaussDriver.field[j] = &VmBdfOlderIntegrationPoints[m];
+            }
+            gaussDriver.s[bdfOrder - 1] = 0.0;
+            gaussDriver.field[bdfOrder - 1] = &VmOldIntegrationPoints;
+            gaussDriver.s[bdfOrder] = 1.0;
+            gaussDriver.field[bdfOrder] = nullptr;
+        }
+
         // Evaluate the coupled (Vm, states, Iion) triple for a given
         // membrane-potential candidate.
         //
@@ -7862,9 +3856,13 @@ int main(int argc, char* argv[])
                 (
                     VmCandidate,
                     useHighOrder_Vm,
-                    useHighOrder_Vm ? &LREInterp_VmPtr() : nullptr,
+                    LREInterp_VmPtr(),
                     LREInterp_IionPtr(),
-                    VmIntegrationPoints
+                    VmIntegrationPoints,
+                    stateODEUseOpenMP,
+                    stateODEOpenMPThreshold,
+                    profileTimings,
+                    fineTimings
                 );
 
                 // Protect TNNP from unphysical probes coming from the
@@ -7900,12 +3898,23 @@ int main(int argc, char* argv[])
                     //     per iteration flips the front/smooth switch and makes
                     //     the fixed point a non-convergent period-2 limit cycle.
 
-                    // (b) statesCellBuf <- cell-average of the reset states.
-                    averageStatesIntegrationPointsToCells
-                    (
-                        statesCandidate, nStates, LREInterp_IionPtr(),
-                        statesCellBuf
-                    );
+                    // (b) statesCellBuf <- the cell-centred states at t^n:
+                    //     a smooth cell starts its ODE from its OWN state, as
+                    //     in cellCentredReconstruct (see hybridCellStates).
+                    //     Continuing an integration without the reset keeps
+                    //     the old average.
+                    if (resetStatesToTimeStart)
+                    {
+                        statesCellBuf = hybridCellStatesOld;
+                    }
+                    else
+                    {
+                        averageStatesIntegrationPointsToCells
+                        (
+                            statesCandidate, nStates, LREInterp_IionPtr(),
+                            statesCellBuf
+                        );
+                    }
 
                     // (c) Front cells: gather their Gauss points, advance one
                     //     ODE per point with the local Vm, scatter back.
@@ -7938,18 +3947,30 @@ int main(int argc, char* argv[])
                         // Modified for cardiacFoam: frontIPs are the true Gauss
                         // point indices of these front points, so passing them
                         // as the scratch map puts each point's algebraic_,
-                        // rates_ and stepMs_ in the slot that belongs to it.
+                        // and rates_ in the slot that belongs to it.
                         // Previously this pass used slots 0..nF-1, which the
                         // smooth-cell pass below then overwrote.
                         // Linear Vm driver at these Gauss points, compacted
                         // like VmF (see gaussDriver).
-                        scalarField VmOldF(nF);
-                        forAll(frontIPs, i)
-                        {
-                            VmOldF[i] = VmOldIntegrationPoints[frontIPs[i]];
-                        }
+                        // Every stored node of gaussDriver (one with the
+                        // linear blend, the whole history polynomial under
+                        // stateODEGaussPointHistory), compacted like VmF; the
+                        // last node, the candidate, comes from VmF itself.
                         VmDriverStages frontDriver(gaussDriver);
-                        frontDriver.field[0] = &VmOldF;
+                        List<scalarField> frontNodes(gaussDriver.nNodes);
+                        for (label j = 0; j < gaussDriver.nNodes; ++j)
+                        {
+                            if (gaussDriver.field[j])
+                            {
+                                const scalarField& full = *gaussDriver.field[j];
+                                frontNodes[j].setSize(nF);
+                                forAll(frontIPs, i)
+                                {
+                                    frontNodes[j][i] = full[frontIPs[i]];
+                                }
+                                frontDriver.field[j] = &frontNodes[j];
+                            }
+                        }
 
                         ionicModel->solveODE
                         (
@@ -8035,14 +4056,16 @@ int main(int argc, char* argv[])
                     //     smooth cells only (front Gauss states already advanced).
                     reconstructStatesAtIionIntegrationPoints
                     (
+                        mesh,
                         statesCellBuf,
                         nStates,
                         LREInterp_statesPtr(),
                         LREInterp_IionPtr(),
-                        stateScratchPtr(),
                         statesCandidate,
                         &smoothCell,
-                        stateReconstructLimiter
+                        stateReconstructLimiter,
+                        stateODEUseOpenMP,
+                        stateODEOpenMPThreshold
                     );
 
                     // (g) Iion at all Gauss points from the assembled states.
@@ -8054,6 +4077,15 @@ int main(int argc, char* argv[])
                         IionIntegrationPoints,
                         statesCandidate
                     );
+
+                    // The cell-centred states this evaluation ends with: the
+                    // integrated ones in smooth cells, the average of the
+                    // advanced Gauss states in front cells. Kept only for the
+                    // iterate itself.
+                    if (&statesCandidate == statesGuessPtr)
+                    {
+                        hybridCellStatesGuess = statesCellBuf;
+                    }
                 }
                 else if (statesAtCells)
                 {
@@ -8092,14 +4124,16 @@ int main(int argc, char* argv[])
 
                     reconstructStatesAtIionIntegrationPoints
                     (
+                        mesh,
                         statesCandidate,
                         nStates,
                         LREInterp_statesPtr(),
                         LREInterp_IionPtr(),
-                        stateScratchPtr(),
                         statesIP,
                         nullptr,
-                        stateReconstructLimiter
+                        stateReconstructLimiter,
+                        stateODEUseOpenMP,
+                        stateODEOpenMPThreshold
                     );
 
                     ionicModel->calculateCurrent
@@ -8265,6 +4299,7 @@ int main(int argc, char* argv[])
         const bool useJFNK = nonlinearMethod == "JFNK";
 
         Field<Field<scalar>> statesGuess(statesOld);
+        statesGuessPtr = &statesGuess;
         evaluateNonlinearFields(VmGuess, statesGuess, IionGuess, true);
 
         scalarField stateResiduals(nStates, 0.0);
@@ -8379,6 +4414,15 @@ int main(int argc, char* argv[])
             }
             stageVm[0] = VmOldValues;
 
+            // The stage values at the Gauss points, for the Gauss-point paths
+            // under stateODEGaussPointHistory; each is reconstructed once, when
+            // its stage is accepted.
+            List<scalarField> stageVmIntegrationPoints(gaussHistory ? nS : 0);
+            if (gaussHistory)
+            {
+                stageVmIntegrationPoints[0] = VmOldIntegrationPoints;
+            }
+
             Info<< "ESDIRK3 step at t = " << t0 << " (dt = " << dt << "): "
                 << (clippedStep ? "non-nominal step length" : "building the BDF history")
                 << ", stages solved by Picard" << endl;
@@ -8416,6 +4460,18 @@ int main(int argc, char* argv[])
                     }
                     cellDriver.s[i] = 1.0;
                     cellDriver.field[i] = nullptr;
+
+                    if (gaussHistory)
+                    {
+                        gaussDriver.nNodes = i + 1;
+                        for (label j = 0; j < i; ++j)
+                        {
+                            gaussDriver.s[j] = esdirkTab.c[j]/esdirkTab.c[i];
+                            gaussDriver.field[j] = &stageVmIntegrationPoints[j];
+                        }
+                        gaussDriver.s[i] = 1.0;
+                        gaussDriver.field[i] = nullptr;
+                    }
                 }
                 else
                 {
@@ -8438,6 +4494,8 @@ int main(int argc, char* argv[])
                 evaluateNonlinearFields(VmGuess, statesGuess, IionGuess, true);
 
                 bool stageConverged = false;
+
+                scalar coupledResidualPrevIter = GREAT;
 
                 for
                 (
@@ -8510,15 +4568,28 @@ int main(int argc, char* argv[])
                         stateResiduals
                     );
 
-                    const bool converged =
-                        corr + 1 >= implicitMinNonlinearIterations
-                     && coupledResidual <= nonlinearTolerance
-                     && VmResidual <= nonlinearVmTolerance
-                     && IionResidual <= nonlinearIionTolerance
-                     && (
-                            !nonlinearRequireStatesConvergence
-                         || maxStateResidual <= nonlinearStatesTolerance
-                        );
+                    const bool converged = nonlinearIterationStops
+                    (
+                        nonlinearIterationExit
+                        (
+                            corr,
+                            implicitMinNonlinearIterations,
+                            coupledResidual,
+                            coupledResidualPrevIter,
+                            nonlinearTolerance,
+                            VmResidual,
+                            nonlinearVmTolerance,
+                            IionResidual,
+                            nonlinearIionTolerance,
+                            nonlinearRequireStatesConvergence,
+                            maxStateResidual,
+                            nonlinearStatesTolerance
+                        ),
+                        coupledResidual,
+                        nonlinearTolerance,
+                        nResidualFloorExits
+                    );
+                    coupledResidualPrevIter = coupledResidual;
 
                     writeAndPrintResiduals
                     (
@@ -8552,6 +4623,27 @@ int main(int argc, char* argv[])
                     applyLOp(fieldToEigVec(VmGuess)) + stageSource(IionGuess);
 
                 stageVm[i] = VmGuess.primitiveField();
+
+                if (gaussHistory && i + 1 < nS)
+                {
+                    stageVmIntegrationPoints[i].setSize
+                    (
+                        VmOldIntegrationPoints.size()
+                    );
+                    reconstructVmLevelAtIionIntegrationPoints
+                    (
+                        stageVm[i],
+                        VmLevelScratchPtr(),
+                        useHighOrder_Vm,
+                        LREInterp_VmPtr(),
+                        LREInterp_IionPtr(),
+                        stageVmIntegrationPoints[i],
+                        stateODEUseOpenMP,
+                        stateODEOpenMPThreshold,
+                        profileTimings,
+                        fineTimings
+                    );
+                }
             }
 
             // Restore the one-step defaults. stageVm is local to this block, so
@@ -8563,48 +4655,17 @@ int main(int argc, char* argv[])
             cellDriver.s[1] = 1.0;
             cellDriver.field[0] = &VmOldValues;
             cellDriver.field[1] = nullptr;
+            gaussDriver.nNodes = 2;
+            gaussDriver.s[0] = 0.0;
+            gaussDriver.s[1] = 1.0;
+            gaussDriver.field[0] = &VmOldIntegrationPoints;
+            gaussDriver.field[1] = nullptr;
         }
         else if (useJFNK)
         {
             EigVec x = fieldToEigVec(VmGuess);
 
-            // ------------------------------------------------------------- //
-            // Phase A3: diffusion preconditioner for the matrix-free Jacobian.
-            //
-            // M = AImplicit is the constant, SPD linear part of the Jacobian.
-            // We LU-factorise it once (reused across time steps; refreshed only
-            // when dt changes, tracked by linearSolverNeedsRebuild) and expose
-            // r -> M^{-1} r as a closure. Each Krylov step then costs one cheap
-            // triangular solve instead of an extra ionic-ODE integration, so the
-            // matvec count (the dominant cost) drops sharply. Disabled by default
-            // (jfnkPreconditioner == "none"), preserving the legacy solve path.
-            // ------------------------------------------------------------- //
-            const bool useJfnkPreconditioner = (jfnkPreconditioner == "diffusion");
-
-            if (useJfnkPreconditioner && linearSolverNeedsRebuild)
-            {
-                // ILUT setup is cheap and has bounded fill; recomputed only when
-                // dt changes (linearSolverNeedsRebuild).
-                // Modified for cardiacFoam: factorise the square diagonal
-                // block, not AImplicit itself - see diagonalBlock().
-                persistentEigenSolvers.jfnkPrec.compute(diagonalBlock(AImplicit));
-                if (persistentEigenSolvers.jfnkPrec.info() != Eigen::Success)
-                {
-                    FatalErrorInFunction
-                        << "JFNK diffusion preconditioner: AImplicit ILUT "
-                        << "factorization failed" << exit(FatalError);
-                }
-                persistentEigenSolvers.jfnkPrecComputed = true;
-                linearSolverNeedsRebuild = false;
-            }
-
-            const std::function<EigVec(const EigVec&)> jfnkPrecApply =
-                [&](const EigVec& r) -> EigVec
-                {
-                    return persistentEigenSolvers.jfnkPrec.solve(r);
-                };
-            const std::function<EigVec(const EigVec&)>* jfnkPrecApplyPtr =
-                useJfnkPreconditioner ? &jfnkPrecApply : nullptr;
+            jfnkPc.beginStep();
 
             // IMPORTANT: residualFor and standardResidual must use an explicit
             // `-> EigVec` return type. Without it, the deduced return type is
@@ -8706,6 +4767,8 @@ int main(int argc, char* argv[])
             // Eigen JFNK path here IS parallel and deliberately has no such
             // guard. Only the assembled Eigen path (solveSparseSystem) does.
 
+            scalar coupledResidualPrevIter = GREAT;
+
             for
             (
                 label corr = 0;
@@ -8787,47 +4850,36 @@ int main(int argc, char* argv[])
                 scalar gmresError = GREAT;
                 EigVec delta(R.size());
 
-                if (usesPetscBackend(jfnkLinearSolverBackend))
+                // Shared with the MMS solver (monodomainKrylov.H): the
+                // preconditioner is rebuilt at the first iteration of the
+                // step and every jfnkPreconditionerUpdateFrequency after it.
+                if (jfnkPc.needsUpdate(corr))
                 {
-                    if (!jfnkPetscShellSolver.isInitialised())
+                    if (jfnkPc.usesSourceDerivative())
                     {
-                        jfnkPetscShellSolver.initialise
-                        (
-                            R.size(),
-                            jfnkPetscKspType,
-                            jfnkPetscPcType,
-                            jfnkPetscRestart,
-                            jfnkMaxKrylovIterations*(jfnkMaxRestarts + 1),
-                            jfnkLinearTolerance,
-                            jfnkPetscOptionsPrefix,
-                            petscUseOptions,
-                            useJfnkPreconditioner
-                        );
+                        computeSourceDerivative(VmGuess, IionGuess);
                     }
+                    jfnkPc.update
+                    (
+                        AImplicit,
+                        jfnkPc.usesSourceDerivative()
+                      ? &sourceDerivative.primitiveField()
+                      : nullptr,
+                        theta,
+                        corr
+                    );
+                }
 
-                    delta = jfnkPetscShellSolver.solve
-                    (
-                        std::function<EigVec(const EigVec&)>(matVec),
-                        jfnkPrecApplyPtr,
-                        -R,
-                        gmresIterations,
-                        gmresError
-                    );
-                }
-                else
-                {
-                    delta = solveGMRES
-                    (
-                        matVec,
-                        -R,
-                        jfnkMaxKrylovIterations,
-                        jfnkMaxRestarts,
-                        jfnkLinearTolerance,
-                        gmresIterations,
-                        gmresError,
-                        jfnkPrecApplyPtr
-                    );
-                }
+                delta = solveJfnkLinearSystem
+                (
+                    matVec,
+                    R,
+                    jfnkPc,
+                    jfnkPetscShellSolver,
+                    jfnkKrylov,
+                    gmresIterations,
+                    gmresError
+                );
 
                 // ----------------------------------------------------- //
                 // Newton update with optional Armijo backtracking.
@@ -8910,15 +4962,30 @@ int main(int argc, char* argv[])
                     stateResiduals
                 );
 
-                const bool converged =
-                    corr + 1 >= implicitMinNonlinearIterations
-                 && coupledResidualNew <= nonlinearTolerance
-                 && VmResidual <= nonlinearVmTolerance
-                 && IionResidual <= nonlinearIionTolerance
-                 && (
-                        !nonlinearRequireStatesConvergence
-                     || maxStateResidual <= nonlinearStatesTolerance
-                    );
+                // Shared stopping test (monodomainBase.H); this used to be an
+                // inline copy of it, without the residual-floor exit.
+                const bool converged = nonlinearIterationStops
+                (
+                    nonlinearIterationExit
+                    (
+                        corr,
+                        implicitMinNonlinearIterations,
+                        coupledResidualNew,
+                        coupledResidualPrevIter,
+                        nonlinearTolerance,
+                        VmResidual,
+                        nonlinearVmTolerance,
+                        IionResidual,
+                        nonlinearIionTolerance,
+                        nonlinearRequireStatesConvergence,
+                        maxStateResidual,
+                        nonlinearStatesTolerance
+                    ),
+                    coupledResidualNew,
+                    nonlinearTolerance,
+                    nResidualFloorExits
+                );
+                coupledResidualPrevIter = coupledResidualNew;
 
                 writeAndPrintResiduals
                 (
@@ -8949,6 +5016,8 @@ int main(int argc, char* argv[])
         }
         else
         {
+            scalar coupledResidualPrevIter = GREAT;
+
             for
             (
                 label corr = 0;
@@ -9047,15 +5116,28 @@ int main(int argc, char* argv[])
                     stateResiduals
                 );
 
-                const bool converged =
-                    corr + 1 >= implicitMinNonlinearIterations
-                 && coupledResidual <= nonlinearTolerance
-                 && VmResidual <= nonlinearVmTolerance
-                 && IionResidual <= nonlinearIionTolerance
-                 && (
-                        !nonlinearRequireStatesConvergence
-                     || maxStateResidual <= nonlinearStatesTolerance
-                    );
+                const bool converged = nonlinearIterationStops
+                (
+                    nonlinearIterationExit
+                    (
+                        corr,
+                        implicitMinNonlinearIterations,
+                        coupledResidual,
+                        coupledResidualPrevIter,
+                        nonlinearTolerance,
+                        VmResidual,
+                        nonlinearVmTolerance,
+                        IionResidual,
+                        nonlinearIionTolerance,
+                        nonlinearRequireStatesConvergence,
+                        maxStateResidual,
+                        nonlinearStatesTolerance
+                    ),
+                    coupledResidual,
+                    nonlinearTolerance,
+                    nResidualFloorExits
+                );
+                coupledResidualPrevIter = coupledResidual;
 
                 writeAndPrintResiduals
                 (
@@ -9133,6 +5215,13 @@ int main(int argc, char* argv[])
         Iion.primitiveFieldRef() = IionGuess.primitiveField();
         Iion.correctBoundaryConditions();
         states = statesGuess;
+
+        // The hybrid's cell-centred states move on with the step, unless it
+        // was rolled back.
+        if (useFrontHybrid && (nonlinearConverged || nonlinearAcceptUnconverged))
+        {
+            hybridCellStates = hybridCellStatesGuess;
+        }
 
         // Added for cardiacFoam, ported from the MMS solver: rotate the BDF
         // history once the step is final. V^n becomes V^{n-1} and the oldest
@@ -9437,6 +5526,27 @@ int main(int argc, char* argv[])
         << "Peak RSS = " << peakRSSMB << " MB" << nl << endl;
 
     runTime.printExecutionTime(Info);
+
+    if (useFrontHybrid)
+    {
+        label nSwitch = 0;
+        label nMany = 0;
+        label maxSwitch = 0;
+        forAll(frontSwitches, cellI)
+        {
+            nSwitch += frontSwitches[cellI];
+            if (frontSwitches[cellI] > 2) ++nMany;
+            maxSwitch = max(maxSwitch, frontSwitches[cellI]);
+        }
+        reduce(nSwitch, sumOp<label>());
+        reduce(nMany, sumOp<label>());
+        reduce(maxSwitch, maxOp<label>());
+        Info<< "Hybrid front band: " << nSwitch << " mode switches; " << nMany
+            << " cells switched more than twice (max " << maxSwitch << ")" << nl;
+    }
+
+    Info<< "Nonlinear iterations stopped at the residual floor: "
+        << nResidualFloorExits << nl;
 
     Info<< "End" << nl << endl;
 

@@ -636,6 +636,15 @@ requireOneOf
     {"none", "jacobi", "ilu", "lu", "gamg", "hypre"}
 );
 
+// When the assembled matrix only changes on its diagonal between nonlinear
+// iterations (diagonalIion), reuse the existing preconditioner instead of
+// recomputing it. An approximation; false (the default) is exact. Same key and
+// default as the physiological solver.
+const Switch petscReusePreconditioner
+(
+    implicitHOCoeffs.lookupOrDefault<Switch>("petscReusePreconditioner", false)
+);
+
 // Restart length m of GMRES(m); ignored by the other KSP types.
 const label petscLinearRestart
 (
@@ -936,108 +945,7 @@ const scalar jfnkArmijoC
     implicitHOCoeffs.lookupOrDefault<scalar>("jfnkArmijoC", 1.0e-4)
 );
 
-// JFNK left preconditioner. The default uses the same local source
-// linearisation as diagonalIion, assembled as
-// P ~= AImplicit - theta*d(source)/d(Vm).
-const word jfnkPreconditioner
-(
-    implicitHOCoeffs.lookupOrDefault<word>("jfnkPreconditioner", "diagonalIion")
-);
-
-// ILUT drop tolerance of the JFNK preconditioner: entries below it are
-// discarded, trading accuracy of M^{-1} for fill-in.
-const scalar jfnkPreconditionerDropTolerance
-(
-    implicitHOCoeffs.lookupOrDefault<scalar>
-    (
-        "jfnkPreconditionerDropTolerance",
-        1.0e-4
-    )
-);
-
-// ILUT fill factor: bound on the entries kept per row.
-const label jfnkPreconditionerFillFactor
-(
-    implicitHOCoeffs.lookupOrDefault<label>
-    (
-        "jfnkPreconditionerFillFactor",
-        10
-    )
-);
-
-// How often the preconditioner is rebuilt, in nonlinear iterations. The
-// linear part of the Jacobian is constant, so a stale preconditioner is
-// usually still a good one.
-const label jfnkPreconditionerUpdateFrequency
-(
-    max
-    (
-        implicitHOCoeffs.lookupOrDefault<label>
-        (
-            "jfnkPreconditionerUpdateFrequency",
-            1
-        ),
-        label(1)
-    )
-);
-
-// KSP/PC used to APPLY the preconditioner; preonly + ilu means "apply the
-// factorisation once", which is the intended use.
-const word jfnkPreconditionerKspType
-(
-    implicitHOCoeffs.lookupOrDefault<word>("jfnkPreconditionerKspType", "preonly")
-);
-
-requireOneOf
-(
-    "jfnkPreconditionerKspType",
-    jfnkPreconditionerKspType,
-    {"gmres", "bcgs", "cg", "preonly"}
-);
-
-// See jfnkPreconditionerKspType.
-const word jfnkPreconditionerPcType
-(
-    implicitHOCoeffs.lookupOrDefault<word>("jfnkPreconditionerPcType", "ilu")
-);
-
-requireOneOf
-(
-    "jfnkPreconditionerPcType",
-    jfnkPreconditionerPcType,
-    {"none", "jacobi", "ilu", "lu", "gamg", "hypre"}
-);
-
-// Tolerance and iteration cap of that inner application; both are nominal
-// when the KSP is preonly.
-const scalar jfnkPreconditionerTolerance
-(
-    implicitHOCoeffs.lookupOrDefault<scalar>
-    (
-        "jfnkPreconditionerTolerance",
-        1.0e-10
-    )
-);
-
-// See jfnkPreconditionerTolerance.
-const label jfnkPreconditionerMaxIterations
-(
-    implicitHOCoeffs.lookupOrDefault<label>
-    (
-        "jfnkPreconditionerMaxIterations",
-        1
-    )
-);
-
-// Options prefix of the preconditioner solve.
-const word jfnkPreconditionerOptionsPrefix
-(
-    implicitHOCoeffs.lookupOrDefault<word>
-    (
-        "jfnkPreconditionerOptionsPrefix",
-        "jfnkpc_"
-    )
-);
+#include "jfnkPreconditionerControls.H"
 
 // FD step used by the diagonalIion linearisation (finite-difference Jacobian
 // of Iion w.r.t. Vm).
@@ -1235,6 +1143,20 @@ const word stateODEDriver
     implicitHOCoeffs.lookupOrDefault<word>("stateODEDriver", "history")
 );
 
+// The Gauss-point state ODE paths (gaussPointODE, and the front cells of the
+// front-aware hybrid) drive the ODE with the two-node linear blend of Vm across
+// the step unless this is on. On, they use the same polynomial as the cell
+// paths - through the BDF history levels or the ESDIRK stage values - with each
+// level taken to the Gauss points by the reconstruction that gives V^n there:
+// at the start of the step for BDF, once per accepted stage for ESDIRK. Nothing
+// is kept at the Gauss points between steps. The blend caps BDF3/BDF4 near
+// second order on those paths (E02: GP gave 2.50 / 2.37 where CC gave
+// 2.96 / 4.60). Only acts with stateODEDriver history; off by default.
+const Switch stateODEGaussPointHistory
+(
+    implicitHOCoeffs.lookupOrDefault<Switch>("stateODEGaussPointHistory", false)
+);
+
 // First sub-step attempted; the adaptive controller takes over from there.
 const scalar stateODEInitialStep
 (
@@ -1262,72 +1184,20 @@ const label stateODEMaxSteps
     implicitHOCoeffs.lookupOrDefault<label>("stateODEMaxSteps", 1000000000)
 );
 
-// Integrate the per-point ODEs with OpenMP. Numerically identical either
-// way (each point is an independent ODE); it pays off only where the ODE
-// dominates the cost.
-const Switch stateODEUseOpenMP
-(
-    implicitHOCoeffs.lookupOrDefault<Switch>
-    (
-        "stateODEUseOpenMP",
-        true
-    )
-);
-
-// Minimum number of points on a rank before the OpenMP region is entered
-// at all: below it the fork/join costs more than the work.
-const label stateODEOpenMPThreshold
-(
-    implicitHOCoeffs.lookupOrDefault<label>
-    (
-        "stateODEOpenMPThreshold",
-        256
-    )
-);
-
-// Thread count for that region; 0 or less leaves it to OpenMP.
-const label stateODENumThreads
-(
-    implicitHOCoeffs.lookupOrDefault<label>
-    (
-        "stateODENumThreads",
-        0
-    )
-);
+#include "openMPControls.H"
 
 // ----------------------------------------------------------------------- //
 // High-order reconstruction stencils for Vm and Iion.
 // ----------------------------------------------------------------------- //
-// How each boundary patch enters the reconstruction stencils, classified
-// from Vm's boundary condition:
-//   fixedValue / fixedVoltage -> the boundary value is added to the stencil
-//                  as a Dirichlet ghost point (includePatchIn{Vm,Iion}Stencils),
-//                  which keeps the reconstruction exact up to the boundary for
-//                  the manufactured solution;
-//   anything else -> not added. On a zeroGradient patch the boundary faces use
-//                  a one-sided stencil, and the Neumann condition enters as a
-//                  zero boundary flux: the finite-volume treatment, and exact
-//                  here, since the manufactured solution has zero normal
-//                  derivative on every boundary of the unit square.
-//
-// No mirrored stencil is built for zeroGradient patches. 
-boolList includePatchInVmStencils(mesh.boundaryMesh().size(), false);
-boolList includePatchInIionStencils(mesh.boundaryMesh().size(), false);
-
-forAll(mesh.boundaryMesh(), patchI)
-{
-    const word bcType = Vm.boundaryField()[patchI].type();
-
-    if
-    (
-        bcType == fixedValueFvPatchScalarField::typeName
-     || bcType == "fixedVoltage"
-    )
-    {
-        includePatchInVmStencils[patchI] = true;
-        includePatchInIionStencils[patchI] = true;
-    }
-}
+// No boundary patch adds a ghost point to the Vm and Iion stencils. The only
+// ones that did were the Dirichlet patches of Vm (fixedValue/fixedVoltage),
+// which this solver and the physiological one now refuse at start-up. On a
+// zeroGradient patch the boundary faces use a one-sided stencil and the Neumann
+// condition enters as a zero boundary flux: the finite-volume treatment, and
+// exact here, since the manufactured solution has zero normal derivative on
+// every boundary of the unit square. No mirrored stencil is built either.
+const boolList includePatchInVmStencils(mesh.boundaryMesh().size(), false);
+const boolList includePatchInIionStencils(mesh.boundaryMesh().size(), false);
 
 // Sub-dictionary holding the stabilisation weight and the three LRE stencil
 // definitions (LRECoeffs_Vm, _Iion and _states).
@@ -1438,24 +1308,14 @@ const bool buildStateInterp =
  && useHighOrder_Iion
  && mesh.nGeometricD() > 1;
 
-// Build the include-list for the state stencils from u1's boundary types, with
-// the same classification as Vm: a fixedValue patch adds its boundary value to
-// the stencil, anything else does not. In the MMS set-up the three states share
-// fixedValue boundary conditions.
-boolList includePatchInStateStencils(mesh.boundaryMesh().size(), false);
-forAll(mesh.boundaryMesh(), patchI)
-{
-    const word bcType = u1.boundaryField()[patchI].type();
-
-    if
-    (
-        bcType == fixedValueFvPatchScalarField::typeName
-     || bcType == "fixedVoltage"
-    )
-    {
-        includePatchInStateStencils[patchI] = true;
-    }
-}
+// No boundary patch adds a ghost point to the state stencils either, as in the
+// physiological solver. The states' fixedValue patches used to: the exact
+// manufactured state values on the boundary entered the reconstruction there,
+// an advantage no physical solver has, since it knows no exact solution. The
+// patches still carry those values (updateStateBoundaryValues) for output, but
+// they no longer reach the numerics, so this solver now verifies exactly the
+// discretisation the physiological one runs.
+const boolList includePatchInStateStencils(mesh.boundaryMesh().size(), false);
 
 // Reconstruction of the cell-centred states at the ionic quadrature points.
 // Built only for stateIntegrationMode = cellCentredReconstruct, where the

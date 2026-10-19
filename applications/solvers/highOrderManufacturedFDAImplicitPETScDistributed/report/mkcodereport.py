@@ -2,6 +2,11 @@
 """Genera `codigo_highOrderManufacturedFDAImplicitPETScDistributed.tex`:
 un recorrido del solver, en el orden del archivo, con el codigo a la vista.
 
+Desde 2026-10 buena parte del codigo vive en `src/monodomainCommon/` (headers
+compartidos con el solver electro, incluidos dentro del espacio de nombres
+anonimo del .C). El script busca cada funcion y cada ancla primero en el .C y
+despues en esos headers, y cada listado apunta al archivo donde vive.
+
 Por que el codigo se INCLUYE y no se copia
 ------------------------------------------
 Los listados salen de `\\lstinputlisting` apuntando al `.C` real, con rangos de
@@ -36,6 +41,7 @@ NAME = SOLVER.name
 SOURCE = NAME + ".C"
 FIELDS = "createFields.H"
 OUT = HERE / f"codigo_{NAME}.tex"
+COMMON = SOLVER.parent.parent.parent / "src" / "monodomainCommon"
 
 MAX_LISTING = 60          # lineas por listado antes de recortar
 
@@ -76,7 +82,7 @@ def literate_clause(text: str) -> str:
 # localizar funciones en el fuente
 # ---------------------------------------------------------------------------
 
-def find_functions(path: Path) -> dict:
+def find_functions(path: Path, start: int = 0) -> dict:
     """{nombre: (primera_linea, ultima_linea)} contando llaves.
 
     Acepta las dos formas que el archivo usa: `tipo nombre(args)` en una linea y
@@ -84,7 +90,7 @@ def find_functions(path: Path) -> dict:
     """
     lines = path.read_text().split("\n")
     out = {}
-    for i in range(len(lines) - 1):
+    for i in range(start, len(lines) - 1):
         line = lines[i]
         if line.strip().startswith("//"):
             continue
@@ -125,26 +131,29 @@ def span(funcs, name, limit=MAX_LISTING):
     return a, b, False
 
 
-def find_line(lines, needle):
-    """Numero de linea (1-based) de la UNICA linea que contiene `needle`.
+def find_line(sources, needle):
+    """(archivo, linea 1-based) de la UNICA linea que contiene `needle`.
 
-    Falla si no aparece, y falla tambien si aparece mas de una vez. Lo segundo
-    es a proposito: un ancla ambigua elige un sitio en silencio, que es la misma
-    falla que un rango escrito a mano -- termina apuntando a otra cosa y nadie
-    se entera. Mismo criterio que el chequeo de LITERATE.
+    Busca en todos los fuentes (el .C y los headers comunes). Falla si no
+    aparece, y falla tambien si aparece mas de una vez, en el mismo archivo o en
+    dos distintos. Lo segundo es a proposito: un ancla ambigua elige un sitio en
+    silencio, que es la misma falla que un rango escrito a mano -- termina
+    apuntando a otra cosa y nadie se entera. Mismo criterio que el chequeo de
+    LITERATE.
     """
-    hits = [i + 1 for i, ln in enumerate(lines) if needle in ln]
+    hits = [(k, i + 1) for k, (_, _, lines) in enumerate(sources)
+            for i, ln in enumerate(lines) if needle in ln]
     if not hits:
         raise KeyError(f"no encontre el ancla {needle!r} en el fuente")
     if len(hits) > 1:
         raise KeyError(f"el ancla {needle!r} aparece {len(hits)} veces "
-                       f"(lineas {', '.join(map(str, hits))}); hacela mas "
-                       f"especifica")
+                       f"({', '.join(f'{sources[k][0].name}:{i}' for k, i in hits)}); "
+                       f"hacela mas especifica")
     return hits[0]
 
 
-def resolve(ref, lines, funcs, limit=MAX_LISTING):
-    """(primera, ultima, recortada?) para una referencia del recorrido.
+def resolve(ref, sources, located, limit=MAX_LISTING):
+    """(relativo, primera, ultima, recortada?) para una referencia del recorrido.
 
     `ref` puede ser:
         "nombre"            la funcion, localizada por nombre contando llaves;
@@ -157,20 +166,32 @@ def resolve(ref, lines, funcs, limit=MAX_LISTING):
     apuntando a otra cosa cuando el fuente se movio -- uno caia en medio del
     comentario de una funcion distinta. Era el mismo problema que copiar el
     codigo dentro del reporte, disfrazado de numero.
+
+    La primera ancla elige el archivo; la segunda se busca en ese mismo archivo
+    y despues de la primera, y tiene que ser unica ahi.
     """
     if isinstance(ref, str):
-        return span(funcs, ref, limit)
+        if ref not in located:
+            raise KeyError(f"no encontre `{ref}` en el fuente")
+        rel, fa, fb = located[ref]
+        a, b, trunc = span({ref: (fa, fb)}, ref, limit)
+        return rel, a, b, trunc
 
-    a = find_line(lines, ref[0])
+    k, a = find_line(sources, ref[0])
+    _, rel, lines = sources[k]
     if isinstance(ref[1], int):
         b = a + ref[1] - 1
     else:
-        b = find_line(lines, ref[1]) + (ref[2] if len(ref) > 2 else 0)
+        hits = [i + 1 for i in range(a - 1, len(lines)) if ref[1] in lines[i]]
+        if len(hits) != 1:
+            raise KeyError(f"el ancla de cierre {ref[1]!r} aparece {len(hits)} "
+                           f"veces despues de {ref[0]!r} en {sources[k][0].name}")
+        b = hits[0] + (ref[2] if len(ref) > 2 else 0)
 
     b = min(b, len(lines))
     if b - a + 1 > limit:
-        return a, a + limit - 1, True
-    return a, b, False
+        return rel, a, a + limit - 1, True
+    return rel, a, b, False
 
 
 # ---------------------------------------------------------------------------
@@ -199,23 +220,43 @@ orden: primero la infraestructura lineal, después $M$ y $K$, después la parte 
 lineal, y al final el lazo temporal.
 
 \textbf{Dos ejes de paralelismo}, y conviene tenerlos separados desde el
-principio porque el archivo los trata en lugares distintos: \textbf{MPI} reparte
-la malla entre ranks y toca todas las fases, mientras \textbf{OpenMP} reparte un
-lazo de celdas dentro de un rank y sólo toca la integración de las EDO.
+principio porque el código los trata en lugares distintos: \textbf{MPI} reparte
+la malla entre ranks y toca todas las fases, mientras \textbf{OpenMP} reparte,
+dentro de un rank, la integración de las EDO (por celda o por punto de Gauss),
+las reconstrucciones en los puntos de Gauss y los productos matriz--vector de
+Eigen. El ensamblado no tiene hilos.
+
+La ecuación de arriba es la familia $\theta$; los BDF1--4 entran en el mismo
+par de operadores cambiando sólo el escalar que multiplica a $M$ (sección de
+discretización temporal).
 """, []),
 
- ("De qué se compone: tres archivos y una capa", r"""
+ ("De qué se compone: el solver, el código común y una capa", r"""
 Conviene decirlo antes de mirar un listado, porque los nombres que aparecen en
-todos ellos no dicen de dónde salen. El solver se construye a partir de
-\textbf{tres} archivos del repositorio y de nada más:
+todos ellos no dicen de dónde salen. El solver se construye a partir de estos
+archivos del repositorio y de nada más:
 
 \begin{itemize}
-  \item \texttt{highOrderManufacturedFDAImplicitPETScDistributed.C}, el recorrido
-        de este documento;
+  \item \texttt{highOrderManufacturedFDAImplicitPETScDistributed.C}: lo propio
+        del MMS --- la solución manufacturada y su fuente, el modelo de tres
+        estados, sus EDO, y el lazo temporal;
   \item \texttt{createFields.H}, que lee los diccionarios y construye los campos
         y los operadores;
+  \item \texttt{src/monodomainCommon/*.H} (desde 2026-10): lo que el MMS
+        comparte con el solver electro --- el offset global y la validación de
+        opciones (\texttt{monodomainBase.H}), el ensamblado de $M$ y $K$
+        (\texttt{monodomainAssembly.H}), el puente con PETSc
+        (\texttt{monodomainPetsc.H}), GMRES/JFNK (\texttt{monodomainKrylov.H}),
+        los esquemas temporales y el driver de $V_m$
+        (\texttt{monodomainTimeSchemes.H}), las reconstrucciones a los puntos de
+        Gauss (\texttt{monodomainReconstruction.H}) y las claves de OpenMP;
   \item \texttt{src/highOrderAdapter/highOrderInterp.H}, la capa de alto orden.
 \end{itemize}
+
+Los headers comunes no son una biblioteca: se incluyen \emph{dentro} del espacio
+de nombres anónimo del \texttt{.C}, así que cada ejecutable compila su propia
+copia y un cambio ahí cambia los dos solvers. Cada listado de este recorrido
+indica entre corchetes de qué archivo sale.
 
 Afuera queda OpenFOAM, PETSc, Eigen y \textbf{solids4foam}, de donde sale la
 reconstrucción de alto orden propiamente dicha. Después de sacar del
@@ -291,8 +332,9 @@ el layout que PETSc espera. En serie \texttt{gRowStart} vale cero y
  ("El offset global de fila", r"""
 \texttt{gRowStart} es el desplazamiento de la primera fila de este rank, o sea
 \texttt{globalIndex::localStart()}. Es constante para toda la corrida --- una
-malla, una descomposición --- así que se fija una vez en \texttt{main()} en vez
-de arrastrarlo por la firma de cada rutina.
+malla, una descomposición --- así que se fija una vez en \texttt{main()}, con
+\texttt{initialiseGlobalCells}, en vez de arrastrarlo por la firma de cada
+rutina. Vive en \texttt{monodomainBase.H} y es el mismo para los dos solvers.
 
 Vale la pena detenerse acá porque es donde vivían cuatro bugs del port, todos
 del mismo tipo: escribir una columna \emph{local} donde iba una \emph{global}.
@@ -305,14 +347,15 @@ entrada de columna.
 
 Justamente por eso el valor no se lee directo sino a través de
 \texttt{globalRowStart()}, que \textbf{se niega a servir el cero inicial}. La
-asignación ocurre en \texttt{main()}, después de construir el interpolador, y
-todas las inserciones de fila en PETSc la leen. Un camino de código que llegara
+asignación ocurre en \texttt{main()}, después de leer la malla, y todas las
+inserciones de fila en PETSc la leen. Un camino de código que llegara
 a una matriz antes de ese punto usaría offset cero \emph{en todos} los ranks, o
 sea que los ranks $>0$ escribirían sus filas encima de las del rank 0: operador
 corrompido y respuesta plausible pero equivocada, nunca un error. Hoy nada lo
 hace; el accesor lo vuelve imposible en vez de meramente improbable.
 """, [(("// Global row offset", "return gRowStart;", 1),
-       "El offset, y el accesor que se niega a servirlo sin asignar.")]),
+       "El offset, y el accesor que se niega a servirlo sin asignar."),
+      ("initialiseGlobalCells", "Dónde se asigna, una sola vez.")]),
 
  ("Nombres de opciones: una sola ortografía, y los de PETSc", r"""
 \textbf{Cada opción del diccionario tiene exactamente una ortografía}, comparada
@@ -499,9 +542,24 @@ transpuesta. Con la tríada de alto orden hay que usar \texttt{gmres}.
 \texttt{cg} no falla siempre ahí, que es lo que lo hace peligroso: sobrevive
 mientras le alcancen pocas iteraciones y se cae cuando necesita más
 (\textbf{E13} lo muestra fallando con \texttt{jacobi} y \texttt{gamg}).
+
+\textbf{El KSP para sobre el residuo verdadero (2026-10).} GMRES y BiCGStab
+precondicionan por izquierda por defecto, y su tolerancia se aplica al residuo
+\emph{precondicionado}. Con \texttt{ilu} a $\Delta t$ grande los dos diferían en
+$\sim4\times$: el solve lineal ``convergía'' a $10^{-12}$ dejando un residuo
+verdadero de $3{,}66\times10^{-12}$, y Picard repetía ese mismo solve hasta el
+tope de iteraciones --- 2000 por paso. Ahora el KSP cacheado usa
+precondicionamiento por \textbf{derecha} (como ya hacía el KSP shell de JFNK),
+cuya norma monitoreada es la verdadera; \texttt{cg} no tiene lado derecho y
+monitorea la norma sin precondicionar. Va antes de
+\texttt{KSPSetFromOptions}, así que una opción de PETSc todavía puede
+cambiarlo.
 """, [("usesPetscBackend", "El nombre del backend, validado."),
       ("solveSparseSystem", "El despacho entre backends, con el guard de paralelo. Recortado."),
-      ("solveSparseSystemEigen", "El camino serial. Recortado.")]),
+      ("solveSparseSystemEigen", "El camino serial. Recortado."),
+      (("// Stop on the TRUE residual, the one the nonlinear stopping test",
+        "KSP_NORM_UNPRECONDITIONED", 3),
+       "Precondicionamiento por derecha en el KSP cacheado.")]),
 
  ("Discretización temporal: las dos familias", r"""
 El solver ofrece dos familias de integrador temporal, y \texttt{implicitScheme}
@@ -554,10 +612,10 @@ analítica sobre la MMS uniforme:
 \texttt{implicitScheme} & nominal & Cauchy, vía A & analítica, vía B \\
 \midrule
 \texttt{backwardEuler} y \texttt{BDF1} & 1 & $1{,}000$ & $1{,}000$ \\
-\texttt{crankNicolson} & 2 & $1{,}994$ & $2{,}000$ \\
+\texttt{crankNicolson} & 2 & $1{,}998$ & $2{,}000$ \\
 \texttt{BDF2} & 2 & $1{,}979$ & $1{,}992$ \\
 \texttt{BDF3} & 3 & $2{,}932$ & $2{,}971$ \\
-\texttt{BDF4} & 4 & $3{,}890$ & $3{,}941$ \\
+\texttt{BDF4} & 4 & $3{,}891$ & $3{,}908$ \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -601,9 +659,30 @@ $O(\Delta t^3)$ local y $O(\Delta t^2)$ global.
 
 \texttt{history} es el valor por defecto; \texttt{linear} existe para que ese
 costo siga siendo medible, porque un orden capado es todo lo que la corrida
-reporta --- no hay error ni advertencia. El camino \texttt{gaussPointODE} usa
-siempre la rampa: subirlo obligaría a guardar cada nivel \emph{en cada punto de
-cuadratura}.
+reporta --- no hay error ni advertencia.
+
+\textbf{El camino de puntos de Gauss (2026-10).} Con \texttt{gaussPointODE} la
+EDO se integra en cada punto de cuadratura, y hasta octubre lo hacía siempre con
+la rampa. La clave \texttt{stateODEGaussPointHistory} (por defecto
+\texttt{false} en el solver, \texttt{true} en el harness de la suite) le da el
+mismo polinomio que al camino por celda \emph{sin guardar nada entre pasos}: al
+principio de cada paso se reconstruyen en los puntos de Gauss los niveles de la
+historia BDF (o los valores de etapa ESDIRK), con el mismo operador que da $V^n$
+ahí (\texttt{reconstructVmLevelAtIionIntegrationPoints}). Son $k-1$ arreglos
+temporales del tamaño de los puntos de Gauss, sólo dentro del paso.
+
+Medido en \textbf{M02} con GP, a $N=40$: con la clave, BDF3 da $2{,}932$ (vía A)
+y $2{,}971$ (vía B), BDF4 da $3{,}891$ y $3{,}908$ --- los mismos órdenes que el
+camino por celda. Sin ella, por la vía B BDF3 da $2{,}90$ y BDF4 se estanca en
+un error de $\sim2\times10^{-10}$ (pares de $3{,}89$, $7{,}51$, $-1{,}59$,
+$1{,}63$). El costo, medido en el electro (\textbf{E36}), es $+9\%$ de tiempo
+en GP con BDF4.
+
+\textbf{Un error de paso en las etapas ESDIRK, corregido.} En el mismo camino
+de Gauss, \texttt{updateIntegrationPointStatesODE} recibía \texttt{dt} en vez de
+\texttt{stageDt}: dentro de una etapa ESDIRK los estados se integraban sobre el
+paso entero, no sobre $c_i\,\Delta t$ como en el camino por celda. Sólo afectaba
+al arranque de los BDF en GP, y por eso no se había visto.
 
 \texttt{interpolateVmDriver} evalúa el polinomio de Lagrange a través de los
 voltajes que el esquema exterior ya calculó: dos nodos para las familias
@@ -613,32 +692,48 @@ existen. El caso de dos nodos está escrito aparte y no pasa por el bucle, que e
 lo que garantiza que \texttt{backwardEuler} y \texttt{crankNicolson} sigan
 dando resultados idénticos bit a bit.
 """, [("interpolateVmDriver", "El interpolante, con el caso de dos nodos escrito aparte."),
-      ("reactionRatesLinearVm", "Dónde el driver entra a las EDO.")]),
+      ("reactionRatesLinearVm", "Dónde el driver entra a las EDO."),
+      (("// The same driver at the Gauss points, for the gaussPointODE path",
+        "VmLevelScratchPtr.reset(", 1),
+       "El driver de los puntos de Gauss y cuándo usa la historia."),
+      (("// Modified for cardiacFoam: stageDt, not dt. Inside an", 22),
+       "El camino de Gauss con stageDt.")]),
 
  ("Reconstrucción a los puntos de integración", r"""
 Con alto orden, $V_m$ y los estados viven en los centros de celda pero la
 corriente iónica se evalúa en los puntos de Gauss. Estas rutinas hacen la
 reconstrucción MLS de ida y el promedio de vuelta.
 
-\texttt{reconstructStatesAtIionIntegrationPoints} lleva un limitador de
-Barth--Jespersen, acotando la reconstrucción al rango de los vecinos. No es
-cosmético: sin él, el sobrepaso de alto orden sobre estados rígidos desborda.
+Las reconstrucciones viven en \texttt{monodomainReconstruction.H}, compartidas
+con el electro. \texttt{reconstructCellFieldsAtIntegrationPoints} reconstruye
+varios campos en una sola pasada (los tres estados del MMS a la vez: hacerlo
+campo por campo repetía el recorrido y costaba un 30\,\% más en M18), con un
+solo intercambio de halo por campo fuera de la región de hilos.
+
+Esa rutina acepta un limitador al rango de los vecinos (tipo Barth--Jespersen),
+pero \textbf{el MMS nunca lo pide}: sobre un campo suave sólo recortaría
+extremos legítimos. Lo usa, opcionalmente, el solver electro.
 """, [("reconstructVmAtIionIntegrationPoints", "Reconstrucción de Vm. Recortada."),
+      ("reconstructStatesAtIionIntegrationPoints", "Los estados, sin limitador."),
       ("averageIntegrationPointFieldToCells", "El promedio de vuelta a celdas.")]),
 
  ("Integración de las EDO, y el paralelismo por hilos", r"""
 \texttt{advanceStateODE} avanza los estados en cada celda o punto de integración,
 con RK4 o RKF45 adaptativo según el diccionario.
 
-Acá están los \textbf{únicos} lazos con OpenMP de todo el archivo. Es importante
-para entender el rendimiento: los hilos reparten \emph{estas} iteraciones y nada
-más --- \textbf{el ensamblado no está paralelizado con hilos}, sólo por MPI. La
-región funciona porque cada punto integra su propia EDO sin hablar con ningún
-otro, y por eso el resultado es \textbf{bit-idéntico} con cualquier cantidad de
-hilos, cosa que \textbf{E20} mide en el otro solver dando exactamente cero.
+Acá están los lazos con OpenMP del \texttt{.C}. Hay otros dos lugares con
+hilos, los dos en el código común: las reconstrucciones a los puntos de Gauss
+(\texttt{monodomainReconstruction.H}) y los productos matriz--vector de Eigen,
+que \texttt{openMPControls.H} ata a la misma clave con
+\texttt{Eigen::setNbThreads} (con \texttt{stateODEUseOpenMP false} todo es
+serial). \textbf{El ensamblado no está paralelizado con hilos}, sólo por MPI.
+Las regiones funcionan porque cada punto integra su propia EDO, o reconstruye su
+propio valor, sin hablar con ningún otro, y por eso el resultado es
+\textbf{bit-idéntico} con cualquier cantidad de hilos, cosa que \textbf{E20}
+mide en el otro solver dando exactamente cero.
 
 El umbral por debajo del cual la región no se abre llega como parámetro desde la
-clave \texttt{stateODEOpenMPThreshold}, en las \textbf{22} llamadas que lo pasan.
+clave \texttt{stateODEOpenMPThreshold}, en todas las llamadas que lo pasan.
 Esto figuró un tiempo como item abierto --- se creía que el valor estaba fijo en
 256 en seis lazos y que la clave no hacía nada --- y al ir a arreglarlo resultó
 que ya estaba conectado y que lo desactualizado era el registro. Lo que sí se
@@ -674,7 +769,7 @@ por qué en 3D no se pasa de $N{=}30$.
 """, [(("int main(int argc, char* argv[])", 24), "El arranque."),
       (("Tighten the glibc allocator before any large allocation. The LRE", 15),
        "El asignador, ajustado antes de la primera asignación grande."),
-      (("gRowStart = LREInterp_Vm.globalCells().localStart();", 8),
+      (("// Publish this rank's global row offset for the", 9),
        "Dónde se fija el offset global de fila."),
       ("logMemoryCheckpoint", "Los checkpoints de memoria que M17 usa para ajustar el techo.")]),
 
@@ -722,6 +817,25 @@ Un nombre de método inválido es \texttt{FatalError} y no un silencioso replieg
 sobre Picard, que es lo que hacía el solver electro hasta que \textbf{E18} lo
 señaló.
 
+\textbf{Un solo criterio de parada para los tres métodos (2026-10).} Picard
+paraba antes sólo con los incrementos de $V_m$ y de los estados, mientras JFNK y
+\texttt{diagonalIion} exigían además el residuo acoplado: una comparación de
+métodos comparaba, en parte, reglas de parada. Ahora los tres llaman a
+\texttt{nonlinearIterationExit} (\texttt{monodomainBase.H}, la misma del
+electro): incrementos de $V_m$ e $I_{ion}$ --- y de los estados si
+\texttt{nonlinearRequireStatesConvergence} --- y residuo acoplado.
+
+Con una salida más, la de \textbf{piso}: el residuo acoplado puede quedarse
+quieto por encima de \texttt{nonlinearTolerance} (el residuo verdadero que deja
+un Krylov precondicionado, o redondeo en un sistema rígido grande), y cada
+iteración extra repite el mismo solve hasta el tope. Se encontró en este solver:
+Picard, \texttt{ilu}, $\Delta t=2\times10^{-3}$, 2000 iteraciones idénticas por
+paso con un residuo de $3{,}66\times10^{-12}$ contra una tolerancia de
+$10^{-12}$. Si los incrementos ya pasan y el residuo no bajó desde la iteración
+anterior, el iterado está tan convergido como el operador permite: se para, se
+cuenta y se avisa en el log. Los incrementos nunca se aflojan, así que el peor
+caso es el criterio viejo de Picard.
+
 \textbf{La condición de parada del lazo tenía un error, y era invisible.} El
 tiempo acumulado es una suma en punto flotante de $\Delta t$, y puede caer por
 debajo de \texttt{endTime} \emph{por más que} \texttt{SMALL}: 160 pasos de
@@ -731,9 +845,11 @@ de más y la corrida terminaba en $0{,}5152$ sin avisar nada. Eso no es cosméti
 para un estudio temporal: los campos que se comparan entre corridas con distinto
 $\Delta t$ dejan de ser del mismo instante. Ahora la condición es
 \texttt{endTime} $-\ \Delta t/2$, exacta porque acá $\Delta t$ es constante. Lo
-encontró la guarda de un test de la suite, no una revisión del código, y el mismo
-error sigue presente en el solver electro.
-""", [(("    const bool usePicard =",
+encontró la guarda de un test de la suite, no una revisión del código. El
+solver electro, que admite $\Delta t$ variable, usa su propia tolerancia de
+$10^{-3}\,\Delta t$.
+""", [("nonlinearIterationExit", "El criterio común, con la salida de piso."),
+      (("    const bool usePicard =",
         "Valid options are Picard, JFNK and diagonalIion (exact", 3),
        "El despacho de método no lineal, y el rechazo de un nombre inválido."),
       (("// Picard used to have",
@@ -800,12 +916,25 @@ def emit_listing(rel_source, first, last, caption, truncated):
                % (first, first, last, cap, rel_source)).replace(r"\end{lstlisting}", "")
 
 
+def all_sources():
+    """El .C primero, después los headers compartidos: (path, relativo, líneas)."""
+    out = [(SOLVER / SOURCE, "../" + SOURCE)]
+    for h in sorted(COMMON.glob("*.H")):
+        out.append((h, "../../../../src/monodomainCommon/" + h.name))
+    return [(p, r, p.read_text().split("\n")) for p, r in out]
+
+
 def main():
     src = SOLVER / SOURCE
-    text = src.read_text()
-    lines = text.split("\n")
-    funcs = find_functions(src)
-    rel = "../" + SOURCE
+    sources = all_sources()
+    text = "\n".join("\n".join(lines) for _, _, lines in sources)
+    located = {}                      # nombre -> (rel, a, b); el .C manda
+    per_file = []
+    for path, rel_path, _ in sources:
+        fx = find_functions(path)
+        per_file.append((path.name, fx))
+        for name, (a, b) in fx.items():
+            located.setdefault(name, (rel_path, a, b))
 
     body = []
     for title, prose, items in SECTIONS:
@@ -813,29 +942,38 @@ def main():
         body.append(prose.strip())
         for ref, caption in items:
             try:
-                a, b, trunc = resolve(ref, lines, funcs)
+                rel, a, b, trunc = resolve(ref, sources, located)
             except KeyError as exc:
                 print(f"  aviso: {exc}", file=sys.stderr)
                 continue
+            caption = caption + r" \texttt{[%s]}" % rel.split("/")[-1].replace("_", r"\_")
             body.append(emit_listing(rel, a, b, caption, trunc))
 
     # indice completo de funciones
     index = [r"\section{Índice de funciones}",
-             "Todas las funciones del espacio de nombres anónimo, en orden de "
-             "aparición. Las secciones anteriores recorren las principales; ésta "
-             "es el mapa completo para ubicarse en el archivo.",
-             r"\begin{longtable}{rll}", r"\toprule",
-             r"línea & función & líneas \\", r"\midrule", r"\endhead"]
-    for name, (a, b) in sorted(funcs.items(), key=lambda kv: kv[1][0]):
-        index.append(r"%d & \texttt{%s} & %d \\" % (a, name.replace("_", r"\_"), b - a + 1))
-    index += [r"\bottomrule", r"\end{longtable}"]
+             "Todas las funciones, archivo por archivo y en orden de aparición: "
+             "primero las del solver, después las de los headers compartidos de "
+             r"\texttt{src/monodomainCommon}. Las secciones anteriores recorren "
+             "las principales; ésta es el mapa completo."]
+    for fname, fx in per_file:
+        if not fx:
+            continue
+        index += [r"\subsection*{\texttt{%s}}" % fname.replace("_", r"\_"),
+                  r"\begin{longtable}{rll}", r"\toprule",
+                  r"línea & función & líneas \\", r"\midrule", r"\endhead"]
+        for name, (a, b) in sorted(fx.items(), key=lambda kv: kv[1][0]):
+            if name == "if":
+                continue
+            index.append(r"%d & \texttt{%s} & %d \\" % (a, name.replace("_", r"\_"), b - a + 1))
+        index += [r"\bottomrule", r"\end{longtable}"]
 
     tex = "\n\n".join([
         PREAMBLE.replace('LITERATE_HERE', literate_clause(text)),
         r"\title{\textbf{Recorrido del código}\\[4pt]\large\texttt{%s}}"
         % NAME.replace("_", r"\_"),
         r"\author{}",
-        r"\date{Generado el %s a partir de \texttt{%s} (%d líneas)}"
+        r"\date{Generado el %s a partir de \texttt{%s} (%d líneas) y de los "
+        r"headers de \texttt{src/monodomainCommon}}"
         % (_dt.date.today().isoformat(), SOURCE.replace("_", r"\_"),
            len(src.read_text().split("\n"))),
         r"\begin{document}", r"\maketitle",
@@ -849,7 +987,7 @@ def main():
         r"\end{document}",
     ])
     OUT.write_text(tex)
-    print(f"{OUT.name}: {len(SECTIONS)} secciones, {len(funcs)} funciones indexadas")
+    print(f"{OUT.name}: {len(SECTIONS)} secciones, {len(located)} funciones indexadas")
     return 0
 
 

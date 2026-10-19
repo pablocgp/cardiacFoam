@@ -88,10 +88,13 @@ centres or at the cell quadrature points (required for high order);
 \item[(ii)] only at the centres, reconstructing them afterwards wherever the ionic source has to be evaluated;
 \item[(iii)] a front-aware hybrid that does (i) only on the propagating front and (ii) everywhere else (Section~\ref{sec:stateint});
 \end{itemize}
-\item Time integration follows a $\theta$ scheme (backward Euler or Crank--Nicolson);
+\item Time integration follows a $\theta$ scheme (backward Euler or
+Crank--Nicolson) or BDF1--4 with an ESDIRK3 startup (since 2026-10,
+Section~\ref{sec:oct2026});
 \item the per-cell ionic
-ODE uses the OpenFOAM adaptive RKF45 integrator with configurable
-tolerances;
+ODE uses the solver's own integrator (adaptive \code{RKF45} by default,
+\code{RK4} or \code{Euler}) with configurable tolerances, driven by a
+polynomial in time of $\Vm$ across the step;
 \item The mass operator can be \code{lumped} or high-order \code{consistent};
 \item the resulting coupled nonlinear system can be solved by Picard fixed-point
 iteration, a diagonal linearisation of $\Iion$, or a Jacobian-Free
@@ -129,9 +132,17 @@ the operators are assembled with local rows and global columns and become PETSc
 product goes through \code{MatMult} instead of Eigen. The algorithms of
 Sections~\ref{sec:stateint}--\ref{sec:linalg} are unchanged;
 Section~\ref{sec:distributed} describes what the decomposition requires, how a
-parallel operator is verified, and the one inconsistency that remains --- a
-stencil selection in the high-order library that is not invariant under
-partitioning (Section~\ref{sec:dist-stencils}).
+parallel operator is verified, and the inconsistency that was measured in the
+stencil selection of the high-order library (Section~\ref{sec:dist-stencils}).
+
+\textbf{Status as of 2026-10-18.} Since October the code this solver shares with
+the MMS solver lives in \code{src/monodomainCommon/}, and the solver gained BDF
+schemes, the history-based $\Vm$ driver, a common nonlinear stopping test, right
+preconditioning of the KSP, the $\Vm$ history at the Gauss points and the fix of
+the hybrid's temporal floor. Section~\ref{sec:oct2026} collects those changes and
+the new results (E02, E35, E36 and M02); the earlier sections have been corrected
+where they had become false. The result tables of Section~\ref{sec:results}
+\textbf{predate} those changes.
 \end{abstract}
 
 \tableofcontents
@@ -343,6 +354,15 @@ $\theta = 1$ (BE) the explicit half of the diffusion vanishes and
 $\Bimp = \Mmass/\Delta t$. The scaled diffusion is
 $\Lop = \Kstif / (\chi C_{m})$.
 
+\paragraph{BDF1--4 (2026-10).} \code{implicitScheme} also accepts \code{BDF1}
+(bit-identical to \code{backwardEuler}), \code{BDF2}, \code{BDF3} and
+\code{BDF4}. They end up in the same pair of operators, with $a_0/\Delta t$
+instead of $1/\Delta t$ in front of $\Mmass$ and the history added as a single
+field; the steps a BDF-$k$ cannot take by itself are taken with ESDIRK3. See
+Section~\ref{sec:oct-bdf}. Contrary to the above, $\Aimp$ is no longer rebuilt
+every step: it is reused while $\Delta t$ and the scheme do not change
+(Section~\ref{sec:optim-B}).
+
 % ================================================================== %
 \section{Spatial discretisation}
 % ================================================================== %
@@ -511,12 +531,17 @@ stimulated,
   \;\;\vee\;\; (\Iext)_i\neq 0 .
   \label{eq:frontflag}
 \end{equation}
-The persistent states are carried at the Gauss points (as in
-\code{gaussPointODE}); the smooth-cell reconstruction derives its cell values
-by quadrature-averaging that carrier. Per nonlinear evaluation the branch is:
+The front states are carried at the Gauss points (as in
+\code{gaussPointODE}); \textbf{since 2026-10-16 the smooth cells carry their own
+cell state}, \code{hybridCellStates}, as pure CC does. Before, that cell state was
+rebuilt every step as the quadrature average of the Gauss states, which put a
+floor on the temporal convergence (Section~\ref{sec:oct-hybrid}). Per nonlinear
+evaluation the branch is:
 \begin{enumerate}[topsep=2pt,itemsep=1pt,label=(\alph*)]
   \item front cells: one ODE per Gauss point, local $\Vm$ (as~\eqref{eq:gpode});
-  \item smooth cells: one ODE at the cell centre from the cell-average state;
+  \item smooth cells: one ODE at the cell centre from its cell state at the start
+        of the step (the Gauss average is used only once, when a cell leaves the
+        front);
   \item reconstruct the smooth-cell states to their Gauss points, front Gauss
         states left untouched;
   \item evaluate $\Iion$ at all Gauss points and average to the cell.
@@ -545,7 +570,8 @@ $\sim\!0.009$ cell per step at $\Delta t=\SI{e-4}{s}$, $\Delta x=\SI{0.5}{mm}$).
 High-order ($p3$) reconstruction of the stiff TNNP states across an
 under-resolved front overshoots (Gibbs), and a state driven far outside its
 physical range can overflow the ionic algebra (observed as a PETSc
-\code{SIGFPE}). \dictkey{stateReconstructLimiter} (default \code{true}, active
+\code{SIGFPE}). \dictkey{stateReconstructLimiter} (default \code{false} since
+2026-10-06, in the solver and in the harness; when requested, active
 for \code{cellCentredReconstruct} and the hybrid smooth cells, independent of
 \dictkey{frontAwareHybrid}) applies a Barth--Jespersen-style bound: each
 reconstructed value is clipped to the range of the cell and its face neighbours,
@@ -562,6 +588,12 @@ physically realised (ODE-evolved) range and the ionic algebra never sees a
 pathological input; in smooth regions the reconstruction already lies within the
 range and the limiter is inactive, preserving the order there.
 
+\paragraph{Why it is off.} At the front, clipping to the neighbour range drops the
+reconstruction to first order exactly where it matters, and no run of the current
+suite needs it to finish. It remains available if a case overflows; without it the
+hybrid can hit \code{SIGFPE} in extreme configurations (seen while testing a
+hysteresis in the front classification, which was discarded).
+
 % ------------------------------------------------------------------ %
 \subsection{Dictionary keys}
 % ------------------------------------------------------------------ %
@@ -575,7 +607,9 @@ Key (in \code{implicitHOCoeffs}) & Meaning & Default \\
 \code{frontAwareHybrid} & Gauss ODEs on the front, reconstruct elsewhere & \code{false} \\
 \code{hybridFrontVmRange} & sub-cell $\Vm$ range flagging a front cell [V] & $5\times10^{-3}$ \\
 \code{hybridFrontDilation} & cell layers added around the front band & $2$ \\
-\code{stateReconstructLimiter} & Barth--Jespersen limiter on the reconstruction & \code{true} \\
+\code{stateReconstructLimiter} & Barth--Jespersen limiter on the reconstruction & \code{false} \\
+\code{stateODEDriver} & $\Vm$ polynomial driving the ODEs: \code{history} / \code{linear} & \code{history} \\
+\code{stateODEGaussPointHistory} & the history on the Gauss-point paths too & \code{false} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -642,6 +676,15 @@ the state maximum. A nonlinear iteration can stop only after
 \code{nonlinearIionTolerance}. The state criterion
 \code{nonlinearStatesTolerance} is included only when
 \code{nonlinearRequireStatesConvergence=true}.
+
+\paragraph{One test, with a floor exit (2026-10).} The three methods and the
+ESDIRK stages stop with the same shared function, \code{nonlinearIterationExit}:
+first the increments must pass; then, if
+$R_{\mathrm{cpl}}\le$~\code{nonlinearTolerance} the iteration has converged, and if
+$R_{\mathrm{cpl}}$ did not fall since the previous iteration it stops at the
+\emph{floor}: the iterate is as converged as the operator allows (the true residual
+a preconditioned Krylov solve leaves, or round-off). Floor exits are counted and
+reported in the log. The increment tests are never loosened.
 
 \subsection{Picard fixed-point method}
 
@@ -868,6 +911,15 @@ KSP/PC type is taken from \code{petscLinearKspType} / \code{petscLinearPcType}
 (the latter accepts \code{ilu}, \code{lu}, \code{jacobi}, \code{gamg}, \code{hypre},
 \dots). All of them share \code{tolerance} and \code{maxIterations}.
 
+\paragraph{Right preconditioning (2026-10).} In PETSc, GMRES and BiCGStab
+precondition on the left by default, and \code{tolerance} then applies to the
+\emph{preconditioned} residual. With \code{ilu} at a large $\Delta t$ the two
+differ by a factor $\sim4$, and the nonlinear test, which measures the true
+residual, was never met. The assembled KSP now preconditions on the
+\textbf{right} (as the JFNK shell KSP already did), and \code{cg} monitors the
+unpreconditioned norm. It is set before \code{KSPSetFromOptions}, so a PETSc
+option can still override it.
+
 \paragraph{Factorisation reuse.}
 Since $\Aimp=\Mmass/\Delta t-\theta\Lop$ is constant as long as $\Delta t$ does not change,
 the matrix is assembled once and the solver (PETSc KSP or Eigen
@@ -885,8 +937,12 @@ Jacobian shell, with back-end \code{jfnkLinearSolverBackend} (Eigen or PETSc).
 % ================================================================== %
 
 For each cell or cell QP, the TNNP ODE~\eqref{eq:tnnp} is advanced by
-the OpenFOAM adaptive integrator selected via the \code{solver} key.
-Default \code{RKF45}~\cite{hairer2}. Keys read from
+the solver's own integrator selected via the \code{solver} key: adaptive
+\code{RKF45} by default~\cite{hairer2}, \code{RK4} or \code{Euler}; any other name
+is a \code{FatalError}. Every RKF45 integration starts from \code{initialODEStep}
+(it used to inherit the last sub-step of the previous call, and the key had no
+effect). Within the step $\Vm$ is not frozen: it comes from the driver of
+Section~\ref{sec:oct-driver}. Keys read from
 \code{constant/timeIntegrationProperties}:
 
 \begin{center}
@@ -956,6 +1012,12 @@ When protection is enabled, the guards applied in order are:
 The embedded implementation stores a capped correction count and emits a
 compact summary file at exit; it does not depend on external ionic-model
 logging utilities.
+
+\paragraph{Why it stays off (2026-10).} When on, in the E02 temporal study the
+counter reaches its cap of $10^6$ and the BDF schemes lose their order: with CC
+states, BDF2/3/4 give 1.74/2.22/3.54 with the protection and 1.89/2.96/4.60
+without it, and no run needed it to finish. Since 2026-10-16 the suite harness
+does not turn it on either (\code{TNNP\_NUMERICAL\_PROTECTION = False}).
 
 % ================================================================== %
 \section{Activation tracking and benchmarks}
@@ -1358,9 +1420,276 @@ do not affect the PDE/ODE solve itself; they affect only stopping and
 post-processing of activation times.
 
 % ================================================================== %
+\section{October 2026 changes and new results}
+\label{sec:oct2026}
+% ================================================================== %
+
+This section collects what changed in the solver between August and 2026-10-18,
+and the verification-suite tests that measure it
+(\path{run/tutorials_electro/electroTestParallelVerification_2D/} and, for the
+MMS, \path{mmsTestParallelVerification_2D/}). The earlier sections have already
+been corrected where they had become false; the detail is here. The results of
+Section~\ref{sec:results} \textbf{predate} all of this.
+
+% ------------------------------------------------------------------ %
+\subsection{Code shared with the MMS solver}
+% ------------------------------------------------------------------ %
+
+What this solver shares with \code{highOrderManufacturedFDAImplicitPETScDistributed}
+moved to headers in \code{src/monodomainCommon/}:
+
+\begin{center}
+\begin{tabular}{@{}p{0.40\linewidth}p{0.56\linewidth}@{}}
+\toprule
+Header & Contents \\
+\midrule
+\code{monodomainBase.H} & global row offset, option validation, nonlinear stopping test \\
+\code{monodomainAssembly.H} & assembly of $\Mmass$ and $\Kstif$ (orthogonal and high order) \\
+\code{monodomainPetsc.H} & distributed matrices, cached KSP, KSP/PC selection \\
+\code{monodomainKrylov.H} & in-house GMRES and JFNK \\
+\code{monodomainTimeSchemes.H} & $\theta$/BDF coefficients, ESDIRK3 tableau, $\Vm$ driver \\
+\code{monodomainReconstruction.H} & reconstructions to the Gauss points \\
+\code{openMPControls.H}, \code{jfnkPreconditionerControls.H} & OpenMP keys and JFNK preconditioner keys \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+They are not a library: they are included \emph{inside} the anonymous namespace of
+each \code{.C}, so each executable compiles its own copy and a change there changes
+both solvers. The code walkthrough (\code{codigo\_*.pdf}, generated by
+\code{mkcodereport.py}) looks up each function in the \code{.C} and in those
+headers.
+
+% ------------------------------------------------------------------ %
+\subsection{BDF1--4 with an ESDIRK3 startup}
+\label{sec:oct-bdf}
+% ------------------------------------------------------------------ %
+
+Ported from the MMS solver. A BDF-$k$ step reads
+\begin{equation}
+  \Bigl(\frac{a_0}{\Delta t}\Mmass - \Lop\Bigr)\mathsf{V}^{n+1}
+  \;=\; \frac{1}{\Delta t}\Mmass\,\mathsf{H}^{n} + \mathbf{s}^{n+1},
+  \qquad
+  \mathsf{H}^{n} = -\sum_{j=1}^{k} a_j\,\mathsf{V}^{n+1-j},
+\end{equation}
+i.e.\ the same pair of operators as the $\theta$ scheme with $\theta=1$ and a
+different scalar in front of $\Mmass$: assembly, sparsity and the cached
+factorisation are unchanged, and the history enters through a single product with
+$\Mmass$. BDF3 and BDF4 are $A(86^\circ)$- and $A(73^\circ)$-stable; BDF5 and BDF6
+are not offered ($52^\circ$ and $18^\circ$, which the reaction Jacobian of a front
+does not respect).
+
+The steps a BDF-$k$ cannot take by itself --- the first $k-1$, the $k-1$ after a
+history restart, and a step of non-nominal length (the clipped last step, the stop
+point) --- are taken with \textbf{ESDIRK3(2)4L[2]SA}, a one-step, L-stable method,
+third order with respect to the semi-discrete system, which is what preserves the
+nominal order (\code{bdfStartup ESDIRK3}, the only value).
+
+The history is \textbf{restarted} when the stimulus changes (a jump in the forcing
+that a multistep method cannot cross), after a rolled-back step, and on a step of
+non-nominal length. The stimulus is also \textbf{averaged over the step}: the
+injected charge is exact for any $\Delta t$, whereas before the stimulus lasted one
+step too long.
+
+% ------------------------------------------------------------------ %
+\subsection{The \texorpdfstring{$\Vm$}{Vm} driver of the ODEs}
+\label{sec:oct-driver}
+% ------------------------------------------------------------------ %
+
+The states are integrated with sub-steps inside the PDE step, and each sub-step
+needs $\Vm$ at an intermediate instant. With $\Vm$ frozen at the candidate, TNNP
+gave order 1 even with Crank--Nicolson. The ODE now takes it from a Lagrange
+polynomial in time (\code{interpolateVmDriver}):
+\begin{itemize}[nosep]
+  \item \code{stateODEDriver linear}: the line between $\mathsf{V}^{n}$ and the
+        candidate; second order, it caps every BDF at 2 (MMS M21: BDF4 2.04).
+  \item \code{stateODEDriver history} (default): it also goes through the BDF
+        history levels or the ESDIRK stage values, which the scheme already
+        stores; no extra evaluations (M21: BDF4 3.89).
+\end{itemize}
+\code{backwardEuler}, \code{crankNicolson} and \code{BDF1} store no level older
+than $\mathsf{V}^n$ and use the line under either value.
+
+% ------------------------------------------------------------------ %
+\subsection{The \texorpdfstring{$\Vm$}{Vm} history at the Gauss points}
+\label{sec:oct-gausshist}
+% ------------------------------------------------------------------ %
+
+On the Gauss-point paths (\code{gaussPointODE} and the hybrid's front) the driver
+was always the line, because raising it seemed to require storing every level at
+every point. With \dictkey{stateODEGaussPointHistory true} those paths use the same
+polynomial as the cell path \emph{without storing anything between steps}: each
+history level (or each accepted ESDIRK stage value) is reconstructed at the Gauss
+points at the start of the step, with the same operator that gives
+$\mathsf{V}^n$ there (\code{reconstructVmLevelAtIionIntegrationPoints}). Within the
+step $k-1$ temporary arrays of Gauss-point size live. It only acts with
+\code{stateODEDriver history}; the solver has it off by default and the harness
+turns it on.
+
+Without the key, BDF3 and BDF4 stayed at $\sim$2.4--2.5 on GP (E02); with it they
+reach their order (Section~\ref{sec:oct-results}). E36 measures the cost, BDF4 at
+0.25~mm, $\Delta t=2.5\times10^{-5}$~s, 4 ranks, two alternated repetitions:
+
+\begin{center}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Mode & loop without the key [s] & loop with the key [s] & cost \\
+\midrule
+GP           & 51.8 & 56.4 & +8.9\,\% \\
+CC + hybrid  & 12.6 & 13.2 & +5.1\,\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Peak memory does not change measurably (173~MB); the theoretical temporary memory
+is 24 bytes per Gauss point with BDF4, against 152 for the 19 TNNP states at that
+same point.
+
+% ------------------------------------------------------------------ %
+\subsection{The hybrid's temporal floor, and its fix}
+\label{sec:oct-hybrid}
+% ------------------------------------------------------------------ %
+
+With the corrections above, pure CC and GP converged in $\Delta t$, but the hybrid
+sat on a \textbf{floor} of $\sim2.2\times10^{-3}$ in the Cauchy difference that no
+scheme got below (all equal on the finest pair).
+
+\paragraph{What it was not.} The first hypothesis was cells near the
+\dictkey{hybridFrontVmRange} threshold entering and leaving the band. The
+mode-switch diagnostic ruled it out: $\sim250$ switches per run, constant as
+$\Delta t$ shrinks. A hysteresis in the classification
+(\code{hybridFrontVmRangeExit}) did not help either; without the limiter the runs
+hit \code{SIGFPE}, and it was removed from the solver. Widening the band did not
+help.
+
+\paragraph{What it was.} The smooth cells rebuilt their cell state every step as
+the average of its reconstruction at the Gauss points. Averaging a reconstruction
+is not the identity: for a quadratic reconstruction on a square cell of side $h$,
+\begin{equation}
+  \frac{1}{|\Omega_i|}\int_{\Omega_i}\widehat{s}\,\mathrm{d}\mathbf{x}
+  \;=\; s_i + \frac{h^2}{24}\,\Delta s + O(h^4),
+\end{equation}
+a diffusion of the states applied \emph{once per step}, hence with an effective
+coefficient $\propto h^2/(24\,\Delta t)$: stronger the smaller $\Delta t$, which is
+exactly a floor in temporal convergence.
+
+\paragraph{The fix.} The smooth cells keep their cell state,
+\code{hybridCellStates}, between steps, as pure CC does, and only the front lives at
+the Gauss points; the Gauss average is used once, when a cell leaves the band.
+Without the limiter, CN went from $1.49\times10^{-3}$ to $3.72\times10^{-4}$ (order
+2.00) and BDF4 from $2.80\times10^{-4}$ to $5.8\times10^{-6}$ on the finest pair:
+the same as GP with history, at half the cost.
+
+\paragraph{Diagnostic in the log.} At the end of every run with the hybrid the
+solver prints \code{Hybrid front band: N mode switches; M cells switched more than
+twice (max K)}. Without the hybrid it prints nothing.
+
+% ------------------------------------------------------------------ %
+\subsection{Other changes}
+% ------------------------------------------------------------------ %
+
+\begin{itemize}
+  \item \textbf{Common stopping test with a floor exit} (stopping-test paragraph
+        of the nonlinear-solver section): the three methods and the ESDIRK
+        stages use \code{nonlinearIterationExit}.
+  \item \textbf{Right preconditioning} of the assembled KSP, so that the linear
+        tolerance measures the true residual (Section~\ref{sec:linalg}).
+  \item \textbf{Reconstruction of K fields at once}
+        (\code{reconstructCellFieldsAtIntegrationPoints}): the MLS stencil is
+        walked once per cell for the 19 states; bit-identical to reconstructing
+        them one at a time.
+  \item \textbf{Dirichlet refused.} \code{fixedValue} and \code{fixedVoltage} are
+        refused at start-up: the operator assembled the diagonal term but the
+        right-hand-side lift was never formed, so the boundary was clamped to
+        zero. Measured with walls at $-40$~mV on the low-order path: 47~mV of
+        error and growing, exit 0, no warning. The accepted conditions are
+        \code{zeroGradient}, \code{empty} and the processor patches.
+  \item \textbf{OpenMP}: the reconstructions to the Gauss points are threaded, and
+        \code{Eigen::setNbThreads} ties Eigen's products to the same key.
+\end{itemize}
+
+% ------------------------------------------------------------------ %
+\subsection{Defaults: solver and harness}
+% ------------------------------------------------------------------ %
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Key & solver & suite harness (since 2026-10-16) \\
+\midrule
+\code{TNNPNumericalProtection} & \code{false} & \code{False} \\
+\code{stateReconstructLimiter} & \code{false} & \code{False} \\
+\code{stateODEGaussPointHistory} & \code{false} & \code{True} \\
+\code{stateODEDriver} & \code{history} & \code{history} \\
+\code{bdfStartup} & \code{ESDIRK3} & \code{ESDIRK3} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ------------------------------------------------------------------ %
+\subsection{New results}
+\label{sec:oct-results}
+% ------------------------------------------------------------------ %
+
+\paragraph{E02: temporal convergence per scheme and state mode.} 2-D, 0.5~mm,
+$\Vm$ at $t=10$~ms, Cauchy in $\Delta t=10^{-4}\dots6.25\times10^{-6}$~s, six
+schemes and four modes, Gauss history on, no protection, no limiter (120 runs).
+Observed order on the finest pair:
+
+\begin{center}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Scheme & nominal & low order & pure CC & CC + hybrid & pure GP \\
+       &         & (NO,NO,NO) & (p3,p3,p3) & (p3,p3,p3) & (p3,NO,p3) \\
+\midrule
+\code{backwardEuler}, \code{BDF1} & 1 & 0.59 & 0.82 & 0.97 & 0.97 \\
+\code{crankNicolson} & 2 & 1.95 & 2.00 & 2.00 & 2.00 \\
+\code{BDF2} & 2 & 1.75 & 1.89 & 1.59 & 1.59 \\
+\code{BDF3} & 3 & 2.77 & 2.96 & 2.93 & 2.93 \\
+\code{BDF4} & 4 & 4.60 & 4.60 & 5.59 & 5.47 \\
+\midrule
+mean time per run [s] & & 148 & 185 & 568 & 1135 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\code{BDF1} gives the same $\Vm$ as \code{backwardEuler} in every case. The verdict
+is FAIL (12/13) because of a single check: in pure CC, backwardEuler and BDF1 do not
+shrink the difference on the coarsest pair ($2.23\times10^{-2}$ then
+$2.47\times10^{-2}$), saturation of an L2 measure of a front displaced by more than
+its width. Still open: BDF2 at $\sim$1.59 on the Gauss-point paths, and
+backwardEuler at 0.59 on low order.
+
+\paragraph{E35: spatial (Cauchy) convergence of the activation time at P8.} With
+high order $T_{P8}$ must rise under refinement. GP and CC + hybrid do (33.68,
+41.49, 44.11, 44.87~ms at 0.5, 0.25, 0.125 and 0.0625~mm, equal to each other, the
+hybrid 3--6 times cheaper); pure CC is not monotone (47.39, 50.82, 48.61,
+45.56~ms): it reconstructs the states, nearly discontinuous at the front, and loses
+the high order there. Low order falls (156.7, 66.3, 49.5, 45.8, 45.0~ms). This
+campaign \textbf{predates} the hybrid fix and the current harness defaults, and
+was left with 8 pending runs at 0.03125~mm.
+
+\paragraph{E36: cost of the Gauss history.} PASS, see
+Section~\ref{sec:oct-gausshist}.
+
+\paragraph{M02 (MMS, exact solution): GP with history.} 2-D hexa $N=40$, p3. With
+the Gauss-history key the GP path gives, by route A (Cauchy) and route B (error
+against the analytical solution): CN 2.000/2.000, BDF2 1.979/1.992, BDF3
+2.932/2.971, BDF4 3.891/3.908. Without the key, by route B, BDF4 stalls at an error
+of $\sim2\times10^{-10}$. This is the exact-solution check that the key brings the
+Gauss path to its nominal order.
+
+% ================================================================== %
 \section{Results}
 \label{sec:results}
 % ================================================================== %
+
+\textbf{Note (2026-10).} The tables in this section were run with the July--August
+solver, \textbf{before} all the changes of Section~\ref{sec:oct2026} (among others:
+$\theta$ scheme only, state limiter on by default, and the hybrid with the temporal
+floor of Section~\ref{sec:oct-hybrid}). They are kept as a record and were not
+re-run; the results with the current solver are in
+Section~\ref{sec:oct-results}.
 
 This section collects the current results for the 2D and 3D
 Niederer-style benchmarks. The 2D benchmark (Section~\ref{sec:results:2D}) was re-run
@@ -2365,6 +2694,14 @@ Mistaking that for a discretisation error costs a lot of time.
 \subsection{Partition dependence of the MLS stencils}
 \label{sec:dist-stencils}
 % ------------------------------------------------------------------ %
+
+\paragraph{Note (2026-10).} In the MMS solver it was later found that much of
+this discrepancy came from the case and not from the library: the \code{Nn} key is
+the number of cells \emph{added} on top of the minimum for the degree, and the
+sweeps wrote it as if it were the total, so the stencils were 50\,\% larger than
+intended and the halo did not cover them. With the correct size, in 2-D, M11
+measures 0 differing stencils between np=1 and np=2 and M15 drops to
+$7\times10^{-15}$. The 3-D measurements below predate that fix and were not re-run.
 
 One genuine parallel inconsistency remains, and it lives in the stencil
 selection of the high-order library, not in any solver.
