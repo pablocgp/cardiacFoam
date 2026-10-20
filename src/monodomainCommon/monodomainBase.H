@@ -255,10 +255,20 @@
     // (the MMS by the PREVIOUS iterate); the current one is the agreed
     // reference. Two fields of different sizes cannot be compared: that is a
     // programming error, reported rather than read out of bounds.
+    // Modified for cardiacFoam: the denominator can be held at or above
+    // denominatorFloor, a global L2 norm (so the result stays uniform across
+    // ranks). A field that crosses zero - the net ionic current does, on the
+    // plateau of the action potential - drives ||current|| to zero while the
+    // iteration noise in it stays put, and the plain relative increment then
+    // meets no tolerance at all. Found in a 0-D TNNP run with tolerances of
+    // 1e-8: every scheme with dt <= 3.125e-6 stopped converging at the same
+    // instant, t = 0.21157 s. With the default floor of 0 the result is
+    // unchanged bit for bit.
     scalar relativeL2Difference
     (
         const scalarField& current,
-        const scalarField& previous
+        const scalarField& previous,
+        const scalar denominatorFloor = 0.0
     )
     {
         if (current.size() != previous.size())
@@ -282,7 +292,7 @@
         reduce(num, sumOp<scalar>());
         reduce(den, sumOp<scalar>());
 
-        return std::sqrt(num)/(std::sqrt(den) + SMALL);
+        return std::sqrt(num)/(max(std::sqrt(den), denominatorFloor) + SMALL);
     }
 
     // Added for cardiacFoam: globally reduced fingerprint of an assembled

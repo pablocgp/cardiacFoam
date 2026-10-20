@@ -784,6 +784,19 @@ const Switch nonlinearAcceptUnconverged
     implicitHOCoeffs.lookupOrDefault<Switch>("nonlinearAcceptUnconverged", false)
 );
 
+// Added for cardiacFoam, ported from the physiological solver: stop with a
+// FatalError once more than this many time steps IN A ROW have been rolled
+// back. A rolled-back step advances time with the solution frozen. There a 0-D
+// TNNP run went on for 60 000 of them to the end time and exited 0. Here the
+// manufactured source depends on time, so the step after a rollback is a
+// different problem and may converge - hence a run of them, not the total
+// (which the summary reports). Only acts while nonlinearAcceptUnconverged is
+// false.
+const label nonlinearMaxConsecutiveRollbacks
+(
+    implicitHOCoeffs.lookupOrDefault<label>("nonlinearMaxConsecutiveRollbacks", 10)
+);
+
 // Under-relaxation of the nonlinear update, clipped to (0, 1].
 const scalar nonlinearRelaxation =
     max
@@ -1126,7 +1139,7 @@ requireOneOf("stateODESolver", stateODESolver, {"RKF45", "RK4", "Euler"});
 //   history  (default) the interpolant through the Vm levels the scheme has
 //            already stored: the k+1 levels of BDF-k, or the stage values of
 //            the ESDIRK startup. Costs nothing but the interpolation itself.
-//   linear   the two-node ramp between V^n and the candidate, which is what.
+//   linear   the two-node ramp between V^n and the candidate.
 //            Kept ONLY so its cost stays measurable:
 //            it caps every BDF at order 2, and nothing reports it. The ramp
 //            is O(dt^2) wrong pointwise, O(dt^3) once integrated over the
@@ -1136,22 +1149,21 @@ requireOneOf("stateODESolver", stateODESolver, {"RKF45", "RK4", "Euler"});
 //
 // backwardEuler, crankNicolson and BDF1 store no level older than V^n, so they
 // take the two-node ramp under either value and are unaffected. So is the
-// gaussPointODE state mode, which always uses the ramp: raising it would mean
-// storing every level at every quadrature point.
+// gaussPointODE state mode unless stateODEGaussPointHistory is on, below.
 const word stateODEDriver
 (
     implicitHOCoeffs.lookupOrDefault<word>("stateODEDriver", "history")
 );
 
-// The Gauss-point state ODE paths (gaussPointODE, and the front cells of the
-// front-aware hybrid) drive the ODE with the two-node linear blend of Vm across
-// the step unless this is on. On, they use the same polynomial as the cell
-// paths - through the BDF history levels or the ESDIRK stage values - with each
-// level taken to the Gauss points by the reconstruction that gives V^n there:
-// at the start of the step for BDF, once per accepted stage for ESDIRK. Nothing
-// is kept at the Gauss points between steps. The blend caps BDF3/BDF4 near
-// second order on those paths (E02: GP gave 2.50 / 2.37 where CC gave
-// 2.96 / 4.60). Only acts with stateODEDriver history; off by default.
+// The Gauss-point state ODE path (gaussPointODE) drives the ODE with the
+// two-node linear blend of Vm across the step unless this is on. On, it uses
+// the same polynomial as the cell path - through the BDF history levels or
+// the ESDIRK stage values - with each level taken to the Gauss points by the
+// reconstruction that gives V^n there: at the start of the step for BDF, once
+// per accepted stage for ESDIRK. Nothing is kept at the Gauss points between
+// steps. Without it BDF4 stalls on that path (suite test M02, route B: the
+// error stops falling at ~2e-10); with it GP fits 3.89 / 3.91, as CC does.
+// Only acts with stateODEDriver history; off by default.
 const Switch stateODEGaussPointHistory
 (
     implicitHOCoeffs.lookupOrDefault<Switch>("stateODEGaussPointHistory", false)

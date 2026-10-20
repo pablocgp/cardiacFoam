@@ -480,7 +480,8 @@ requireOneOf("bdfStartup", bdfStartup, {"ESDIRK3"});
 //
 // backwardEuler, crankNicolson and BDF1 store no level older than V^n, so they
 // take the ramp under either value. So do the Gauss-point ODE paths
-// (gaussPointODE and the front cells of the hybrid), which always use it.
+// (gaussPointODE and the front cells of the hybrid) unless
+// stateODEGaussPointHistory is on, below.
 const word stateODEDriver
 (
     spatialIntegrationProperties.found("implicitHOCoeffs")
@@ -814,6 +815,40 @@ const Switch nonlinearAcceptUnconverged
     )
   : Switch(false)
 );
+
+// Added for cardiacFoam: hold the denominator of the relative Iion increment
+// at or above the largest ||Iion|| of the run so far. The net ionic current
+// crosses zero on the plateau, and there the plain relative increment can meet
+// no tolerance: a 0-D TNNP with tolerances of 1e-8 and dt <= 3.125e-6 stopped
+// converging at t = 0.21157 s. Off by default because it loosens the test
+// everywhere past the peak of the upstroke (0-D BDF2, dt = 1.25e-5: 42 % fewer
+// nonlinear iterations, Vm moved by up to 7e-8 V), which shifts every result;
+// the tissue runs of E02 never met the crossing.
+const Switch nonlinearIionIncrementFloor
+(
+    spatialIntegrationProperties.found("implicitHOCoeffs")
+  ? spatialIntegrationProperties.subDict("implicitHOCoeffs").lookupOrDefault<Switch>
+    (
+        "nonlinearIionIncrementFloor",
+        false
+    )
+  : Switch(false)
+);
+
+// Added for cardiacFoam: stop with a FatalError once more than this many time
+// steps IN A ROW have been rolled back. A rolled-back step advances time with
+// the solution frozen, and away from a stimulus edge the next step is the same
+// nonlinear problem, so it fails again: a 0-D TNNP run went on for 60 000
+// rolled-back steps to the end time with Vm frozen since t = 0.21157 s, and
+// exited 0. Only acts while nonlinearAcceptUnconverged is false.
+const label nonlinearMaxConsecutiveRollbacks =
+    spatialIntegrationProperties.found("implicitHOCoeffs")
+  ? spatialIntegrationProperties.subDict("implicitHOCoeffs").lookupOrDefault<label>
+    (
+        "nonlinearMaxConsecutiveRollbacks",
+        10
+    )
+  : label(10);
 
 // Under-relaxation of the nonlinear update, clipped to (0, 1]. 1 is no
 // relaxation and is the default.

@@ -2898,6 +2898,9 @@ int main(int argc, char* argv[])
     // tolerance (nonlinearIterationExit, monodomainBase.H).
     label nResidualFloorExits = 0;
 
+    // Rolled-back steps in a row (nonlinearMaxConsecutiveRollbacks).
+    label nConsecutiveRollbacks = 0;
+
     while (runTime.value() < runTime.endTime().value() - 0.5*dt)
     {
         const scalar t = runTime.value();
@@ -4977,6 +4980,17 @@ int main(int argc, char* argv[])
                 u2GuessIntegrationPoints = u2OldIntegrationPoints;
                 u3GuessIntegrationPoints = u3OldIntegrationPoints;
             }
+
+            if (++nConsecutiveRollbacks > nonlinearMaxConsecutiveRollbacks)
+            {
+                FatalErrorInFunction
+                    << nConsecutiveRollbacks << " consecutive time steps"
+                    << " rolled back (nonlinearMaxConsecutiveRollbacks = "
+                    << nonlinearMaxConsecutiveRollbacks << "), the last at t = "
+                    << t << ". The solution has been frozen since the first"
+                    << " of them; tighten dt or loosen the nonlinear"
+                    << " tolerances." << exit(FatalError);
+            }
         }
         else if (!nonlinearConverged && nonlinearAcceptUnconverged)
         {
@@ -4985,6 +4999,11 @@ int main(int argc, char* argv[])
                 << " after " << nonlinearIters << " iterations."
                 << " Accepting the unconverged iterate"
                 << " (nonlinearAcceptUnconverged=true)." << endl;
+        }
+
+        if (!nonlinearRolledBack)
+        {
+            nConsecutiveRollbacks = 0;
         }
 
         NonlinearConvergenceRecord nonlinearRecord;

@@ -1795,12 +1795,23 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             const scalar tEnd = tStart + stimulusDuration;
             const scalar overlap = min(t0 + dt, tEnd) - max(t0, tStart);
 
-            if (overlap <= 0.0 || dt <= 0.0)
+            // Modified for cardiacFoam: t0 is runTime.value(), which accumulates
+            // round-off, so a step meant to start (or end) exactly on a window
+            // edge can overlap it by a sliver. That sliver changed the fraction
+            // by more than the 1e-12 that triggers a BDF history discard, so
+            // the window's end discarded the history TWICE: measured in E02 at
+            // dt = 6.25e-6 only (t = 0.002 and 0.00200625), which gave BDF4
+            // three extra ESDIRK3 steps on the finest dt of a convergence
+            // ladder. Overlaps within 1e-9 of the step - the tolerance
+            // clippedStep uses - are snapped to 0 or to the full step. Any
+            // other fraction is unchanged, bit for bit.
+            if (dt <= 0.0 || overlap <= 1.0e-9*dt)
             {
                 continue;
             }
 
-            fraction[bI] = min(overlap/dt, scalar(1));
+            fraction[bI] =
+                overlap >= (1.0 - 1.0e-9)*dt ? scalar(1) : overlap/dt;
 
             const scalar current = fraction[bI]*stimulusIntensity;
             const labelList& stimulusCellIDs = stimulusCellIDsList[bI];
@@ -3320,12 +3331,41 @@ int main(int argc, char* argv[])
     // tolerance (nonlinearIterationExit, monodomainBase.H).
     label nResidualFloorExits = 0;
 
+    // The floor of the denominator of the Iion increment test
+    // (relativeL2Difference, monodomainBase.H): with nonlinearIionIncrementFloor
+    // on, the largest global L2 norm of Iion over the accepted steps so far;
+    // off, zero, which is the plain relative test. The net ionic current
+    // crosses zero on the plateau, where ||Iion|| of the instant is no scale at
+    // all. A running maximum is uniform across ranks and independent of dt to
+    // the accuracy of the solution, but it loosens the test everywhere past
+    // the peak of the upstroke, not only at the crossing.
+    scalar IionIncrementFloor =
+        nonlinearIionIncrementFloor
+      ? Foam::sqrt(gSumSqr(Iion.primitiveField()))
+      : 0.0;
+
+    // Rolled-back steps: in total, and in a row. A rolled-back step advances
+    // time with the solution frozen, so a run of them silently stops the
+    // dynamics - and the run still ends with exit 0.
+    label nRolledBackSteps = 0;
+    label nConsecutiveRollbacks = 0;
+
+    // Modified for cardiacFoam: the time of step n is loopStartTime + n*dt,
+    // set after every nominal step, not the running sum of dt. The sum drifts:
+    // at dt = 1.25e-5 it reached the end time short by 2e-9*dt, which clipped
+    // the last step to a non-nominal length and handed it to ESDIRK3; and a
+    // window edge of the stimulus fell a sliver off a step boundary (see
+    // applyStimulus).
+    const scalar loopStartTime = runTime.value();
+
     while (runTime.value() < effectiveEndTime - endTimeTolerance)
     {
         const scalar t0 = runTime.value();
         const scalar remaining = effectiveEndTime - t0;
 
-        dt = min(runTime.deltaTValue(), remaining);
+        // A remainder within the clippedStep tolerance of the nominal step is
+        // the nominal step.
+        dt = remaining < (1.0 - 1.0e-9)*nominalDt ? remaining : nominalDt;
         runTime.setDeltaT(dt);
 
         // ----------------------------------------------------------------- //
@@ -4560,7 +4600,10 @@ int main(int argc, char* argv[])
                     const scalar VmResidual =
                         relativeL2Difference(VmGuess.primitiveField(), VmPrevious);
                     const scalar IionResidual =
-                        relativeL2Difference(IionGuess.primitiveField(), IionPrevious);
+                        relativeL2Difference
+                        (
+                            IionGuess.primitiveField(), IionPrevious, IionIncrementFloor
+                        );
                     const scalar maxStateResidual = maxStateRelativeL2Difference
                     (
                         statesGuess,
@@ -4954,7 +4997,10 @@ int main(int argc, char* argv[])
                 const scalar VmResidual =
                     relativeL2Difference(VmGuess.primitiveField(), VmPrevious);
                 const scalar IionResidual =
-                    relativeL2Difference(IionGuess.primitiveField(), IionPrevious);
+                    relativeL2Difference
+                    (
+                        IionGuess.primitiveField(), IionPrevious, IionIncrementFloor
+                    );
                 const scalar maxStateResidual = maxStateRelativeL2Difference
                 (
                     statesGuess,
@@ -5108,7 +5154,10 @@ int main(int argc, char* argv[])
                 const scalar VmResidual =
                     relativeL2Difference(VmGuess.primitiveField(), VmPrevious);
                 const scalar IionResidual =
-                    relativeL2Difference(IionGuess.primitiveField(), IionPrevious);
+                    relativeL2Difference
+                    (
+                        IionGuess.primitiveField(), IionPrevious, IionIncrementFloor
+                    );
                 const scalar maxStateResidual = maxStateRelativeL2Difference
                 (
                     statesGuess,
@@ -5198,6 +5247,22 @@ int main(int argc, char* argv[])
             {
                 tnnpModel->resetStatesToStatesOld(statesGuess);
             }
+
+            // The next step starts from the same state, and away from a
+            // stimulus edge the cell model is autonomous: it is the same
+            // nonlinear problem and fails the same way. Stop instead of
+            // carrying a frozen solution to the end time.
+            ++nRolledBackSteps;
+            if (++nConsecutiveRollbacks > nonlinearMaxConsecutiveRollbacks)
+            {
+                FatalErrorInFunction
+                    << nConsecutiveRollbacks << " consecutive time steps"
+                    << " rolled back (nonlinearMaxConsecutiveRollbacks = "
+                    << nonlinearMaxConsecutiveRollbacks << "), the last at t = "
+                    << t0 << ". The solution has been frozen since the first"
+                    << " of them; tighten dt or loosen the nonlinear"
+                    << " tolerances." << exit(FatalError);
+            }
         }
         else if (!nonlinearConverged && nonlinearAcceptUnconverged)
         {
@@ -5208,6 +5273,11 @@ int main(int argc, char* argv[])
                 << " (nonlinearAcceptUnconverged=true)." << endl;
         }
 
+        if (nonlinearConverged || nonlinearAcceptUnconverged)
+        {
+            nConsecutiveRollbacks = 0;
+        }
+
         // Commit the (possibly rolled-back) iterate into the persistent
         // fields used by subsequent time steps and post-processing.
         Vm.primitiveFieldRef() = VmGuess.primitiveField();
@@ -5215,6 +5285,15 @@ int main(int argc, char* argv[])
         Iion.primitiveFieldRef() = IionGuess.primitiveField();
         Iion.correctBoundaryConditions();
         states = statesGuess;
+
+        if (nonlinearIionIncrementFloor)
+        {
+            IionIncrementFloor = max
+            (
+                IionIncrementFloor,
+                Foam::sqrt(gSumSqr(Iion.primitiveField()))
+            );
+        }
 
         // The hybrid's cell-centred states move on with the step, unless it
         // was rolled back.
@@ -5403,6 +5482,14 @@ int main(int argc, char* argv[])
         ++nSteps;
         ++runTime;
 
+        // Only the last step can be clipped (or the one that reaches the stop
+        // point), so up to it every step is nominal and n*dt is exact.
+        runTime.setTime
+        (
+            clippedStep ? t0 + dt : loopStartTime + nSteps*nominalDt,
+            runTime.timeIndex()
+        );
+
         if (nSteps <= 5 || nSteps % stepLogInterval == 0)
         {
             Info<< "Step " << nSteps
@@ -5547,6 +5634,8 @@ int main(int argc, char* argv[])
 
     Info<< "Nonlinear iterations stopped at the residual floor: "
         << nResidualFloorExits << nl;
+
+    Info<< "Rolled-back time steps: " << nRolledBackSteps << nl;
 
     Info<< "End" << nl << endl;
 
