@@ -784,6 +784,16 @@ const Switch nonlinearAcceptUnconverged
     implicitHOCoeffs.lookupOrDefault<Switch>("nonlinearAcceptUnconverged", false)
 );
 
+// Added for cardiacFoam, ported from the physiological solver: print the block
+// of every nonlinear iteration (method, linear iterations, every residual),
+// which is most of the log at fine dt. nonlinearResiduals.dat
+// (writeNonlinearResiduals) is independent of it. True by default, the old
+// behaviour.
+const Switch logNonlinearIterations
+(
+    implicitHOCoeffs.lookupOrDefault<Switch>("logNonlinearIterations", true)
+);
+
 // Added for cardiacFoam, ported from the physiological solver: stop with a
 // FatalError once more than this many time steps IN A ROW have been rolled
 // back. A rolled-back step advances time with the solution frozen. There a 0-D

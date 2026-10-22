@@ -3755,23 +3755,26 @@ int main(int argc, char* argv[])
             const label lineSearchIters = -1
         )
         {
-            Info<< "Time = " << t << "," << nl
-                << "       Nonlinear method:          " << nonlinearMethod << nl
-                << "       Implicit FDA solver:       " << implicitLinearSolver
-                << "; iterations = " << linearIterations
-                << ", estimated error = " << linearError << nl
-                << "       NonLinSolver:              iter = " << corr
-                << ", Vm residual = " << VmResidual
-                << ", u1 residual = " << u1Residual
-                << ", u2 residual = " << u2Residual
-                << ", u3 residual = " << u3Residual
-                << ", Iion residual = " << IionResidual
-                << ", coupled residual = " << newtonResidual;
-            if (lineSearchIters >= 0)
+            if (logNonlinearIterations)
             {
-                Info<< ", lineSearchIters = " << lineSearchIters;
+                Info<< "Time = " << t << "," << nl
+                    << "       Nonlinear method:          " << nonlinearMethod << nl
+                    << "       Implicit FDA solver:       " << implicitLinearSolver
+                    << "; iterations = " << linearIterations
+                    << ", estimated error = " << linearError << nl
+                    << "       NonLinSolver:              iter = " << corr
+                    << ", Vm residual = " << VmResidual
+                    << ", u1 residual = " << u1Residual
+                    << ", u2 residual = " << u2Residual
+                    << ", u3 residual = " << u3Residual
+                    << ", Iion residual = " << IionResidual
+                    << ", coupled residual = " << newtonResidual;
+                if (lineSearchIters >= 0)
+                {
+                    Info<< ", lineSearchIters = " << lineSearchIters;
+                }
+                Info<< ", converged = " << converged << nl;
             }
-            Info<< ", converged = " << converged << nl;
 
             if (writeNonlinearResiduals && nonlinearResidualFilePtr.valid())
             {

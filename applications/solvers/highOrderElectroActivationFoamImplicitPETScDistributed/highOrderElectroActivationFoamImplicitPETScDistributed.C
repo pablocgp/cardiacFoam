@@ -774,6 +774,35 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         word protectionLogName_;
         label protectionCorrections_;
 
+        // Added for cardiacFoam: WHAT the protection corrects, by state and by
+        // reason, with the first occurrence of each pair. The total alone
+        // (capped at maxProtectionLogEntries_) said "1000000" and nothing else.
+        // With TNNPProtectionDiagnostics on and the protection OFF, the same
+        // tests run and are recorded but no state is touched: it shows what
+        // leaves the physical range in an unprotected run, before it ends in a
+        // SIGFPE. The first occurrence of each pair is printed at once, because
+        // a SIGFPE never reaches the destructor that writes the summary.
+        enum ProtectionReason
+        {
+            prNonFinite, prVmRange, prVmZero, prConcentration, prGate,
+            nProtectionReasons
+        };
+        Switch protectionDiagnostics_;
+        List<label> protectionCount_;
+        List<scalar> protectionFirstTimeMs_;
+        List<label> protectionFirstPoint_;
+        List<scalar> protectionFirstValue_;
+        List<scalar> protectionMinValue_;
+        List<scalar> protectionMaxValue_;
+        List<word> protectionFirstPhase_;
+
+        static const char* protectionReasonName(const label r)
+        {
+            static const char* names[] =
+                {"nonFinite", "VmRange", "VmZero", "concentrationFloor", "gateRange"};
+            return names[r];
+        }
+
         // Added for cardiacFoam: OpenMP over the ionic ODEs. Every point is an
         // independent initial-value problem sharing no state, so the loop is
         // embarrassingly parallel - this is the same treatment the MMS solver
@@ -833,15 +862,48 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         // so this is "critical" rather than "atomic" - an atomic increment would
         // still race with the test. It only executes when a correction actually
         // fires, which is rare, so it does not serialise the loop.
-        void recordCorrection()
+        void recordCorrection
+        (
+            const label stateI,
+            const label reason,
+            const scalar tMs,
+            const label pointI,
+            const char* phase,
+            const scalar value,
+            const scalar VmMilliVolt
+        )
         {
             #ifdef _OPENMP
             #pragma omp critical(cardiacFoamProtectionCount)
             #endif
             {
-                if (protectionCorrections_ < maxProtectionLogEntries_)
+                if (protectionCorrections_ < labelMax)
                 {
                     ++protectionCorrections_;
+                }
+                const label k = stateI*nProtectionReasons + reason;
+                if (protectionCount_[k] == 0)
+                {
+                    protectionFirstTimeMs_[k] = tMs;
+                    protectionFirstPoint_[k] = pointI;
+                    protectionFirstValue_[k] = value;
+                    protectionFirstPhase_[k] = phase;
+                    Pout<< "TNNP protection "
+                        << (numericalProtection_ ? "[corrected]" : "[diagnostic only]")
+                        << ": first " << protectionReasonName(reason)
+                        << " of " << TNNP_STATES_NAMES[stateI]
+                        << " at t = " << tMs << " ms, point " << pointI
+                        << ", phase " << phase << ", value " << value
+                        << " (Vm = " << VmMilliVolt << " mV)" << endl;
+                }
+                if (protectionCount_[k] < labelMax)
+                {
+                    ++protectionCount_[k];
+                }
+                if (std::isfinite(value))
+                {
+                    protectionMinValue_[k] = min(protectionMinValue_[k], value);
+                    protectionMaxValue_[k] = max(protectionMaxValue_[k], value);
                 }
             }
         }
@@ -849,41 +911,51 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
         void protectState
         (
             scalarField& state,
-            const scalar,
-            const label,
-            const char*
+            const scalar tMs,
+            const label pointI,
+            const char* phase
         )
         {
-            if (!numericalProtection_) return;
+            if (!numericalProtection_ && !protectionDiagnostics_) return;
 
-            auto correct = [&](const label i, const scalar value)
+            // With the protection off (diagnostics only) the test is recorded
+            // and the state is left alone, so the checks below see the raw
+            // values.
+            auto correct = [&](const label i, const scalar value, const label reason)
             {
                 if (state[i] != value)
                 {
-                    state[i] = value;
-                    recordCorrection();
+                    recordCorrection(i, reason, tMs, pointI, phase, state[i], state[V]);
+                    if (numericalProtection_)
+                    {
+                        state[i] = value;
+                    }
                 }
             };
 
             if (!std::isfinite(state[V]))
             {
-                correct(V, -86.2);
+                correct(V, -86.2, prNonFinite);
             }
             if (clampVmForRates_)
             {
-                correct(V, min(max(state[V], vmMinForRates_), vmMaxForRates_));
+                correct(V, min(max(state[V], vmMinForRates_), vmMaxForRates_), prVmRange);
             }
             if (mag(state[V]) < vmZeroEps_)
             {
-                correct(V, state[V] < 0.0 ? -vmZeroEps_ : vmZeroEps_);
+                correct(V, state[V] < 0.0 ? -vmZeroEps_ : vmZeroEps_, prVmZero);
             }
 
             const label concentrationIDs[] = {K_i, Na_i, Ca_i, Ca_SR};
             for (const label id : concentrationIDs)
             {
-                if (!std::isfinite(state[id]) || state[id] < concentrationFloor_)
+                if (!std::isfinite(state[id]))
                 {
-                    correct(id, concentrationFloor_);
+                    correct(id, concentrationFloor_, prNonFinite);
+                }
+                else if (state[id] < concentrationFloor_)
+                {
+                    correct(id, concentrationFloor_, prConcentration);
                 }
             }
 
@@ -894,11 +966,14 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                 {
                     if (!std::isfinite(state[id]))
                     {
-                        correct(id, 0.0);
+                        correct(id, 0.0, prNonFinite);
                     }
                     else
                     {
-                        correct(id, min(max(state[id], scalar(0.0)), scalar(1.0)));
+                        correct
+                        (
+                            id, min(max(state[id], scalar(0.0)), scalar(1.0)), prGate
+                        );
                     }
                 }
             }
@@ -962,6 +1037,11 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                 if (nodes)
                 {
                     yCopy[V] = drivenVmMilliVolt(*nodes, tMs, t0Ms, dtMs);
+                }
+                if (protectionDiagnostics_)
+                {
+                    // Records only: the protection is off, nothing is changed.
+                    protectState(yCopy, tMs, pointI, phase);
                 }
                 TNNPcomputeRates
                 (
@@ -1067,16 +1147,47 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             scalarField k4(NUM_STATES, 0.0), k5(NUM_STATES, 0.0), k6(NUM_STATES, 0.0);
             scalarField yt(NUM_STATES, 0.0), yFourth(NUM_STATES, 0.0);
 
+            // Added for cardiacFoam: an intermediate stage, or the result, that
+            // leaves the domain where the rates are defined is a REJECTED trial
+            // (err = GREAT, so the caller shrinks h), not a state to evaluate.
+            // The rates take the log of K_i, Na_i and Ca_i (the Nernst
+            // potentials): a non-positive one is FE_INVALID, which OpenFOAM
+            // traps as a SIGFPE BEFORE the error estimate could reject the
+            // trial. Found on a GP run, 2-D hexa 0.5 mm, without the numerical
+            // protection: stage k5 at one Gauss point gave Na_i = -401.6 mM
+            // with Vm = -102.7 mV at t = 12.31 ms, and the run died there at
+            // dt = 1e-4 and at dt = 5e-5 alike. No state is modified: this is
+            // the step-size control doing its job, which the protection used to
+            // hide by clamping the trial state instead.
+            auto inDomain = [](const scalarField& s)
+            {
+                forAll(s, i)
+                {
+                    if (!std::isfinite(s[i])) return false;
+                }
+                return s[K_i] > 0.0 && s[Na_i] > 0.0 && s[Ca_i] > 0.0;
+            };
+            auto reject = [&]()
+            {
+                yFifth = y;
+                err = GREAT;
+            };
+
             computeRates(tMs, y, k1, algebraic, pointI, "RKF45_k1", nodes, t0Ms, dtMs);
             forAll(y, i) yt[i] = y[i] + hMs*(1.0/5.0)*k1[i];
+            if (!inDomain(yt)) return reject();
             computeRates(tMs + hMs/5.0, yt, k2, algebraic, pointI, "RKF45_k2", nodes, t0Ms, dtMs);
             forAll(y, i) yt[i] = y[i] + hMs*((3.0/40.0)*k1[i] + (9.0/40.0)*k2[i]);
+            if (!inDomain(yt)) return reject();
             computeRates(tMs + 3.0*hMs/10.0, yt, k3, algebraic, pointI, "RKF45_k3", nodes, t0Ms, dtMs);
             forAll(y, i) yt[i] = y[i] + hMs*((3.0/10.0)*k1[i] - (9.0/10.0)*k2[i] + (6.0/5.0)*k3[i]);
+            if (!inDomain(yt)) return reject();
             computeRates(tMs + 3.0*hMs/5.0, yt, k4, algebraic, pointI, "RKF45_k4", nodes, t0Ms, dtMs);
             forAll(y, i) yt[i] = y[i] + hMs*((-11.0/54.0)*k1[i] + (5.0/2.0)*k2[i] - (70.0/27.0)*k3[i] + (35.0/27.0)*k4[i]);
+            if (!inDomain(yt)) return reject();
             computeRates(tMs + hMs, yt, k5, algebraic, pointI, "RKF45_k5", nodes, t0Ms, dtMs);
             forAll(y, i) yt[i] = y[i] + hMs*((1631.0/55296.0)*k1[i] + (175.0/512.0)*k2[i] + (575.0/13824.0)*k3[i] + (44275.0/110592.0)*k4[i] + (253.0/4096.0)*k5[i]);
+            if (!inDomain(yt)) return reject();
             computeRates(tMs + 7.0*hMs/8.0, yt, k6, algebraic, pointI, "RKF45_k6", nodes, t0Ms, dtMs);
 
             err = 0.0;
@@ -1087,6 +1198,7 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
                 const scalar scale = odeAbsTol_ + odeRelTol_*max(mag(yFifth[i]), mag(yFourth[i]));
                 err = max(err, mag(yFifth[i] - yFourth[i])/max(scale, SMALL));
             }
+            if (!inDomain(yFifth)) return reject();
             rates = k6;
         }
 
@@ -1298,6 +1410,17 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
             maxProtectionLogEntries_(dict.lookupOrDefault<label>("TNNPMaxProtectionLogEntries", 1000000)),
             protectionLogName_(dict.lookupOrDefault<word>("TNNPProtectionLog", "TNNP_numericalProtection_summary.dat")),
             protectionCorrections_(0),
+            protectionDiagnostics_
+            (
+                dict.lookupOrDefault<Switch>("TNNPProtectionDiagnostics", false)
+            ),
+            protectionCount_(NUM_STATES*nProtectionReasons, label(0)),
+            protectionFirstTimeMs_(NUM_STATES*nProtectionReasons, scalar(0)),
+            protectionFirstPoint_(NUM_STATES*nProtectionReasons, label(-1)),
+            protectionFirstValue_(NUM_STATES*nProtectionReasons, scalar(0)),
+            protectionMinValue_(NUM_STATES*nProtectionReasons, GREAT),
+            protectionMaxValue_(NUM_STATES*nProtectionReasons, -GREAT),
+            protectionFirstPhase_(NUM_STATES*nProtectionReasons),
             // Added for cardiacFoam. The key name matches the one the solver
             // report documents and the one the tutorial driver already writes
             // into this dictionary - which until now nothing read.
@@ -1335,7 +1458,7 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
 
         ~EmbeddedTNNPModel()
         {
-            if (numericalProtection_ && logNumericalProtection_)
+            if ((numericalProtection_ && logNumericalProtection_) || protectionDiagnostics_)
             {
                 // Modified for cardiacFoam: protectionLogName_ is a bare
                 // file name, and mpirun starts every rank in the case
@@ -1353,7 +1476,24 @@ ALGEBRAIC[Istim] = computeIstim(VOI, CONSTANTS);
 
                 OFstream os(protectionLogPath);
                 os  << "# Embedded TNNP numerical protection summary" << nl
-                    << "corrections " << protectionCorrections_ << nl;
+                    << "corrections " << protectionCorrections_ << nl
+                    << "# mode "
+                    << (numericalProtection_ ? "corrected" : "diagnostic only") << nl
+                    << "# state reason count first_time_ms first_point"
+                    << " first_phase first_value min_value max_value" << nl;
+                forAll(protectionCount_, k)
+                {
+                    if (protectionCount_[k] == 0) continue;
+                    os  << TNNP_STATES_NAMES[k/nProtectionReasons] << ' '
+                        << protectionReasonName(k % nProtectionReasons) << ' '
+                        << protectionCount_[k] << ' '
+                        << protectionFirstTimeMs_[k] << ' '
+                        << protectionFirstPoint_[k] << ' '
+                        << protectionFirstPhase_[k] << ' '
+                        << protectionFirstValue_[k] << ' '
+                        << protectionMinValue_[k] << ' '
+                        << protectionMaxValue_[k] << nl;
+                }
             }
         }
 
@@ -4358,28 +4498,31 @@ int main(int argc, char* argv[])
             const label lineSearchIters = -1  // -1 = N/A (Picard / early exit)
         )
         {
-            Info<< "Time = " << t0 << "," << nl
-                << "       Nonlinear method:          " << nonlinearMethod << nl
-                << "       Implicit electro solver:   " << implicitLinearSolver
-                << "; iterations = " << linearIterations
-                << ", estimated error = " << linearError << nl
-                << "       NonLinSolver:              iter = " << corr
-                << ", Vm residual = " << VmResidual
-                << ", Iion residual = " << IionResidual
-                << ", max state residual = " << maxStateResidual
-                << ", coupled residual = " << coupledResidual;
-            if (lineSearchIters >= 0)
+            if (logNonlinearIterations)
             {
-                Info<< ", lineSearchIters = " << lineSearchIters;
-            }
-            Info<< ", converged = " << converged << nl
-                << "       State residuals:";
+                Info<< "Time = " << t0 << "," << nl
+                    << "       Nonlinear method:          " << nonlinearMethod << nl
+                    << "       Implicit electro solver:   " << implicitLinearSolver
+                    << "; iterations = " << linearIterations
+                    << ", estimated error = " << linearError << nl
+                    << "       NonLinSolver:              iter = " << corr
+                    << ", Vm residual = " << VmResidual
+                    << ", Iion residual = " << IionResidual
+                    << ", max state residual = " << maxStateResidual
+                    << ", coupled residual = " << coupledResidual;
+                if (lineSearchIters >= 0)
+                {
+                    Info<< ", lineSearchIters = " << lineSearchIters;
+                }
+                Info<< ", converged = " << converged << nl
+                    << "       State residuals:";
 
-            forAll(stateResidualValues, stateI)
-            {
-                Info<< " s" << stateI << '=' << stateResidualValues[stateI];
+                forAll(stateResidualValues, stateI)
+                {
+                    Info<< " s" << stateI << '=' << stateResidualValues[stateI];
+                }
+                Info<< nl;
             }
-            Info<< nl;
 
             if (writeNonlinearResiduals && nonlinearResidualFilePtr.valid())
             {

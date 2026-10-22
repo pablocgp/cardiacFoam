@@ -1154,6 +1154,22 @@ const Switch writeNonlinearResiduals
   : Switch(true)
 );
 
+// Added for cardiacFoam: print the five-line block of every nonlinear
+// iteration (method, linear iterations, every residual). It is most of the log:
+// a 0-D TNNP at dt = 3.125e-6 wrote 1.3 GB, 90 % of it this block.
+// nonlinearResiduals.dat (writeNonlinearResiduals) is independent of it. True
+// by default, which is the old behaviour.
+const Switch logNonlinearIterations
+(
+    spatialIntegrationProperties.found("implicitHOCoeffs")
+  ? spatialIntegrationProperties.subDict("implicitHOCoeffs").lookupOrDefault<Switch>
+    (
+        "logNonlinearIterations",
+        true
+    )
+  : Switch(true)
+);
+
 // Print the setup/loop/post timing breakdown and the memory checkpoints.
 const Switch profileTimings
 (
