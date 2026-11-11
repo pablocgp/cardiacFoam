@@ -155,6 +155,85 @@
         return alpha*area*normalDiffusivity(D, n)/dn;
     }
 
+    // Added for cardiacFoam: the stabilisation weight can differ in the layer
+    // of cells next to the physical boundary (stabilisationAlphaWall). On
+    // anisotropic tetrahedral meshes the p3 operator has unstable modes
+    // localised in that layer, where the reconstruction is one-sided; the
+    // interior keeps stabilisationAlpha.
+    //
+    // A face takes the wall weight when either of its cells has a face on a
+    // physical patch (not empty, not coupled). Across a processor face the far
+    // cell's flag is exchanged, so both ranks pick the same weight and the
+    // operator does not depend on the partition.
+    //
+    // Inert when the two weights are equal: nothing is exchanged and every
+    // face gets stabilisationAlpha, bit-identical to the old code.
+    // COLLECTIVE when they differ; the condition comes from a dictionary, so
+    // every rank takes the same branch.
+    struct stabilisationWeights
+    {
+        const scalar alpha;
+        const scalar alphaWall;
+        const bool split;
+        boolList wallCell;
+        boolList nbrWallCell;
+
+        stabilisationWeights
+        (
+            const fvMesh& mesh,
+            const scalar alphaInterior,
+            const scalar alphaNearWall
+        )
+        :
+            alpha(alphaInterior),
+            alphaWall(alphaNearWall),
+            split(alphaNearWall != alphaInterior)
+        {
+            if (!split)
+            {
+                return;
+            }
+
+            wallCell.setSize(mesh.nCells(), false);
+            forAll(mesh.boundary(), patchI)
+            {
+                const fvPatch& patch = mesh.boundary()[patchI];
+                if (patch.coupled() || patch.type() == "empty")
+                {
+                    continue;
+                }
+                for (const label cellI : patch.faceCells())
+                {
+                    wallCell[cellI] = true;
+                }
+            }
+
+            if (Pstream::parRun())
+            {
+                syncTools::swapBoundaryCellList(mesh, wallCell, nbrWallCell);
+            }
+        }
+
+        // Largest weight anywhere: gates the stabilisation blocks.
+        scalar maxAlpha() const
+        {
+            return max(alpha, alphaWall);
+        }
+
+        scalar internalFace(const label own, const label nei) const
+        {
+            return split && (wallCell[own] || wallCell[nei]) ? alphaWall : alpha;
+        }
+
+        // bFaceI = faceI - mesh.nInternalFaces(), as in nbrConductivity.
+        scalar coupledFace(const label own, const label bFaceI) const
+        {
+            return split && (wallCell[own] || nbrWallCell[bFaceI])
+                ? alphaWall
+                : alpha;
+        }
+    };
+
     // Added for cardiacFoam, ported from the MMS solver: the part of the
     // diffusive flux that a two-point flux cannot see.
     //
@@ -970,10 +1049,19 @@
         const fvMesh& mesh,
         const volTensorField& conductivity,
         const highOrderInterp& LREInterp,
-        const scalar stabilisationAlpha,
+        const scalar stabilisationAlphaInterior,
+        const scalar stabilisationAlphaWall,
         SpMat& K
     )
     {
+        // Modified for cardiacFoam: per-face weight, see stabilisationWeights.
+        // COLLECTIVE: built before any rank-dependent branch.
+        const stabilisationWeights stabW
+        (
+            mesh, stabilisationAlphaInterior, stabilisationAlphaWall
+        );
+        const scalar stabilisationAlpha = stabW.maxAlpha();
+
         const vectorField& C = mesh.C();
         const scalarField& V = mesh.V();
         const labelUList& owner = mesh.owner();
@@ -1039,12 +1127,19 @@
                 const scalar a =
                     stabilisationFaceCoeff
                     (
-                        stabilisationAlpha,
+                        stabW.internalFace(own, nei),
                         area,
                         Df,
                         n,
                         dPN
                     );
+
+                // Added for cardiacFoam: a face whose weight is zero (only
+                // possible when the two weights differ) adds nothing.
+                if (a == 0)
+                {
+                    continue;
+                }
 
                 addRhieChowInternalJumpCoeffs
                 (
@@ -1343,7 +1438,7 @@
                         const scalar aStab =
                             stabilisationFaceCoeff
                             (
-                                stabilisationAlpha,
+                                stabW.coupledFace(own, bFaceI),
                                 area,
                                 Df,
                                 n,
@@ -1402,12 +1497,22 @@
         const fvMesh& mesh,
         const volTensorField& conductivity,
         const highOrderInterp& LREInterp,
-        const scalar stabilisationAlpha,
+        const scalar stabilisationAlphaInterior,
+        const scalar stabilisationAlphaWall,
         const label tripletsPerFaceReserve,
         const label faceChunk,
         SpMat& K
     )
     {
+        // Modified for cardiacFoam: per-face weight, see stabilisationWeights.
+        // COLLECTIVE, and outside the chunk loop for the same reason as the
+        // exchanges below.
+        const stabilisationWeights stabW
+        (
+            mesh, stabilisationAlphaInterior, stabilisationAlphaWall
+        );
+        const scalar stabilisationAlpha = stabW.maxAlpha();
+
         const bool twoD = mesh.nGeometricD() == 2;
         const vectorField& C = mesh.C();
         const surfaceVectorField& Cf = mesh.Cf();
@@ -1545,12 +1650,19 @@
                     const scalar a =
                         stabilisationFaceCoeff
                         (
-                            stabilisationAlpha,
+                            stabW.internalFace(own, nei),
                             area,
                             Df,
                             n,
                             dPN
                         );
+
+                    // Added for cardiacFoam: see the low-order assembly.
+                    if (a == 0)
+                    {
+                        continue;
+                    }
+
                     const point xf = Cf[faceI];
 
                     addCellTaylorExtrapolationCoeffs
@@ -1798,7 +1910,7 @@
                     const scalar a =
                         stabilisationFaceCoeff
                         (
-                            stabilisationAlpha,
+                            stabW.coupledFace(own, bFaceI),
                             area,
                             Df,
                             n,

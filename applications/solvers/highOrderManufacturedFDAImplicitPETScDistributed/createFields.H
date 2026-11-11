@@ -1281,6 +1281,22 @@ const scalar stabilisationAlpha
     )
 );
 
+// Added for cardiacFoam: stabilisation weight on the faces of the cells that
+// touch a physical boundary. Defaults to stabilisationAlpha, which leaves the
+// operator bit-identical. On anisotropic tetrahedral meshes the p3 operator
+// can have unstable modes localised in that layer of cells.
+const scalar stabilisationAlphaWall
+(
+    max
+    (
+        highOrderCoeffs.lookupOrDefault<scalar>
+        (
+            "stabilisationAlphaWall", stabilisationAlpha
+        ),
+        scalar(0.0)
+    )
+);
+
 // There is deliberately NO key for the non-orthogonal correction of the
 // low-order operator. It is always on.
 //

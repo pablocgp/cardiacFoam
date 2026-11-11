@@ -2942,7 +2942,7 @@ int main(int argc, char* argv[])
     const label stiffnessTripletsPerFaceReserve =
             useAdaptiveTripletReserve
         ? (
-                stabilisationAlpha > SMALL
+                max(stabilisationAlpha, stabilisationAlphaWall) > SMALL
               ? memoryOptimizationStabilisedTripletsPerFace
               : memoryOptimizationFluxTripletsPerFace
           )
@@ -2980,6 +2980,7 @@ int main(int argc, char* argv[])
         << (frontAwareHybrid ? ")" : "") << nl
         << "stateReconstructLimiter = " << stateReconstructLimiter << nl
         << "stabilisationAlpha = " << stabilisationAlpha << nl
+        << "stabilisationAlphaWall = " << stabilisationAlphaWall << nl
         << "memoryOptimization = " << memoryOptimization
         << " (effective: "
         << (memoryOptimizationEffective ? "true" : "false") << ")" << nl
@@ -3130,6 +3131,7 @@ int main(int argc, char* argv[])
             conductivity,
             LREInterp_VmPtr(),
             stabilisationAlpha,
+            stabilisationAlphaWall,
             stiffnessTripletsPerFaceReserve,
             assemblyFaceChunk,
             K
@@ -3143,6 +3145,7 @@ int main(int argc, char* argv[])
             conductivity,
             LREInterp_VmPtr(),
             stabilisationAlpha,
+            stabilisationAlphaWall,
             K
         );
     }

@@ -2221,7 +2221,7 @@ int main(int argc, char* argv[])
     const label stiffnessTripletsPerFaceReserve =
             useAdaptiveTripletReserve
         ? (
-                stabilisationAlpha > SMALL
+                max(stabilisationAlpha, stabilisationAlphaWall) > SMALL
               ? memoryOptimizationStabilisedTripletsPerFace
               : memoryOptimizationFluxTripletsPerFace
           )
@@ -2272,6 +2272,7 @@ int main(int argc, char* argv[])
         << "useHighOrder_Iion = " << useHighOrder_Iion << nl
         << "stateIntegrationMode = " << stateIntegrationMode << nl
         << "stabilisationAlpha = " << stabilisationAlpha << nl
+        << "stabilisationAlphaWall = " << stabilisationAlphaWall << nl
         << "memoryOptimization = " << memoryOptimization
         << " (effective: "
         << (memoryOptimizationEffective ? "true" : "false") << ")" << nl
@@ -2474,6 +2475,7 @@ int main(int argc, char* argv[])
             conductivity,
             LREInterp_Vm,
             stabilisationAlpha,
+            stabilisationAlphaWall,
             stiffnessTripletsPerFaceReserve,
             assemblyFaceChunk,
             K
@@ -2487,6 +2489,7 @@ int main(int argc, char* argv[])
             conductivity,
             LREInterp_Vm,
             stabilisationAlpha,
+            stabilisationAlphaWall,
             K
         );
     }

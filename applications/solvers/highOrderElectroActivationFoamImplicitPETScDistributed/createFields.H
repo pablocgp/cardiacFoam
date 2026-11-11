@@ -1562,6 +1562,25 @@ const scalar stabilisationAlpha
   : scalar(0.0)
 );
 
+// Added for cardiacFoam: stabilisation weight on the faces of the cells that
+// touch a physical boundary. Defaults to stabilisationAlpha, which leaves the
+// operator bit-identical. On anisotropic tetrahedral meshes the p3 operator
+// can have unstable modes localised in that layer of cells.
+const scalar stabilisationAlphaWall
+(
+    spatialIntegrationProperties.found("highOrderCoeffs")
+  ? max
+    (
+        spatialIntegrationProperties.subDict("highOrderCoeffs").lookupOrDefault<scalar>
+        (
+            "stabilisationAlphaWall",
+            stabilisationAlpha
+        ),
+        scalar(0.0)
+    )
+  : stabilisationAlpha
+);
+
 // Reconstruction used by the Vm diffusion operator, the consistent mass
 // matrix, the face-jump stabilisation and the non-orthogonal correction of the
 // low-order operator. Its construction is the memory and time peak of the
